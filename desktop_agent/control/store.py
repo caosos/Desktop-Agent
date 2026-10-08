@@ -44,7 +44,13 @@ CREATE TABLE IF NOT EXISTS costs (
 CREATE TABLE IF NOT EXISTS idempotency (
   key TEXT PRIMARY KEY, ts REAL, response_json TEXT
 );
+CREATE TABLE IF NOT EXISTS plans (
+  goal_id TEXT PRIMARY KEY, status TEXT, plan_json TEXT, answers_json TEXT, updated_at REAL
+);
 """
+_MIGRATIONS = [
+    "ALTER TABLE decisions ADD COLUMN goal_id TEXT",
+]
 
 
 class Store:
@@ -55,6 +61,12 @@ class Store:
         self._db = sqlite3.connect(self.data_dir / "control.sqlite", check_same_thread=False)
         self._db.row_factory = sqlite3.Row
         self._db.executescript(_SCHEMA)
+        for stmt in _MIGRATIONS:
+            try:
+                self._db.execute(stmt)
+            except sqlite3.OperationalError:
+                pass                     # column already present
+        self._db.commit()
         self._lock = threading.RLock()
         self._listeners: list[Callable[[Event], None]] = []
 
@@ -202,12 +214,41 @@ class Store:
         recs = self.receipts(subject_type, subject_id)
         return recs[-1]["receipt_id"] if recs else None
 
-    # ---- decisions --------------------------------------------------------
-    def save_decision(self, decision_id: str, task_id: str | None, question: str, options: list[str]) -> None:
+    # ---- plans ------------------------------------------------------------
+    def save_plan(self, goal_id: str, status: str, plan: dict | None, answers: list[dict] | None = None) -> None:
         with self._lock:
             self._db.execute(
-                "INSERT OR REPLACE INTO decisions VALUES (?,?,?,?,?,?,?)",
-                (decision_id, task_id, question, json.dumps(options), None, time.time(), None),
+                "INSERT INTO plans(goal_id, status, plan_json, answers_json, updated_at) VALUES (?,?,?,?,?)"
+                " ON CONFLICT(goal_id) DO UPDATE SET status=excluded.status, plan_json=COALESCE(excluded.plan_json, plans.plan_json),"
+                " answers_json=COALESCE(excluded.answers_json, plans.answers_json), updated_at=excluded.updated_at",
+                (goal_id, status, json.dumps(plan) if plan is not None else None,
+                 json.dumps(answers) if answers is not None else None, time.time()),
+            )
+            self._db.commit()
+
+    def get_plan(self, goal_id: str) -> dict | None:
+        with self._lock:
+            row = self._db.execute("SELECT * FROM plans WHERE goal_id=?", (goal_id,)).fetchone()
+        if not row:
+            return None
+        d = dict(row)
+        d["plan"] = json.loads(d.pop("plan_json") or "null")
+        d["answers"] = json.loads(d.pop("answers_json") or "[]")
+        return d
+
+    def get_goal(self, goal_id: str) -> dict | None:
+        with self._lock:
+            row = self._db.execute("SELECT * FROM goals WHERE goal_id=?", (goal_id,)).fetchone()
+        return dict(row) if row else None
+
+    # ---- decisions --------------------------------------------------------
+    def save_decision(self, decision_id: str, task_id: str | None, question: str, options: list[str],
+                      goal_id: str | None = None) -> None:
+        with self._lock:
+            self._db.execute(
+                "INSERT OR REPLACE INTO decisions(decision_id, task_id, question, options_json, answer, asked_at, answered_at, goal_id)"
+                " VALUES (?,?,?,?,?,?,?,?)",
+                (decision_id, task_id, question, json.dumps(options), None, time.time(), None, goal_id),
             )
             self._db.commit()
 

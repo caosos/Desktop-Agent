@@ -34,7 +34,7 @@ scope:
 
 # IMPLEMENTATION_PLAN §4. Stage 1 runs the admission formula with ceiling 1.
 scheduler:
-  ceiling: 1
+  ceiling: 2
   reserved_cores: 2
   cores_per_worker: 2
   host_reserve_mb: 4096
