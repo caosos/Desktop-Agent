@@ -232,7 +232,7 @@ packages (`.agentproject/`) live in each managed project's repo, never here.
 |---|---|
 | 1 Separate repo | **Answered**: `caosos/Desktop-Agent` |
 | 2 Run location during Pilot 1 week | Open. Plan assumes the EliteDesk with the memory-derived slot count; the widget runs in Michael's session either way |
-| 3 Payment path | **Answered**: API keys |
+| 3 Payment path | **Answered**: API keys. Stage 1 ran on the Claude subscription through `claude_headless` and shared Michael's session window (hit 2026-10-08 11:55 CDT); an API-key executor is the Stage 2 priority. No key is on the EliteDesk yet |
 | 4 Integration authority | Open. Stage 1 uses draft PR only |
 | 5 Owner-decision taxonomy | **Answered** by directive point 9 |
 | 6 PR #67 in CAOSCare | Open. This platform supersedes its runtime half; directive point 11 says do not disturb CAOSCare, so closing or keeping #67 is Michael's call there |
