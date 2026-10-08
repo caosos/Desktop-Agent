@@ -179,3 +179,14 @@ HANDOFF CAPSULE
 
 - Task `e562b8` (panel feedback numbers, Luna-class) was BLOCKED by the verifier for a bounds violation: the worker appended to `docs/PROJECT_STATE.md` because this repo's AGENTS.md told it to, but the planner's owned area was only `panel/index.html`. The verifier was right; the contract contradicted the project's rule.
 - **Fix:** `state_entry_by` in each project descriptor. `worker` (CAOSCare today): every owned area automatically includes the state file and the prompt tells the worker to append. `control` (Desktop-Agent from now on): workers must not touch the file; after verification the control plane appends one dated entry per task and commits it as itself (docs-only commit, `COMMIT_CREATED` with `state_entry: true` and the verified head recorded), then pushes. AGENTS.md updated. This is also the shape proposed to Michael for CAOSCare in the open inbox decision.
+
+
+## 2026-10-08 — task `edit-panel-index-html-so-the-cos-457d3e` verified (recorded by the control plane)
+
+- **Objective:** Edit panel/index.html so the Cost / usage card shows state.feedback.verified_tasks, verified_per_dollar, verified_per_hour, conflict_rate, retry_rate, known_usd and the count of unknown_cost_tasks. Show the effective ceiling (state.slots.ceiling), the owner ceiling (state.slots.owner_ceiling) and th
+- **Why now:** Michael asked for these numbers on the instrument panel; the control plane already returns them, so this is only a UI gap. | model: This is a small, well-bounded single-file frontend edit that reads e
+- **Model class:** cloud_cheap; attempt 1; adapter claude_headless
+- **Worker head:** `2232d54ed574eb7747a27b39b9e567088935681c` on `agent/edit-panel-index-html-so-the-cos-457d3e` from `29aa123b6de0`
+- **Verifier (clean checkout):** `/home/caoscare-1/Desktop-Agent/.venv/bin/python -m pytest -q` exit 0
+- **Files:** panel/index.html
+- **Receipts:** worker claim unverified → verifier verified; integration follows this entry.
