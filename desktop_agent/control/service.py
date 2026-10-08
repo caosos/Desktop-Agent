@@ -15,8 +15,10 @@ from .contracts import TaskContract, compile_contract
 from .events import Actor, Event, EventType as ET, Provenance, derive_stage
 from .integrator import Integrator
 from .launcher import Launcher
+from .llm import LLM
+from .planner import Planner
 from .project import load_projects
-from .receipts import VERIFIED, write_receipt
+from .receipts import FAILED, VERIFIED, write_receipt
 from .scheduler import Scheduler
 from .store import Store
 from .verifier import Verifier
@@ -68,6 +70,8 @@ class Service:
         self.integrator = Integrator(cfg, self.store)
         self.scheduler = Scheduler(cfg, self.store, self.launcher, self.verifier, self.integrator,
                                    self.projects, self._retry)
+        self.llm = LLM(cfg)
+        self.planner = Planner(self.llm, self.projects)
         self._subscribers: list[asyncio.Queue] = []
         self._loop: asyncio.AbstractEventLoop | None = None
         self.store.subscribe(self._fanout)
@@ -120,6 +124,73 @@ class Service:
                       evidence=[f"contract={contract.hash()}"], correlation_id=goal_id)
         return {"goal_id": goal_id, "task_ids": [contract.task_id]}
 
+    # ---- planned goals ----------------------------------------------------
+    async def plan_goal(self, *, text: str, source: str, project_hint: str | None = None,
+                        worker_adapter: str = "claude_headless") -> dict:
+        """Plain-language request → planner → contracts (or owner questions)."""
+        goal_id = f"g-{uuid.uuid4().hex[:8]}"
+        self.store.save_goal(goal_id, project_hint or "", text, source)
+        self.store.append_event(Event(type=ET.GOAL_RECEIVED.value, task_id=None,
+                                      payload={"goal_id": goal_id, "project": project_hint, "text": text, "planned": True},
+                                      provenance=Provenance(actor=Actor.HUMAN.value, source=source, evidence=[f"goal={goal_id}"])))
+        return await self._run_planner(goal_id, text, project_hint, [], worker_adapter)
+
+    async def _run_planner(self, goal_id: str, text: str, project_hint: str | None, answers: list[dict],
+                           worker_adapter: str) -> dict:
+        plan = await self.planner.plan(text, project_hint, answers)
+        pd = plan.to_dict()
+        evidence = [f"goal={goal_id}", f"backend={pd.get('backend')}", f"model={pd.get('model')}",
+                    f"cost={pd.get('cost_usd')}", f"tokens={pd.get('tokens')}"]
+        if plan.completion and plan.completion.cost_usd:
+            self.store.add_cost(None, None, plan.completion.model, plan.completion.cost_usd,
+                                plan.completion.input_tokens, plan.completion.output_tokens)
+        if plan.questions:
+            self.store.save_plan(goal_id, "WAITING_OWNER", pd, answers)
+            for q in plan.questions:
+                did = f"d-{uuid.uuid4().hex[:8]}"
+                self.store.save_decision(did, None, q["question"], list(q.get("options") or []), goal_id=goal_id)
+                self.store.append_event(Event(type=ET.OWNER_DECISION_REQUESTED.value, task_id=None,
+                                              payload={"decision_id": did, "goal_id": goal_id, "question": q["question"],
+                                                       "options": q.get("options") or [], "why": q.get("why")},
+                                              provenance=Provenance(actor=Actor.CONTROL.value, source="planner", evidence=evidence)))
+            write_receipt(self.store, subject_type="goal", subject_id=goal_id, claim=f"planner needs owner input: {len(plan.questions)} question(s)",
+                          actor=Actor.CONTROL.value, source="planner", result_label=VERIFIED, evidence=evidence,
+                          correlation_id=goal_id, after_state=pd)
+            return {"goal_id": goal_id, "status": "WAITING_OWNER", "questions": plan.questions, "task_ids": []}
+        if not plan.tasks:
+            reason = plan.blocked_reason or "; ".join(plan.problems) or "planner produced no tasks"
+            self.store.save_plan(goal_id, "BLOCKED", pd, answers)
+            self.store.append_event(Event(type=ET.BLOCKED.value, task_id=None, payload={"goal_id": goal_id, "reason": reason},
+                                          provenance=Provenance(actor=Actor.CONTROL.value, source="planner", evidence=evidence)))
+            write_receipt(self.store, subject_type="goal", subject_id=goal_id, claim=f"planner blocked: {reason[:200]}",
+                          actor=Actor.CONTROL.value, source="planner", result_label=FAILED, evidence=evidence,
+                          correlation_id=goal_id, after_state=pd)
+            return {"goal_id": goal_id, "status": "BLOCKED", "reason": reason, "task_ids": []}
+        pkg = self.projects[plan.project]
+        task_ids: list[str] = []
+        for t in plan.tasks:
+            mc = router.at_least(t["model_class"], pkg.min_model_class)
+            contract = compile_contract(
+                project=pkg, objective=t["objective"], why_now=t.get("why_now") or plan.summary, goal_id=goal_id,
+                task_type=t["task_type"], owned_area=list(t["owned_area"]), model_class=mc,
+                budget_usd=self.cfg.default_budget_usd, max_turns=self.cfg.default_max_turns,
+                wall_clock_sec=self.cfg.scope.runtime_max_sec,
+                acceptance_tests=None, expected_artifacts=list(t.get("expected_artifacts") or []),
+                dependencies=[task_ids[i] for i in t["dependencies"] if i < len(task_ids)])
+            if t.get("acceptance"):
+                contract.expected_artifacts.append("acceptance: " + t["acceptance"])
+            contract.worker_adapter = worker_adapter
+            self._create_task(contract, source="planner")
+            task_ids.append(contract.task_id)
+        pd["task_ids"] = task_ids
+        self.store.save_plan(goal_id, "PLANNED", pd, answers)
+        write_receipt(self.store, subject_type="goal", subject_id=goal_id,
+                      claim=f"planned {len(task_ids)} task(s) for {plan.project}: {plan.summary[:160]}",
+                      actor=Actor.CONTROL.value, source="planner", result_label=VERIFIED, evidence=evidence,
+                      correlation_id=goal_id, after_state=pd)
+        return {"goal_id": goal_id, "status": "PLANNED", "project": plan.project, "summary": plan.summary,
+                "task_ids": task_ids, "problems": plan.problems}
+
     def _create_task(self, contract: TaskContract, source: str) -> None:
         self.store.save_task(contract.task_id, contract.goal_id, contract.project, "READY", contract.to_dict(), contract.hash())
         self.store.append_event(Event(type=ET.TASK_CREATED.value, task_id=contract.task_id,
@@ -159,13 +230,21 @@ class Service:
                                       provenance=Provenance(actor=Actor.HUMAN.value, source=source, evidence=[action])))
         return {"paused": self.scheduler.paused, "running": list(self.launcher.running)}
 
-    def answer_decision(self, decision_id: str, answer: str, source: str) -> dict:
+    async def answer_decision(self, decision_id: str, answer: str, source: str) -> dict:
         row = self.store.answer_decision(decision_id, answer)
         if not row:
             raise KeyError(decision_id)
         self.store.append_event(Event(type=ET.OWNER_DECISION_RECORDED.value, task_id=row.get("task_id"),
-                                      payload={"decision_id": decision_id, "answer": answer},
+                                      payload={"decision_id": decision_id, "answer": answer, "goal_id": row.get("goal_id")},
                                       provenance=Provenance(actor=Actor.HUMAN.value, source=source, evidence=[decision_id])))
+        goal_id = row.get("goal_id")
+        if goal_id and not any(d["goal_id"] == goal_id for d in self.store.open_decisions()):
+            plan = self.store.get_plan(goal_id)
+            goal = self.store.get_goal(goal_id)
+            if plan and plan["status"] == "WAITING_OWNER" and goal:
+                answers = list(plan["answers"] or []) + [{"question": row["question"], "answer": answer}]
+                hint = (plan["plan"] or {}).get("project") or goal.get("project") or None
+                row["replan"] = await self._run_planner(goal_id, goal["text"], hint, answers, "claude_headless")
         return row
 
     # ---- read model -------------------------------------------------------

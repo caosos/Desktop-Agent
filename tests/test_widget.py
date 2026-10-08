@@ -81,7 +81,7 @@ def test_http_client_against_live_api(tmp_path):
             time.sleep(0.1)
     c = Client("http://127.0.0.1:8498", "tok")
     assert c.projects()[0]["name"] == "demo"
-    r = c.submit_goal("demo", "Do a docs thing", "docs", idempotency_key="k")
+    r = c.submit_goal("demo", "Do a docs thing", "docs", idempotency_key="k", plan=False)
     assert r["task_ids"] and c.task(r["task_ids"][0])["stage"] == "PLANNING"
     assert c.state()["next"]["task_id"] == r["task_ids"][0]
     with pytest.raises(ApiError):

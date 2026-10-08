@@ -18,8 +18,9 @@ PANEL = Path(__file__).resolve().parents[2] / "panel" / "index.html"
 
 
 class GoalIn(BaseModel):
-    project: str
+    project: str | None = None          # may be omitted when plan=true; the planner identifies it
     text: str = Field(min_length=3, max_length=4000)
+    plan: bool = True                   # plain-language request → planner; false = explicit single contract
     task_type: str = "code"
     owned_area: list[str] = []
     model_class: str | None = None
@@ -119,8 +120,15 @@ def build_app(service: Service, token: str) -> FastAPI:
             prior = service.store.idempotent("goal:" + idempotency_key)
             if prior:
                 return prior
+        explicit = bool(body.owned_area) or body.acceptance_tests is not None or not body.plan
         try:
-            res = service.submit_goal(project=body.project, text=body.text, source=source(request),
+            if not explicit:
+                res = await service.plan_goal(text=body.text, source=source(request), project_hint=body.project,
+                                              worker_adapter=body.worker_adapter)
+            elif not body.project:
+                raise ValueError("project is required for an explicit contract")
+            else:
+                res = service.submit_goal(project=body.project, text=body.text, source=source(request),
                                       task_type=body.task_type, owned_area=body.owned_area, model_class=body.model_class,
                                       why_now=body.why_now, acceptance_tests=body.acceptance_tests,
                                       expected_artifacts=body.expected_artifacts, budget_usd=body.budget_usd,
@@ -143,7 +151,7 @@ def build_app(service: Service, token: str) -> FastAPI:
     @app.post("/v0/decisions/{decision_id}")
     async def decide(decision_id: str, body: DecisionIn, request: Request, _: str = Depends(auth)):
         try:
-            return service.answer_decision(decision_id, body.answer, source(request))
+            return await service.answer_decision(decision_id, body.answer, source(request))
         except KeyError:
             raise HTTPException(404, "no such decision")
 

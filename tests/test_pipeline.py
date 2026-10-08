@@ -196,10 +196,10 @@ def test_api_state_goals_events(world):
     with TestClient(app) as c:
         assert c.get("/v0/state").status_code == 401
         h = {"Authorization": "Bearer tok", "X-Source": "widget:aria"}
-        r = c.post("/v0/goals", json={"project": "demo", "text": "Do a thing", "task_type": "docs"}, headers=h | {"Idempotency-Key": "k1"})
+        r = c.post("/v0/goals", json={"project": "demo", "text": "Do a thing", "task_type": "docs", "plan": False}, headers=h | {"Idempotency-Key": "k1"})
         assert r.status_code == 201
         tid = r.json()["task_ids"][0]
-        assert c.post("/v0/goals", json={"project": "demo", "text": "Do a thing"}, headers=h | {"Idempotency-Key": "k1"}).json() == r.json()
+        assert c.post("/v0/goals", json={"project": "demo", "text": "Do a thing", "plan": False}, headers=h | {"Idempotency-Key": "k1"}).json() == r.json()
         st = c.get("/v0/state", headers=h).json()
         assert st["projects"][0]["name"] == "demo" and st["next"]["task_id"] == tid and "slots" in st
         assert c.get(f"/v0/tasks/{tid}", headers=h).json()["stage"] == "PLANNING"
