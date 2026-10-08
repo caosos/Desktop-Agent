@@ -179,7 +179,9 @@ class Launcher:
                                 final.get("input_tokens", 0), final.get("output_tokens", 0))
         payload = {
             "exit_code": run.exit_code, "killed": run.killed, "head_sha": head,
-            "commits": commits, "cost_usd": final.get("cost_usd"), "num_turns": final.get("num_turns"),
+            "commits": commits, "cost_usd": final.get("cost_usd"), "cost_known": final.get("cost_known", True),
+            "input_tokens": final.get("input_tokens"), "output_tokens": final.get("output_tokens"),
+            "num_turns": final.get("num_turns"),
             "duration_sec": round(time.time() - run.started_at, 1),
             "claim_status": final.get("claim_status"), "subtype": final.get("subtype"),
         }

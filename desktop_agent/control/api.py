@@ -28,6 +28,7 @@ class GoalIn(BaseModel):
     expected_artifacts: list[str] | None = None
     budget_usd: float | None = None
     max_attempts: int = Field(default=3, ge=1, le=3)
+    worker_adapter: str = "claude_headless"
 
 
 class DecisionIn(BaseModel):
@@ -123,7 +124,7 @@ def build_app(service: Service, token: str) -> FastAPI:
                                       task_type=body.task_type, owned_area=body.owned_area, model_class=body.model_class,
                                       why_now=body.why_now, acceptance_tests=body.acceptance_tests,
                                       expected_artifacts=body.expected_artifacts, budget_usd=body.budget_usd,
-                                      max_attempts=body.max_attempts)
+                                      max_attempts=body.max_attempts, worker_adapter=body.worker_adapter)
         except KeyError as exc:
             raise HTTPException(404, str(exc))
         except ValueError as exc:

@@ -42,6 +42,9 @@ class RuntimeConfig:
     api_port: int = 8477
     worker_credentials: Path = Path("~/.claude/.credentials.json").expanduser()
     worker_claude_config: Path = Path("~/.claude.json").expanduser()
+    # Extra files copied into the per-worker HOME as (source, relative destination), e.g. Codex auth.
+    worker_home_files: list[tuple[Path, str]] = field(default_factory=list)
+    adapter_models: dict[str, dict[str, str]] = field(default_factory=dict)   # adapter → class → model
     sandbox_ro_paths: list[str] = field(default_factory=list)   # e.g. ~/.nvm for node + claude
     scope: ScopeLimits = field(default_factory=ScopeLimits)
     scheduler: SchedulerPolicy = field(default_factory=SchedulerPolicy)
@@ -79,6 +82,9 @@ class RuntimeConfig:
             cfg.worker_credentials = p(wc["credentials"])
         if wc.get("claude_config"):
             cfg.worker_claude_config = p(wc["claude_config"])
+        for item in wc.get("files", []) or []:
+            cfg.worker_home_files.append((p(item["from"]), str(item["to"])))
+        cfg.adapter_models = {k: dict(v) for k, v in (raw.get("adapter_models") or {}).items()}
         cfg.sandbox_ro_paths = [str(p(x)) for x in raw.get("sandbox", {}).get("ro_paths", [])]
         cfg.use_bwrap = bool(raw.get("sandbox", {}).get("bwrap", True))
         cfg.use_systemd_scope = bool(raw.get("sandbox", {}).get("systemd_scope", True))

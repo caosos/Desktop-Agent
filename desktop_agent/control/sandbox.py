@@ -30,6 +30,12 @@ def prepare_worker_home(cfg: RuntimeConfig, home: Path) -> Path:
         os.chmod(home / ".claude" / ".credentials.json", 0o600)
     if cfg.worker_claude_config.exists():
         shutil.copy2(cfg.worker_claude_config, home / ".claude.json")
+    for src, rel in cfg.worker_home_files:           # e.g. ~/.codex/auth.json → .codex/auth.json
+        if src.exists():
+            dest = home / rel
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src, dest)
+            os.chmod(dest, 0o600)
     # No settings.json: workers get Claude Code defaults, no plugins, no hooks.
     return home
 

@@ -13,11 +13,13 @@ def default_class(task_type: str) -> str:
     return "cloud_cheap" if task_type in LOW_RISK_TYPES else "cloud_strong"
 
 
-def resolve(cfg: RuntimeConfig, model_class: str) -> str:
+def resolve(cfg: RuntimeConfig, model_class: str, adapter: str = "claude_headless") -> str:
+    """Model for a class; an adapter may carry its own class → model map."""
+    table = cfg.adapter_models.get(adapter) or cfg.models
     try:
-        return cfg.models[model_class]
+        return table[model_class]
     except KeyError:
-        raise ValueError(f"unknown model_class {model_class!r}; known: {sorted(cfg.models)}")
+        raise ValueError(f"unknown model_class {model_class!r} for {adapter}; known: {sorted(table)}")
 
 
 def at_least(model_class: str, minimum: str | None) -> str:
