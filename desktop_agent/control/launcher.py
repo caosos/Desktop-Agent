@@ -23,6 +23,19 @@ from .receipts import UNVERIFIED, write_receipt
 from .store import Store
 
 PROMPT_TEMPLATE = Path(__file__).resolve().parents[2] / "config" / "worker_prompt.md"
+STREAM_LINE_LIMIT = 64 * 1024 * 1024       # one stream-json line can carry a whole file
+
+
+async def _lines(stream: asyncio.StreamReader):
+    """Yield decoded lines; a line longer than the limit is passed through in one piece."""
+    while True:
+        try:
+            raw = await stream.readline()
+        except ValueError:                      # LimitOverrunError surfaces as ValueError
+            raw = await stream.read(STREAM_LINE_LIMIT)
+        if not raw:
+            return
+        yield raw.decode(errors="replace")
 
 
 @dataclass
@@ -38,12 +51,36 @@ class WorkerRun:
     killed: bool = False
 
 
-def render_prompt(contract: TaskContract, project: ProjectPackage, wsp: ws.Workspace, test_port: int) -> str:
+def write_test_script(task_dir: Path, contract: TaskContract, project: ProjectPackage, test_port: int) -> Path:
+    """A per-task script that runs the project's acceptance tests with the task's
+    port and throwaway database, so the worker never needs env-prefixed commands."""
+    bin_dir = task_dir / "bin"
+    bin_dir.mkdir(parents=True, exist_ok=True)
+    env_lines = []
+    for k, v in project.test_env.items():
+        v = v.replace("{port}", str(test_port)).replace("{task_id}", contract.task_id.replace("-", "_"))
+        env_lines.append(f"export {k}={_shq(v)}")
+    cmds = "\n".join(contract.acceptance_tests) or "echo 'no acceptance tests declared'"
+    script = bin_dir / "run_tests.sh"
+    script.write_text("#!/bin/bash\n# Written by Desktop-Agent for task %s. Runs the acceptance tests with this task's port/db.\n"
+                      "set -o pipefail\ncd \"$(dirname \"$0\")/../repo\"\n%s\n%s \"$@\"\n" % (contract.task_id, "\n".join(env_lines), cmds))
+    script.chmod(0o755)
+    return script
+
+
+def _shq(s: str) -> str:
+    return "'" + s.replace("'", "'\\''") + "'"
+
+
+def render_prompt(contract: TaskContract, project: ProjectPackage, wsp: ws.Workspace, test_port: int,
+                  test_script: Path | None = None) -> str:
     tpl = PROMPT_TEMPLATE.read_text()
+    reads = [f"{f} (tail only: last ~150 lines)" if f == project.current_state else f for f in contract.read_list]
     fields = {
         "project": project.name, "task_id": contract.task_id, "attempt": contract.attempt,
         "objective": contract.objective, "why_now": contract.why_now,
-        "read_list": ", ".join(contract.read_list), "branch": wsp.branch,
+        "read_list": ", ".join(reads), "branch": wsp.branch,
+        "test_script": str(test_script) if test_script else "(none)",
         "base_ref": wsp.base_ref, "base_sha": wsp.base_sha,
         "owned_area": ", ".join(contract.owned_area) or "(whole repo)",
         "shared_contract_paths": ", ".join(project.shared_contract_paths) or "(none)",
@@ -80,13 +117,17 @@ class Launcher:
         wsp = await ws.create(project, self.cfg.workspaces_dir, contract.task_id, contract.branch_name())
         run = WorkerRun(worker_id=worker_id, task_id=contract.task_id, workspace=wsp, started_at=time.time())
         self.running[contract.task_id] = run
-        home = sandbox.prepare_worker_home(self.cfg, self.cfg.workspaces_dir / contract.task_id / "home")
-        prompt = render_prompt(contract, project, wsp, test_port)
-        (self.cfg.workspaces_dir / contract.task_id / "prompt.md").write_text(prompt)
-        spec = adapter.launch(contract=contract, project=project, prompt=prompt, model=model, workspace=wsp.path)
+        task_dir = self.cfg.workspaces_dir / contract.task_id
+        home = sandbox.prepare_worker_home(self.cfg, task_dir / "home")
+        test_script = write_test_script(task_dir, contract, project, test_port)
+        prompt = render_prompt(contract, project, wsp, test_port, test_script)
+        (task_dir / "prompt.md").write_text(prompt)
+        launch_contract = TaskContract.from_dict(contract.to_dict())
+        launch_contract.allowed_tools = list(contract.allowed_tools) + [f"Bash({test_script}:*)"]
+        spec = adapter.launch(contract=launch_contract, project=project, prompt=prompt, model=model, workspace=wsp.path)
         argv = sandbox.wrap(self.cfg, unit_name=f"desktop-agent-{worker_id}", workspace=wsp.path, worker_home=home,
                             ro_paths=list(self.cfg.sandbox_ro_paths) + list(project.runtime_ro_paths),
-                            inner=spec.argv, runtime_max_sec=contract.budget.wall_clock_sec)
+                            inner=spec.argv, runtime_max_sec=contract.budget.wall_clock_sec, extra_rw=[task_dir / "bin"])
         env = sandbox.worker_env(home, test_port, spec.env_extra)
         self._emit(run, ET.WORKER_STARTED.value,
                    {"adapter": adapter.name, "model": model, "branch": wsp.branch, "base_sha": wsp.base_sha,
@@ -98,27 +139,26 @@ class Launcher:
                    actor=Actor.CONTROL.value, source="router", contract_hash=chash, model=model)
         log_path = self.cfg.workspaces_dir / contract.task_id / "worker.stream.jsonl"
         run.proc = await asyncio.create_subprocess_exec(
-            *argv, cwd=str(wsp.path), env=env,
+            *argv, cwd=str(wsp.path), env=env, limit=STREAM_LINE_LIMIT,
             stdin=asyncio.subprocess.DEVNULL, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT,
         )
         try:
             with open(log_path, "a", encoding="utf-8") as log:
                 assert run.proc.stdout is not None
-                while True:
-                    raw = await run.proc.stdout.readline()
-                    if not raw:
-                        break
-                    line = raw.decode(errors="replace")
+                async for line in _lines(run.proc.stdout):
                     log.write(line)
                     parsed = adapter.parse_line(line)
                     for etype, payload in parsed.events:
-                        actor = Actor.WORKER.value if etype != ET.MODEL_SELECTED.value else Actor.PROVIDER.value
-                        self._emit(run, etype, payload, actor=actor, source=adapter.name,
+                        self._emit(run, etype, payload, actor=Actor.WORKER.value, source=adapter.name,
                                    contract_hash=chash, model=payload.get("model") or model)
                     if parsed.final:
                         run.final = parsed.final
             run.exit_code = await run.proc.wait()
         finally:
+            if run.proc.returncode is None:      # never leave a worker running after an error
+                run.killed = True
+                run.proc.kill()
+                await run.proc.wait()
             self.running.pop(contract.task_id, None)
         await self._finish(run, contract, project, adapter.name, model, chash)
         return run

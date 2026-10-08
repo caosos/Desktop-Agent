@@ -20,6 +20,13 @@ def resolve(cfg: RuntimeConfig, model_class: str) -> str:
         raise ValueError(f"unknown model_class {model_class!r}; known: {sorted(cfg.models)}")
 
 
+def at_least(model_class: str, minimum: str | None) -> str:
+    """The higher of the two classes on the ladder (a project may set a floor)."""
+    if not minimum or minimum not in LADDER or model_class not in LADDER:
+        return model_class
+    return LADDER[max(LADDER.index(model_class), LADDER.index(minimum))]
+
+
 def escalate(model_class: str) -> str | None:
     """Next class up, or None at the top."""
     try:

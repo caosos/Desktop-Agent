@@ -38,7 +38,14 @@ never_read:
 runtime_ro_paths:
   - ~/CAOSCARE.COM/backend/.venv
 
-# Claude Code permission patterns granted to workers on this project.
+# CAOSCare's CLAUDE.md imports its whole append-only PROJECT_STATE.md; the cheap
+# class cannot hold that context ("Prompt is too long", seen 2026-10-08).
+min_model_class: cloud_strong
+
+# Claude Code permission patterns granted to workers on this project. The
+# adapter always denies git push, gh, sudo, rm -rf, curl, wget, ssh, scp,
+# git reset --hard, git push --force; deny wins over allow. The launcher adds
+# the per-task test script.
 worker_allowed_tools:
   - Read
   - Glob
@@ -46,16 +53,21 @@ worker_allowed_tools:
   - Edit
   - Write
   - MultiEdit
-  - "Bash(git status:*)"
-  - "Bash(git diff:*)"
-  - "Bash(git log:*)"
-  - "Bash(git add:*)"
-  - "Bash(git commit:*)"
-  - "Bash(git branch:*)"
-  - "Bash(git rev-parse:*)"
-  - "Bash(wc:*)"
+  - "Bash(git:*)"
   - "Bash(ls:*)"
-  - "Bash(backend/scripts/run_backend_tests.sh:*)"
-  - "Bash(CAOSCARE_TEST_PORT=:*)"
-  - "Bash(cd backend:*)"
+  - "Bash(cat:*)"
+  - "Bash(head:*)"
+  - "Bash(tail:*)"
+  - "Bash(grep:*)"
+  - "Bash(find:*)"
+  - "Bash(wc:*)"
+  - "Bash(echo:*)"
+  - "Bash(mkdir:*)"
+  - "Bash(sed -n:*)"
+  - "Bash(awk:*)"
+  - "Bash(sort:*)"
+  - "Bash(diff:*)"
+  - "Bash(test:*)"
+  - "Bash(cd:*)"
+  - "Bash(python3:*)"
   - "Bash(/home/caoscare-1/CAOSCARE.COM/backend/.venv/bin/python3:*)"

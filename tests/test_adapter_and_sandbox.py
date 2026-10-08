@@ -37,8 +37,13 @@ def test_adapter_parses_stream():
         out += [t for t, _ in p.events]
         if p.final:
             final = p.final
-    assert out == [ET.MODEL_SELECTED.value, ET.FILE_CHANGED.value, ET.FILE_READ.value, ET.TEST_STARTED.value,
+    assert out == [ET.FILE_CHANGED.value, ET.FILE_READ.value, ET.TEST_STARTED.value,
                    ET.TEST_PASSED.value, ET.TOOL_CALLED.value, ET.COMMIT_CREATED.value, ET.CLAIM_WRITTEN.value]
+    assert a.session_id == "s1"
+    # ordinary commands mentioning "test" in a path are not test runs
+    p = a.parse_line(json.dumps({"type": "assistant", "message": {"model": "m", "content": [
+        {"type": "tool_use", "id": "t7", "name": "Bash", "input": {"command": "ls backend/tests | wc -l"}}]}}))
+    assert p.events[0][0] == ET.TOOL_CALLED.value
     assert final["ok"] and final["claim_status"] == "DONE" and final["claim_commit"] == "abc1234def"
     assert final["cost_usd"] == 0.27 and final["input_tokens"] == 34 + 12995 + 27731
 
@@ -81,6 +86,25 @@ def test_sandbox_wrap_shapes(tmp_path: Path):
         assert argv[-1] == "true"
     cfg.use_bwrap = cfg.use_systemd_scope = False
     assert sandbox.wrap(cfg, unit_name="u", workspace=ws, worker_home=home, ro_paths=[], inner=["true"]) == ["true"]
+
+
+def test_sandbox_wrap_executes(tmp_path: Path):
+    """The wrapped command must actually run on this host (catches bad systemd/bwrap arguments)."""
+    import subprocess, uuid
+    cfg = RuntimeConfig(data_dir=tmp_path / "d", workspaces_dir=tmp_path / "w", token_file=tmp_path / "t")
+    ws = tmp_path / "w" / "repo"; ws.mkdir(parents=True)
+    home = tmp_path / "w" / "home"; home.mkdir()
+    argv = sandbox.wrap(cfg, unit_name=f"desktop-agent-test-{uuid.uuid4().hex[:6]}", workspace=ws, worker_home=home,
+                        ro_paths=[], inner=["/bin/sh", "-c", "echo HOME=$HOME; touch $HOME/ok; pwd"], runtime_max_sec=30)
+    r = subprocess.run(argv, env=sandbox.worker_env(home), capture_output=True, text=True, timeout=60)
+    assert r.returncode == 0, r.stderr
+    assert f"HOME={home}" in r.stdout and str(ws) in r.stdout
+    assert (home / "ok").exists()
+    if sandbox.have_bwrap() and cfg.use_bwrap:
+        r2 = subprocess.run(sandbox.wrap(cfg, unit_name=f"desktop-agent-test-{uuid.uuid4().hex[:6]}", workspace=ws,
+                                         worker_home=home, ro_paths=[], inner=["/bin/sh", "-c", "touch /usr/forbidden"]),
+                            env=sandbox.worker_env(home), capture_output=True, text=True, timeout=60)
+        assert r2.returncode != 0, "root must be read-only inside the sandbox"
     env = sandbox.worker_env(home, 8101, {"ANTHROPIC_API_KEY": "x", "FOO": "1"})
     assert "ANTHROPIC_API_KEY" not in env and env["FOO"] == "1" and env["HOME"] == str(home)
 

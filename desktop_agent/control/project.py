@@ -32,6 +32,7 @@ class ProjectPackage:
     worker_allowed_tools: list[str] = field(default_factory=list)
     default_read_list: list[str] = field(default_factory=list)
     github_repo: str | None = None   # owner/name for gh
+    min_model_class: str | None = None   # e.g. a repo whose CLAUDE.md context exceeds the cheap class
     source_file: Path | None = None
 
     @classmethod
@@ -60,6 +61,7 @@ class ProjectPackage:
             worker_allowed_tools=list(raw.get("worker_allowed_tools") or []),
             default_read_list=list(raw.get("default_read_list") or []),
             github_repo=raw.get("github_repo"),
+            min_model_class=raw.get("min_model_class"),
             source_file=path,
         )
 

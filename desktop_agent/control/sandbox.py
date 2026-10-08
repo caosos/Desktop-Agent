@@ -38,13 +38,14 @@ def scope_prefix(cfg: RuntimeConfig, unit_name: str, runtime_max_sec: int | None
     if not (cfg.use_systemd_scope and have_systemd_run()):
         return []
     s = cfg.scope
+    # Nice is not a scope property (systemd rejects it); apply it with nice(1) inside the scope.
     return [
         "systemd-run", "--user", "--scope", "--quiet", "--collect",
         f"--unit={unit_name}",
         f"-pMemoryMax={s.memory_max}",
         f"-pCPUQuota={s.cpu_quota}",
         f"-pRuntimeMaxSec={runtime_max_sec or s.runtime_max_sec}",
-        f"-pNice={s.nice}",
+        "--", "nice", "-n", str(s.nice),
     ]
 
 

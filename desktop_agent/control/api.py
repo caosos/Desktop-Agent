@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import json
 import secrets
+import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -67,7 +68,7 @@ def build_app(service: Service, token: str) -> FastAPI:
 
     @app.get("/v0/health")
     async def health():
-        return {"ok": True, "uptime_sec": round(asyncio.get_event_loop().time())}
+        return {"ok": True, "uptime_sec": round(time.time() - service.started_at)}
 
     @app.get("/v0/projects")
     async def projects(_: str = Depends(auth)):

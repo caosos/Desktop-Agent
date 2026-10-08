@@ -101,7 +101,7 @@ class Service:
         self.store.save_goal(goal_id, project, text, source)
         self.store.append_event(Event(type=ET.GOAL_RECEIVED.value, task_id=None, payload={"goal_id": goal_id, "project": project, "text": text},
                                       provenance=Provenance(actor=Actor.HUMAN.value, source=source, evidence=[f"goal={goal_id}"])))
-        mc = model_class or router.default_class(task_type)
+        mc = router.at_least(model_class or router.default_class(task_type), pkg.min_model_class)
         router.resolve(self.cfg, mc)
         contract = compile_contract(
             project=pkg, objective=text, why_now=why_now, goal_id=goal_id, task_type=task_type,
