@@ -129,6 +129,10 @@ class Client:
     def receipts(self, task_id: str) -> list[dict]:
         return self._req("GET", f"/v0/receipts?task_id={task_id}")["receipts"]
 
+    def chat(self, text: str, reset: bool = False) -> dict:
+        """Server-side Aria: the control plane runs the conversational layer and its actions."""
+        return self._req("POST", "/v0/aria/chat", {"text": text, "reset": reset})
+
     def follow_events(self, on_event: Callable[[dict], None], since: int = 0, stop: threading.Event | None = None,
                       on_connection: Callable[[ApiError | None], None] | None = None) -> None:
         """Blocking SSE follower; run it in a thread. Reconnects until `stop` is set."""

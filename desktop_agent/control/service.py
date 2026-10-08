@@ -73,6 +73,8 @@ class Service:
                                    self.projects, self._retry)
         self.llm = LLM(cfg)
         self.planner = Planner(self.llm, self.projects)
+        from .aria import AriaBrain                  # local import: aria depends on the service surface
+        self.aria = AriaBrain(self, self.llm)
         self._subscribers: list[asyncio.Queue] = []
         self._loop: asyncio.AbstractEventLoop | None = None
         self.store.subscribe(self._fanout)

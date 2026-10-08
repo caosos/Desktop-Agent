@@ -48,7 +48,12 @@ class Aria:
 
     @property
     def conversational(self) -> bool:
-        return bool(self.api_key)
+        return bool(self.api_key) or self.server_side
+
+    @property
+    def server_side(self) -> bool:
+        """Without a local key, the control plane's own Aria (POST /v0/aria/chat) answers."""
+        return not self.api_key and hasattr(self.client, "chat")
 
     # ---- tools ------------------------------------------------------------
     def run_tool(self, name: str, inp: dict | None = None) -> dict:
@@ -78,6 +83,15 @@ class Aria:
 
     # ---- conversational mode ---------------------------------------------
     def ask(self, text: str) -> str:
+        if self.server_side:
+            t = text.strip()
+            if self._CTRL.match(t) and len(t.split()) == 1:
+                return self.direct(t)              # pause/resume/stop need no model
+            try:
+                r = self.client.chat(t)
+                return str(r.get("reply") or "(no reply)")
+            except ApiError as exc:
+                return f"{exc}. Falling back to direct mode: {self.direct(t)}"
         if not self.conversational:
             return self.direct(text)
         self.history.append({"role": "user", "content": text})

@@ -41,6 +41,11 @@ class ControlIn(BaseModel):
     task_id: str | None = None
 
 
+class ChatIn(BaseModel):
+    text: str = Field(min_length=1, max_length=4000)
+    reset: bool = False
+
+
 class AskIn(BaseModel):
     question: str = Field(min_length=5, max_length=1000)
     options: list[str] = []
@@ -156,6 +161,12 @@ def build_app(service: Service, token: str) -> FastAPI:
         if not view:
             raise HTTPException(404, "no such task")
         return view
+
+    @app.post("/v0/aria/chat")
+    async def aria_chat(body: ChatIn, _: str = Depends(auth)):
+        if body.reset:
+            service.aria.reset()
+        return await service.aria.chat(body.text)
 
     @app.post("/v0/decisions", status_code=201)
     async def ask(body: AskIn, request: Request, _: str = Depends(auth)):
