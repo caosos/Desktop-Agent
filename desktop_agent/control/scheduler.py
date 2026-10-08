@@ -145,7 +145,10 @@ class Scheduler:
                 await self._fail(contract, f"worker exit {run.exit_code}, subtype={final.get('subtype')}", retryable=True)
             else:
                 result = await self.verifier.verify(contract, project, run.workspace, port)
-                if not result["ok"]:
+                if not result["ok"] and result.get("bounds_violation"):
+                    # The contract, not the worker, is at fault: this needs an owner, not a retry.
+                    await self._block(contract, "bounds violation: " + "; ".join(result["reasons"]), result=_slim(result))
+                elif not result["ok"]:
                     await self._fail(contract, "; ".join(result["reasons"]), retryable=True, result=result)
                 else:
                     integ = await self.integrator.integrate(
@@ -170,7 +173,7 @@ class Scheduler:
 
     async def _fail(self, contract: TaskContract, reason: str, retryable: bool, result: dict | None = None) -> None:
         self.store.set_task_status(contract.task_id, "FAILED", {"reason": reason} | ({"detail": _slim(result)} if result else {}))
-        if not retryable or contract.attempt >= MAX_ATTEMPTS:
+        if not retryable or contract.attempt >= min(MAX_ATTEMPTS, contract.max_attempts):
             await self._block(contract, f"attempt {contract.attempt} failed: {reason}" + ("" if retryable else " (not retryable)"))
             return
         next_class = contract.model_class if contract.attempt == 1 else (router.escalate(contract.model_class) or contract.model_class)

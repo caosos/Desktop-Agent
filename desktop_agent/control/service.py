@@ -93,7 +93,8 @@ class Service:
     def submit_goal(self, *, project: str, text: str, source: str, task_type: str = "code",
                     owned_area: list[str] | None = None, model_class: str | None = None,
                     why_now: str = "owner instruction", acceptance_tests: list[str] | None = None,
-                    expected_artifacts: list[str] | None = None, budget_usd: float | None = None) -> dict:
+                    expected_artifacts: list[str] | None = None, budget_usd: float | None = None,
+                    max_attempts: int = 3) -> dict:
         if project not in self.projects:
             raise KeyError(f"unknown project {project!r}")
         pkg = self.projects[project]
@@ -108,7 +109,7 @@ class Service:
             owned_area=owned_area or [], model_class=mc,
             budget_usd=budget_usd or self.cfg.default_budget_usd, max_turns=self.cfg.default_max_turns,
             wall_clock_sec=self.cfg.scope.runtime_max_sec, acceptance_tests=acceptance_tests,
-            expected_artifacts=expected_artifacts)
+            expected_artifacts=expected_artifacts, max_attempts=max_attempts)
         self._create_task(contract, source=source)
         write_receipt(self.store, subject_type="goal", subject_id=goal_id, claim=f"goal accepted; task {contract.task_id} created",
                       actor=Actor.CONTROL.value, source="service", result_label=VERIFIED,

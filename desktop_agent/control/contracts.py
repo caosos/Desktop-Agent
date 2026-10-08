@@ -42,6 +42,7 @@ class TaskContract:
     expected_artifacts: list[str] = field(default_factory=list)
     task_type: str = "code"
     attempt: int = 1
+    max_attempts: int = 3
     supersedes: str | None = None
     worker_adapter: str = "claude_headless"
     goal_id: str | None = None
@@ -85,7 +86,7 @@ def compile_contract(*, project: ProjectPackage, objective: str, why_now: str,
                      read_list: list[str] | None = None, acceptance_tests: list[str] | None = None,
                      allowed_tools: list[str] | None = None, expected_artifacts: list[str] | None = None,
                      dependencies: list[str] | None = None, attempt: int = 1,
-                     supersedes: str | None = None) -> TaskContract:
+                     supersedes: str | None = None, max_attempts: int = 3) -> TaskContract:
     """Template compiler for Stage 1: one goal → one contract. The planner
     model that turns a goal into several contracts arrives in Stage 2."""
     task_id = f"{_slug(objective)}-{uuid.uuid4().hex[:6]}"
@@ -110,6 +111,7 @@ def compile_contract(*, project: ProjectPackage, objective: str, why_now: str,
         expected_artifacts=list(expected_artifacts or []),
         task_type=task_type,
         attempt=attempt,
+        max_attempts=max(1, int(max_attempts)),
         supersedes=supersedes,
         goal_id=goal_id,
     )

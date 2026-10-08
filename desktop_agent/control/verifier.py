@@ -48,6 +48,7 @@ class Verifier:
             result["reasons"].append(f"files outside owned_area: {bounds['outside'][:10]}")
         if bounds["shared"]:
             result["reasons"].append(f"shared contract paths touched: {bounds['shared']}")
+        result["bounds_violation"] = bool(bounds["outside"] or bounds["shared"])
         if await ws.is_dirty(wsp.path):
             result["reasons"].append("uncommitted changes left in the workspace")
 

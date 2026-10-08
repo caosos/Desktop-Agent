@@ -20,7 +20,7 @@ from .base import LaunchSpec, Parsed
 
 _READ_TOOLS = {"Read", "Glob", "Grep", "NotebookRead"}
 _WRITE_TOOLS = {"Edit", "Write", "MultiEdit", "NotebookEdit"}
-_TEST_HINT = re.compile(r"(run_backend_tests|\bpytest\b|npm test|yarn test|npm run test|CI=true .*build|\./test\.sh)", re.I)
+_TEST_HINT = re.compile(r"(run_tests\.sh|run_backend_tests|\bpytest\b|npm test|yarn test|npm run test|CI=true .*build|\./test\.sh)", re.I)
 _COMMIT_HINT = re.compile(r"\bgit\s+commit\b")
 _STATUS_RE = re.compile(r"^STATUS:\s*(DONE|BLOCKED|FAILED)", re.M)
 _COMMIT_RE = re.compile(r"^COMMIT:\s*([0-9a-f]{7,40}|none)", re.M | re.I)

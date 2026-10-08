@@ -140,12 +140,22 @@ def test_failing_tests_retry_then_block(world):
     asyncio.run(scenario())
 
 
-def test_shared_contract_violation_fails_verification(world):
+def test_shared_contract_violation_blocks_without_retry(world):
     s = _service(world, "outside")
     tid = s.submit_goal(project="demo", text="Touch core", source="test", task_type="docs", owned_area=["README.md"])["task_ids"][0]
     row = asyncio.run(_run_until(s, tid))
     ev = [e for e in s.store.events(tid) if e.type == ET.VERIFY_FAILED.value][0]
     assert any("shared contract" in r or "outside owned_area" in r for r in ev.payload["reasons"])
+    assert row["status"] == "BLOCKED" and "bounds violation" in row["result"]["reason"]
+    assert not [t for t in s.store.list_tasks() if t["contract"].get("supersedes") == tid], "no retry for a contract fault"
+
+
+def test_max_attempts_one(world):
+    s = _service(world, "bad")
+    tid = s.submit_goal(project="demo", text="Break once", source="test", task_type="docs", owned_area=["README.md"], max_attempts=1)["task_ids"][0]
+    row = asyncio.run(_run_until(s, tid))
+    assert row["status"] == "BLOCKED" and "attempt 1 failed" in row["result"]["reason"]
+    assert not [t for t in s.store.list_tasks() if t["contract"].get("supersedes") == tid]
 
 
 def test_blocked_worker(world):
