@@ -132,3 +132,11 @@ Measured against the directive, what exists today (`build/stage-1`, `build/stage
 | Governed desktop tools beyond coding | Not started (by plan, Phase 3) | — |
 | Provider independence | Two executors (Claude Code, Codex), both CLI/subscription based | No direct-API or local-model executor yet |
 | Only genuine owner decisions | Decision inbox exists in API/widget but nothing files decisions yet | Planner/scheduler should file decisions instead of BLOCKED-with-reason |
+
+---
+
+## 2026-10-08 (evening) — "you are in control and not to stop until you're finished"
+
+Michael, after reporting the Codex coordinator agent shut down and after the merge to `main`: the Claude Code session is the coordinator again and continues Stage 2 to its acceptance (IMPLEMENTATION_PLAN §5) without pausing for "continue", stopping only for genuine owner decisions, credentials, unauthorised spend, destructive actions, governance changes, production deployment or hard external dependencies.
+
+**Integration policy adopted under this instruction (review §12 decision 4, for this repository only):** work lands on `main` through short-lived branches merged by the coordinator after the test suite passes on the merged result, one at a time, each merge recorded in `docs/PROJECT_STATE.md`. CAOSCare and other managed projects keep draft PRs; nothing merges there without Michael.
