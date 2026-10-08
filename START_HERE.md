@@ -11,10 +11,13 @@ decisions or hard external blockers.
 
 **Law.** No action without a receipt. No receipt without provenance.
 
-**Status (2026-10-08).** DESIGN mode. No code exists. The architecture
-review and the implementation plan are written. Michael's Autonomous
-Execution Directive is recorded. Implementation waits for Michael's
-explicit BUILD authorisation.
+**Status (2026-10-08).** BUILD, Stage 1 (PR #2, branch `build/stage-1`).
+Michael authorised BUILD on PR #1. The control plane runs as the user
+service `desktop-agent.service` on the EliteDesk (`127.0.0.1:8477`); the
+first real CAOSCare task went end to end with a verified receipt chain
+(CAOSCARE.COM draft PR #105). Widget code exists; its display check needs
+Michael in his desktop session (`docs/WIDGET_SETUP.md`). Current state and
+every run, including the failures, are in `docs/PROJECT_STATE.md`.
 
 **Michael-facing surface.** A small desktop widget called Aria (text and
 push-to-talk) in Michael's GNOME session, backed by the control plane over a
@@ -32,6 +35,16 @@ separate identity from CAOSCare's resident Aria; they share a name only.
    what to reuse, what not to build, sandbox, state/event/receipt model.
    Where it says "max two workers" the directive and plan supersede it.
 6. `docs/PROJECT_STATE.md` — dated, append-only build state
+7. `docs/WIDGET_SETUP.md` — running the Aria widget in Michael's session
+
+## Running it
+
+- Control plane: `systemctl --user status desktop-agent` (unit file in
+  `config/desktop-agent.service`); config in `config/runtime.yaml`; data in
+  `~/.local/share/desktop-agent`; workspaces in `~/Desktop-Agent-work/<task>/`.
+- Panel: `http://127.0.0.1:8477/` with the token from
+  `~/.config/desktop-agent/token`.
+- Tests: `.venv/bin/python -m pytest -q` (no Claude, no network).
 
 ## First managed project
 
