@@ -20,7 +20,7 @@ gi.require_version("Gtk", "4.0")
 from gi.repository import GLib, Gtk  # noqa: E402
 
 from .aria import Aria  # noqa: E402
-from .client import ApiError, Client, load_config, save_config  # noqa: E402
+from .client import ApiError, Client, RefreshCoalescer, load_config, save_config  # noqa: E402
 from . import voice  # noqa: E402
 
 PANEL_PATH = "/"
@@ -51,11 +51,16 @@ class AriaWindow(Gtk.ApplicationWindow):
     def __init__(self, app: Gtk.Application, client: Client, aria: Aria, cfg: dict):
         super().__init__(application=app, title="Aria")
         self.client, self.aria, self.cfg = client, aria, cfg
+        self._event_stop = threading.Event(); self._event_refresh = RefreshCoalescer()
+        self._sse_connected = False
+        self.connect("close-request", self._on_close)
         self.set_default_size(320, 440)
         self.set_resizable(False)
         self._build()
-        GLib.timeout_add_seconds(5, self._refresh_async)
+        GLib.timeout_add_seconds(5, self._poll_fallback)
         self._refresh_async()
+        threading.Thread(target=self.client.follow_events, args=(self._on_event, 0, self._event_stop,
+                         self._on_sse_connection), daemon=True).start()
 
     # ---- layout -----------------------------------------------------------
     def _build(self) -> None:
@@ -101,7 +106,35 @@ class AriaWindow(Gtk.ApplicationWindow):
     # ---- state ------------------------------------------------------------
     def _refresh_async(self) -> bool:
         threading.Thread(target=self._refresh, daemon=True).start()
+        return False
+
+    def _poll_fallback(self) -> bool:
+        if not self._sse_connected:
+            self._refresh_async()
         return True
+
+    def _on_event(self, _event: dict) -> None:
+        delay = self._event_refresh.request(time.monotonic())
+        if delay is None:
+            return
+        if delay > 0:
+            GLib.timeout_add(max(1, round(delay * 1000)), self._queue_event_refresh)
+        else:
+            self._queue_event_refresh()
+
+    def _queue_event_refresh(self) -> bool:
+        self._event_refresh.dispatched()
+        if not self._event_stop.is_set():
+            GLib.idle_add(self._refresh_async)
+        return False
+
+    def _on_sse_connection(self, error: ApiError | None) -> None:
+        self._sse_connected = error is None
+        if error is not None and not self._event_stop.is_set():
+            GLib.idle_add(self._refresh_async)
+
+    def _on_close(self, *_args) -> bool:
+        self._event_stop.set(); return False
 
     def _refresh(self) -> None:
         try:

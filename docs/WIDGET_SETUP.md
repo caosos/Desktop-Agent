@@ -46,9 +46,9 @@ Requirements already present on this host: Python 3.10, PyGObject with GTK 4.6.
 The widget never edits files or runs commands. Every command it sends is a
 receipt on the control plane with actor `widget:aria`.
 
-## Known limits (Stage 1)
+## Known limits
 
 - GNOME on Wayland does not let an app pin itself above other windows; use
   the toggle shortcut.
-- The widget polls state every 5 seconds (SSE follow is in the client and
-  used by the panel; the widget will switch to it in Stage 2).
+- The widget refreshes from the control plane's SSE stream. While that stream
+  cannot connect, it falls back to polling state every 5 seconds.
