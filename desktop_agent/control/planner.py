@@ -98,10 +98,51 @@ def _excerpt(repo: Path, rel: str | None, max_chars: int) -> str:
     return head + "\n[...]\n" + tail
 
 
-def project_context(pkg: ProjectPackage, max_chars: int = 14000) -> str:
+def tracked_files(repo: Path, limit: int = 600) -> list[str]:
+    """Tracked paths (git ls-files) so the planner names real files in owned_area."""
+    import subprocess
+    try:
+        out = subprocess.run(["git", "-C", str(repo), "ls-files"], capture_output=True, text=True, timeout=30, check=True).stdout
+    except (subprocess.SubprocessError, OSError):
+        return []
+    files = [p for p in out.splitlines() if p and not p.startswith(".venv/")]
+    if len(files) <= limit:
+        return files
+    # collapse the largest directories so the listing stays bounded but complete at the top level
+    by_dir: dict[str, list[str]] = {}
+    for p in files:
+        by_dir.setdefault(p.split("/")[0] if "/" in p else ".", []).append(p)
+    out_list: list[str] = []
+    for d, ps in sorted(by_dir.items(), key=lambda kv: len(kv[1])):
+        if len(out_list) + len(ps) <= limit:
+            out_list += ps
+        else:
+            out_list.append(f"{d}/ ({len(ps)} files; use globs under this directory)")
+    return out_list
+
+
+def owned_area_matches(globs: list[str], files: list[str]) -> list[str]:
+    """Globs/paths that match at least one tracked file (or a directory prefix); new files are
+    allowed when the glob names a directory that exists."""
+    import fnmatch
+    dirs = {p.rsplit("/", 1)[0] for p in files if "/" in p}
+    ok = []
+    for g in globs:
+        base = g.split("*")[0].rstrip("/")
+        if any(fnmatch.fnmatch(f, g) or f == g for f in files) or (base and (base in dirs or any(d.startswith(base + "/") or d == base for d in dirs))):
+            ok.append(g)
+        elif "/" not in g and "*" not in g:
+            ok.append(g)        # a new top-level file is a legitimate thing to create
+    return ok
+
+
+def project_context(pkg: ProjectPackage, max_chars: int = 14000, files: list[str] | None = None) -> str:
     parts = [f"PROJECT {pkg.name} (integration branch {pkg.integration_branch})",
              f"shared contract paths (never edit): {', '.join(pkg.shared_contract_paths) or 'none'}",
              f"test command: {pkg.test_command or 'none'}"]
+    files = tracked_files(pkg.repo_path) if files is None else files
+    if files:
+        parts.append("--- TRACKED FILES (owned_area must use these paths or globs over these directories) ---\n" + "\n".join(files))
     budget = max_chars
     for label, rel, share in (("START_HERE", pkg.start_here, 0.35), ("READY_QUEUE", pkg.ready_queue, 0.4),
                               ("AGENTS (head)", pkg.agents_file, 0.25)):
@@ -129,14 +170,15 @@ class Planner:
             return Plan(project="", summary="", tasks=[], questions=[{
                 "question": f"Which project is this for? ({', '.join(self.projects)})", "options": list(self.projects),
                 "why": "the request names no known project"}], blocked_reason=None)
+        files = tracked_files(pkg.repo_path)
         prompt = (f"OWNER REQUEST:\n{request}\n\n"
                   + (f"OWNER ANSWERS TO EARLIER QUESTIONS:\n{json.dumps(answers)}\n\n" if answers else "")
-                  + project_context(pkg))
+                  + project_context(pkg, files=files))
         try:
             comp = await self.llm.complete(prompt, PLAN_SCHEMA, model_class, system=SYSTEM.format(max_tasks=MAX_TASKS))
         except LLMError as exc:
             return Plan(project=project, summary="", tasks=[], questions=[], blocked_reason=f"planner model call failed: {exc}")
-        return self._validate(comp, pkg)
+        return self._validate(comp, pkg, files)
 
     async def _pick_project(self, request: str) -> str | None:
         names = list(self.projects)
@@ -152,13 +194,21 @@ class Planner:
         p = comp.data.get("project")
         return p if p in self.projects else None
 
-    def _validate(self, comp: Completion, pkg: ProjectPackage) -> Plan:
+    def _validate(self, comp: Completion, pkg: ProjectPackage, files: list[str] | None = None) -> Plan:
         d = comp.data
         problems: list[str] = []
         tasks: list[dict] = []
         for i, t in enumerate((d.get("tasks") or [])[:MAX_TASKS]):
             if not t.get("objective") or not t.get("owned_area"):
                 problems.append(f"task {i}: missing objective or owned_area"); continue
+            if files:
+                kept = owned_area_matches(list(t["owned_area"]), files)
+                dropped = [g for g in t["owned_area"] if g not in kept]
+                if dropped:
+                    problems.append(f"task {i}: owned_area entries matching no tracked file dropped: {dropped}")
+                if not kept:
+                    problems.append(f"task {i}: no valid owned_area left"); continue
+                t["owned_area"] = kept
             if t.get("task_type") not in TASK_TYPES:
                 t["task_type"] = "code"
             if t.get("model_class") not in CLASSES:

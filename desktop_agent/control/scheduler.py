@@ -94,10 +94,17 @@ class Scheduler:
 
     def eligible(self) -> list[dict]:
         done = {t["task_id"] for t in self.store.list_tasks(status="DONE")}
+        blocked = {t["task_id"] for t in self.store.list_tasks(status="BLOCKED")}
         running = self.store.list_tasks(status="RUNNING")
         out = []
         for t in self.store.list_tasks(status="READY"):
             c = t["contract"]
+            dead = [d for d in c.get("dependencies", []) if d in blocked]
+            if dead:
+                reason = f"dependency {dead[0]} is BLOCKED"
+                self.store.set_task_status(t["task_id"], "BLOCKED", {"reason": reason})
+                self._emit(t["task_id"], ET.BLOCKED.value, {"reason": reason, "dependency": dead[0]}, [reason])
+                continue
             if any(d not in done for d in c.get("dependencies", [])):
                 continue
             if any(r["project"] == t["project"] and areas_overlap(c.get("owned_area", []), r["contract"].get("owned_area", []))
@@ -179,6 +186,12 @@ class Scheduler:
     async def _block(self, contract: TaskContract, reason: str, result: dict | None = None) -> None:
         self.store.set_task_status(contract.task_id, "BLOCKED", {"reason": reason} | ({"detail": result} if result else {}))
         self._emit(contract.task_id, ET.BLOCKED.value, {"reason": reason}, [reason[:200]])
+        # Dependents cannot proceed; say so instead of leaving them READY forever.
+        for t in self.store.list_tasks(status="READY"):
+            if contract.task_id in (t["contract"].get("dependencies") or []):
+                dep_reason = f"dependency {contract.task_id} is BLOCKED: {reason[:120]}"
+                self.store.set_task_status(t["task_id"], "BLOCKED", {"reason": dep_reason})
+                self._emit(t["task_id"], ET.BLOCKED.value, {"reason": dep_reason, "dependency": contract.task_id}, [dep_reason[:200]])
 
     async def _fail(self, contract: TaskContract, reason: str, retryable: bool, result: dict | None = None) -> None:
         self.store.set_task_status(contract.task_id, "FAILED", {"reason": reason} | ({"detail": _slim(result)} if result else {}))

@@ -182,6 +182,18 @@ def test_provider_limit_pauses_and_requeues(world):
     assert s.state()["hold"].startswith("paused: provider limit")
 
 
+def test_block_cascades_to_dependents(world):
+    s = _service(world, "blocked")
+    first = s.submit_goal(project="demo", text="Need owner first", source="test", task_type="docs")["task_ids"][0]
+    second = s.submit_goal(project="demo", text="Depends on first", source="test", task_type="docs")["task_ids"][0]
+    row = s.store.get_task(second); c = row["contract"]; c["dependencies"] = [first]
+    s.store.save_task(second, row["goal_id"], "demo", "READY", c, "h")
+    asyncio.run(_run_until(s, first))
+    assert s.store.get_task(first)["status"] == "BLOCKED"
+    dep = s.store.get_task(second)
+    assert dep["status"] == "BLOCKED" and first in dep["result"]["reason"]
+
+
 def test_blocked_worker(world):
     s = _service(world, "blocked")
     tid = s.submit_goal(project="demo", text="Need owner", source="test", task_type="docs")["task_ids"][0]

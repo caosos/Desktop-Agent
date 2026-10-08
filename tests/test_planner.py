@@ -56,6 +56,15 @@ def test_plan_picks_project_and_validates(tmp_path):
     ctx = project_context(projects["alpha"]); assert "core.py" in ctx and "./t.sh" in ctx
 
 
+def test_owned_area_validation_against_tracked_files():
+    from desktop_agent.control.planner import owned_area_matches
+    files = ["desktop_agent/control/config.py", "desktop_agent/control/api.py", "panel/index.html", "tests/test_core.py", "README.md"]
+    kept = owned_area_matches(["desktop_agent/control/runtime*.py", "desktop_agent/control/config.py", "tests/test_runtime*.py",
+                               "panel/*", "widget/*.py", "NEWFILE.md", "docs/PROJECT_STATE.md"], files)
+    assert kept == ["desktop_agent/control/config.py", "tests/test_runtime*.py", "panel/*", "NEWFILE.md"]
+    # tests/ exists so a new test file glob is allowed; widget/ and docs/ do not exist here so they are dropped
+
+
 def test_plan_with_hint_skips_pick(tmp_path):
     projects = _projects(tmp_path)
     llm = FakeLLM([GOOD_PLAN])
