@@ -109,6 +109,7 @@ let selected = null, lastSeq = 0;
 
 function esc(s){ return String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
 function ago(ts){ if(!ts) return ""; const s = Math.max(0, Date.now()/1000 - ts); return s<60? Math.round(s)+"s" : s<3600? Math.round(s/60)+"m" : Math.round(s/3600)+"h"; }
+function dash(v, f = String){ return v == null ? "—" : f(v); }
 function stageChip(s){ const cls = s==="DONE"?"ok": (s==="BLOCKED"?"bad": (s==="WAITING_OWNER"?"warn":"")); return `<span class="chip ${cls}">${esc(s)}</span>`; }
 
 async function api(path, opts={}) {
@@ -119,7 +120,8 @@ async function api(path, opts={}) {
 
 function render(st) {
   $("uptime").textContent = st.uptime_sec; $("seq").textContent = st.last_seq;
-  $("slots").textContent = `slots ${st.slots.slots} (cpu ${st.slots.cpu_slots} · mem ${st.slots.mem_slots} · budget ${st.slots.budget_slots} · ceiling ${st.slots.ceiling}) · running ${st.slots.running}` + (st.paused ? " · PAUSED" : "") + (st.hold ? " · HOLD: " + st.hold : "");
+  const sl = st.slots;
+  $("slots").textContent = `slots ${sl.slots} (cpu ${sl.cpu_slots} · mem ${sl.mem_slots} · budget ${sl.budget_slots} · ceiling ${dash(sl.ceiling)} of owner ${dash(sl.owner_ceiling)} · reason ${dash(sl.ceiling_reason)}) · running ${sl.running}` + (st.paused ? " · PAUSED" : "") + (st.hold ? " · HOLD: " + st.hold : "");
   const active = st.tasks.filter(t => t.status==="RUNNING").map(t=>t.stage);
   const lit = new Set(active.length ? active : (st.next ? ["PLANNING"] : []));
   $("stages").innerHTML = STAGES.map(s => `<span class="${lit.has(s)?"on":""} ${s==="BLOCKED"||s==="WAITING_OWNER"?"alt":""}">${s}</span>`).join("");
@@ -127,11 +129,23 @@ function render(st) {
   $("projects").innerHTML = st.projects.map(p => `<div class="row"><span><b>${esc(p.name)}</b> <span class="muted tiny">${esc(p.integration_branch)}</span><br><span class="muted tiny">${esc(p.last_activity)} ${p.last_activity_at? "· "+ago(p.last_activity_at):""}</span></span>${stageChip(p.stage)}</div>`).join("");
   $("workers").innerHTML = st.workers.length ? st.workers.map(w => `<div class="row"><span class="mono">${esc(w.worker_id)}</span><span class="tiny">${esc(w.task_id)} · ${ago(w.started_at)} · last event ${ago(w.last_event_at||w.started_at)} ago</span></div>`).join("") : '<span class="muted">none running</span>';
   $("inbox").innerHTML = st.inbox.length ? st.inbox.map(d => `<div class="row"><span>${esc(d.question)}</span><span class="ctl">${(d.options.length?d.options:["yes","no"]).map(o=>`<button data-d="${esc(d.decision_id)}" data-a="${esc(o)}">${esc(o)}</button>`).join("")}</span></div>`).join("") : '<span class="muted">none</span>';
-  $("costs").innerHTML = `<div class="row"><span>today</span><span class="num">$${st.costs.today_usd.toFixed(2)}</span></div><div class="row"><span>last hour</span><span class="num">$${st.costs.last_hour_usd.toFixed(2)}</span></div><div class="row"><span>total</span><span class="num">$${st.costs.total_usd.toFixed(2)}</span></div>`;
+  const fb = st.feedback || {};
+  const usd = v => "$" + v.toFixed(2);
+  const feedbackRows = [
+    ["verified tasks", dash(fb.verified_tasks)],
+    ["verified per $", dash(fb.verified_per_dollar)],
+    ["verified per hour", dash(fb.verified_per_hour)],
+    ["conflict rate", dash(fb.conflict_rate)],
+    ["retry rate", dash(fb.retry_rate)],
+    ["known spend (window)", dash(fb.known_usd, usd)],
+    ["unknown-cost tasks", dash(fb.unknown_cost_tasks, a => a.length)]
+  ];
+  $("costs").innerHTML = `<div class="row"><span>today</span><span class="num">$${st.costs.today_usd.toFixed(2)}</span></div><div class="row"><span>last hour</span><span class="num">$${st.costs.last_hour_usd.toFixed(2)}</span></div><div class="row"><span>total</span><span class="num">$${st.costs.total_usd.toFixed(2)}</span></div>` +
+    feedbackRows.map(([k, v]) => `<div class="row"><span>${k}</span><span class="num">${v}</span></div>`).join("");
   $("blocked").innerHTML = st.blocked.length ? st.blocked.map(t => `<div class="row task" data-t="${esc(t.task_id)}"><span class="tiny">${esc(t.task_id)}<br><span class="muted">${esc((t.result||{}).reason||t.last_activity)}</span></span>${stageChip(t.stage)}</div>`).join("") : '<span class="muted">none</span>';
   $("next").innerHTML = st.next ? `<b>${esc(st.next.task_id)}</b><br><span class="muted tiny">${esc(st.next.objective)}</span>` + (st.hold ? `<br><span class="chip warn">held: ${esc(st.hold)}</span>` : "") : '<span class="muted">queue empty</span>';
   const classLabels = st.class_labels || {};
-  $("tasks").innerHTML = st.tasks.slice().reverse().map(t => `<div class="row task ${t.task_id===selected?"sel":""}" data-t="${esc(t.task_id)}"><span class="tiny"><b>${esc(t.task_id)}</b> <span class="muted">${esc(t.status)} · ${esc(classLabels[t.model_class] || t.model_class)} · attempt ${t.attempt}</span><br>${esc(t.objective).slice(0,90)}<br><span class="muted">${esc(t.last_activity)} · ${ago(t.last_activity_at)} ago</span></span>${stageChip(t.stage)}</div>`).join("");
+  $("tasks").innerHTML = st.tasks.slice().reverse().map(t => `<div class="row task ${t.task_id===selected?"sel":""}" data-t="${esc(t.task_id)}"><span class="tiny"><b>${esc(t.task_id)}</b> <span class="muted">${esc(t.status)} · ${esc(classLabels[t.model_class] || "—")} · attempt ${t.attempt}</span><br>${esc(t.objective).slice(0,90)}<br><span class="muted">${esc(t.last_activity)} · ${ago(t.last_activity_at)} ago</span></span>${stageChip(t.stage)}</div>`).join("");
   document.querySelectorAll(".task").forEach(el => el.onclick = () => showTask(el.dataset.t));
   document.querySelectorAll("#inbox button").forEach(b => b.onclick = async () => { await api("/v0/decisions/"+b.dataset.d, {method:"POST", body: JSON.stringify({answer:b.dataset.a})}); refresh(); });
 }
