@@ -38,7 +38,7 @@ scheduler:
   reserved_cores: 2
   cores_per_worker: 2
   host_reserve_mb: 4096
-  mem_per_worker_mb: 3072
+  mem_per_worker_mb: 1536   # admission estimate; the scope MemoryMax (3G) remains the hard cap
   hourly_cap_usd: 5.0
   daily_cap_usd: 20.0
   expected_cost_per_worker_hour_usd: 2.0
