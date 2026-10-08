@@ -124,7 +124,7 @@ class ClaudeHeadlessAdapter:
                 out.append(((ET.TEST_PASSED if passed else ET.TEST_FAILED).value,
                             {"command": summary, "tail": text[-1500:]}))
             elif name == "Bash" and _COMMIT_HINT.search(summary) and not is_error:
-                m = re.search(r"\[[\w./-]+ ([0-9a-f]{7,40})\]", text)
+                m = re.search(r"\[[\w./-]+ ([0-9a-f]{7,40})\]", text) or re.search(r"\b([0-9a-f]{40})\b", text)
                 out.append((ET.COMMIT_CREATED.value, {"sha": m.group(1) if m else None, "tail": text[-500:]}))
             elif is_error:
                 out.append((ET.TOOL_DENIED.value, {"tool": name, "summary": summary, "error": text[:500]}))

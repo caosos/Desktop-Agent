@@ -26,7 +26,7 @@ shared_contract_paths:
   - backend/models.py
   - backend/server.py
   - backend/routes/receipts.py
-  - backend/actor_context.py
+  - backend/routes/actor_context.py
 
 never_read:
   - ".env"
