@@ -1,0 +1,186 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Desktop-Agent Panel</title>
+<style>
+/* Instrument panel: summary strip on top, then detail columns. Every number has an event behind it. */
+:root { --bg:#f4f6f7; --surface:#fff; --fg:#1b2228; --muted:#5a6670; --line:#d6dde2; --accent:#0c6b75; --soft:#e2f0f1; --warn:#8a5a00; --warnsoft:#f7ecd2; --bad:#9b2c2c; --badsoft:#f9e1e1; --ok:#1f6b3a; --oksoft:#dff3e6; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --bg:#12171b; --surface:#1a2127; --fg:#e4e9ec; --muted:#98a4ad; --line:#2b353d; --accent:#55c4ce; --soft:#163338; --warn:#e3b35a; --warnsoft:#3a2e14; --bad:#f08a8a; --badsoft:#3a1c1c; --ok:#7ad39a; --oksoft:#16301f; color-scheme:dark; } }
+:root[data-theme="dark"] { --bg:#12171b; --surface:#1a2127; --fg:#e4e9ec; --muted:#98a4ad; --line:#2b353d; --accent:#55c4ce; --soft:#163338; --warn:#e3b35a; --warnsoft:#3a2e14; --bad:#f08a8a; --badsoft:#3a1c1c; --ok:#7ad39a; --oksoft:#16301f; color-scheme:dark; }
+* { box-sizing:border-box; }
+body { margin:0; background:var(--bg); color:var(--fg); font:14px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; padding-inline:16px; padding-block:12px 32px; }
+.wrap { max-width:1200px; margin:0 auto; }
+header { display:flex; flex-wrap:wrap; gap:8px 20px; align-items:baseline; border-bottom:1px solid var(--line); padding-bottom:8px; }
+h1 { font-size:18px; margin:0; letter-spacing:.02em; }
+.mono { font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; font-size:12px; }
+.muted { color:var(--muted); }
+.stages { display:flex; flex-wrap:wrap; gap:4px; margin:12px 0; }
+.stages span { font-family:ui-monospace,monospace; font-size:11px; padding:4px 8px; border:1px solid var(--line); background:var(--surface); color:var(--muted); }
+.stages span.on { background:var(--accent); color:#fff; border-color:var(--accent); }
+.stages span.alt { border-style:dashed; }
+.grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(300px,1fr)); gap:12px; }
+.card { background:var(--surface); border:1px solid var(--line); padding:10px 12px; min-width:0; }
+.card h2 { font-size:12px; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); margin:0 0 8px; }
+.row { display:flex; justify-content:space-between; gap:8px; padding:4px 0; border-bottom:1px solid var(--line); }
+.row:last-child { border-bottom:none; }
+.chip { font-family:ui-monospace,monospace; font-size:11px; padding:2px 6px; border-radius:3px; background:var(--soft); color:var(--accent); white-space:nowrap; }
+.chip.bad { background:var(--badsoft); color:var(--bad); } .chip.ok { background:var(--oksoft); color:var(--ok); } .chip.warn { background:var(--warnsoft); color:var(--warn); }
+.num { font-variant-numeric:tabular-nums; }
+button { font:inherit; padding:6px 12px; border:1px solid var(--line); background:var(--surface); color:var(--fg); cursor:pointer; }
+button.primary { background:var(--accent); color:#fff; border-color:var(--accent); }
+button.danger { color:var(--bad); }
+input, textarea, select { font:inherit; width:100%; padding:6px 8px; border:1px solid var(--line); background:var(--bg); color:var(--fg); }
+textarea { min-height:64px; resize:vertical; }
+.goal { display:grid; gap:8px; grid-template-columns:1fr; }
+.goal .opts { display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px; }
+pre { font-size:11.5px; line-height:1.4; background:var(--bg); border:1px solid var(--line); padding:8px; overflow:auto; max-height:360px; margin:0; white-space:pre-wrap; word-break:break-word; }
+#events { max-height:260px; overflow:auto; }
+.ev { display:grid; grid-template-columns:52px 1fr; gap:8px; padding:2px 0; font-size:12.5px; }
+a { color:var(--accent); }
+.ctl { display:flex; flex-wrap:wrap; gap:6px; align-items:center; }
+.tiny { font-size:11px; }
+.task { cursor:pointer; }
+.task.sel { outline:2px solid var(--accent); }
+@media (max-width:560px) { .goal .opts { grid-template-columns:1fr; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+<header>
+  <h1>DESKTOP-AGENT</h1>
+  <span id="conn" class="chip warn">connecting</span>
+  <span class="muted tiny">uptime <span id="uptime" class="num">–</span>s · events <span id="seq" class="num">0</span></span>
+  <span class="muted tiny" id="slots"></span>
+  <span style="margin-left:auto" class="ctl">
+    <button id="pause">Pause</button><button id="resume">Resume</button><button id="stop" class="danger">Stop all</button>
+  </span>
+</header>
+
+<div class="stages" id="stages"></div>
+
+<div class="grid">
+  <div class="card">
+    <h2>Goal</h2>
+    <form id="goalform" class="goal">
+      <select id="project"></select>
+      <textarea id="text" placeholder="What should be done? One bounded task."></textarea>
+      <div class="opts">
+        <select id="task_type"><option value="docs">docs (cheap model)</option><option value="tests_only">tests only (cheap)</option><option value="config">config (cheap)</option><option value="code" selected>code (strong model)</option></select>
+        <input id="owned" placeholder="owned area globs, comma separated">
+        <input id="budget" type="number" step="0.5" min="0.5" placeholder="budget USD (default 3)">
+      </div>
+      <div class="ctl"><button class="primary" type="submit">Submit goal</button><span id="goalmsg" class="muted tiny"></span></div>
+    </form>
+  </div>
+
+  <div class="card"><h2>Projects</h2><div id="projects"></div></div>
+  <div class="card"><h2>Workers</h2><div id="workers" class="muted">none running</div></div>
+  <div class="card"><h2>Owner decisions</h2><div id="inbox" class="muted">none</div></div>
+  <div class="card"><h2>Cost / usage</h2><div id="costs"></div></div>
+  <div class="card"><h2>Blocked</h2><div id="blocked" class="muted">none</div></div>
+  <div class="card"><h2>Next task</h2><div id="next" class="muted">queue empty</div></div>
+</div>
+
+<div class="grid" style="margin-top:12px">
+  <div class="card"><h2>Tasks</h2><div id="tasks"></div></div>
+  <div class="card"><h2>Live events</h2><div id="events"></div></div>
+</div>
+
+<div class="grid" style="margin-top:12px" id="detail" hidden>
+  <div class="card"><h2>Task <span id="d_id" class="mono"></span> · <span id="d_stage" class="chip"></span></h2>
+    <div id="d_tests"></div>
+    <h2 style="margin-top:10px">Files changed</h2><div id="d_files"></div>
+    <h2 style="margin-top:10px">Receipts</h2><div id="d_receipts"></div>
+  </div>
+  <div class="card"><h2>Diff</h2><pre id="d_diff"></pre></div>
+</div>
+</div>
+
+<script>
+const STAGES = ["READING","PLANNING","BUILDING","TESTING","REVIEWING","INTEGRATING","DONE","BLOCKED","WAITING_OWNER"];
+let token = new URLSearchParams(location.search).get("access_token") || "";
+try { if (token) localStorage.setItem("da_token", token); else token = localStorage.getItem("da_token") || ""; } catch (e) {}
+if (!token) token = window.prompt ? "" : "";
+const $ = id => document.getElementById(id);
+const H = () => ({ "Authorization": "Bearer " + token, "Content-Type": "application/json", "X-Source": "panel" });
+let selected = null, lastSeq = 0;
+
+function esc(s){ return String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
+function ago(ts){ if(!ts) return ""; const s = Math.max(0, Date.now()/1000 - ts); return s<60? Math.round(s)+"s" : s<3600? Math.round(s/60)+"m" : Math.round(s/3600)+"h"; }
+function stageChip(s){ const cls = s==="DONE"?"ok": (s==="BLOCKED"?"bad": (s==="WAITING_OWNER"?"warn":"")); return `<span class="chip ${cls}">${esc(s)}</span>`; }
+
+async function api(path, opts={}) {
+  const r = await fetch(path, Object.assign({headers: H()}, opts));
+  if (r.status === 401) { $("conn").textContent = "token rejected"; $("conn").className = "chip bad"; throw new Error("401"); }
+  return r.json();
+}
+
+function render(st) {
+  $("uptime").textContent = st.uptime_sec; $("seq").textContent = st.last_seq;
+  $("slots").textContent = `slots ${st.slots.slots} (cpu ${st.slots.cpu_slots} · mem ${st.slots.mem_slots} · budget ${st.slots.budget_slots} · ceiling ${st.slots.ceiling}) · running ${st.slots.running}` + (st.paused ? " · PAUSED" : "");
+  const active = st.tasks.filter(t => t.status==="RUNNING").map(t=>t.stage);
+  const lit = new Set(active.length ? active : (st.next ? ["PLANNING"] : []));
+  $("stages").innerHTML = STAGES.map(s => `<span class="${lit.has(s)?"on":""} ${s==="BLOCKED"||s==="WAITING_OWNER"?"alt":""}">${s}</span>`).join("");
+  const sel = $("project"); if (!sel.options.length) st.projects.forEach(p => { const o = document.createElement("option"); o.value=o.textContent=p.name; sel.appendChild(o); });
+  $("projects").innerHTML = st.projects.map(p => `<div class="row"><span><b>${esc(p.name)}</b> <span class="muted tiny">${esc(p.integration_branch)}</span><br><span class="muted tiny">${esc(p.last_activity)} ${p.last_activity_at? "· "+ago(p.last_activity_at):""}</span></span>${stageChip(p.stage)}</div>`).join("");
+  $("workers").innerHTML = st.workers.length ? st.workers.map(w => `<div class="row"><span class="mono">${esc(w.worker_id)}</span><span class="tiny">${esc(w.task_id)} · ${ago(w.started_at)} · last event ${ago(w.last_event_at||w.started_at)} ago</span></div>`).join("") : '<span class="muted">none running</span>';
+  $("inbox").innerHTML = st.inbox.length ? st.inbox.map(d => `<div class="row"><span>${esc(d.question)}</span><span class="ctl">${(d.options.length?d.options:["yes","no"]).map(o=>`<button data-d="${esc(d.decision_id)}" data-a="${esc(o)}">${esc(o)}</button>`).join("")}</span></div>`).join("") : '<span class="muted">none</span>';
+  $("costs").innerHTML = `<div class="row"><span>today</span><span class="num">$${st.costs.today_usd.toFixed(2)}</span></div><div class="row"><span>last hour</span><span class="num">$${st.costs.last_hour_usd.toFixed(2)}</span></div><div class="row"><span>total</span><span class="num">$${st.costs.total_usd.toFixed(2)}</span></div>`;
+  $("blocked").innerHTML = st.blocked.length ? st.blocked.map(t => `<div class="row task" data-t="${esc(t.task_id)}"><span class="tiny">${esc(t.task_id)}<br><span class="muted">${esc((t.result||{}).reason||t.last_activity)}</span></span>${stageChip(t.stage)}</div>`).join("") : '<span class="muted">none</span>';
+  $("next").innerHTML = st.next ? `<b>${esc(st.next.task_id)}</b><br><span class="muted tiny">${esc(st.next.objective)}</span>` : '<span class="muted">queue empty</span>';
+  $("tasks").innerHTML = st.tasks.slice().reverse().map(t => `<div class="row task ${t.task_id===selected?"sel":""}" data-t="${esc(t.task_id)}"><span class="tiny"><b>${esc(t.task_id)}</b> <span class="muted">${esc(t.status)} · ${esc(t.model_class)} · attempt ${t.attempt}</span><br>${esc(t.objective).slice(0,90)}<br><span class="muted">${esc(t.last_activity)} · ${ago(t.last_activity_at)} ago</span></span>${stageChip(t.stage)}</div>`).join("");
+  document.querySelectorAll(".task").forEach(el => el.onclick = () => showTask(el.dataset.t));
+  document.querySelectorAll("#inbox button").forEach(b => b.onclick = async () => { await api("/v0/decisions/"+b.dataset.d, {method:"POST", body: JSON.stringify({answer:b.dataset.a})}); refresh(); });
+}
+
+async function showTask(tid) {
+  selected = tid; const d = await api("/v0/tasks/"+tid);
+  $("detail").hidden = false; $("d_id").textContent = tid; $("d_stage").textContent = d.stage;
+  const v = (d.result && d.result.verify) || (d.result && d.result.detail) || {};
+  const tests = (v.tests||[]);
+  $("d_tests").innerHTML = tests.length ? tests.map(t => `<div class="row"><span class="mono">${esc(t.command)}</span><span class="chip ${t.exit_code===0?"ok":"bad"}">exit ${t.exit_code}</span></div><pre>${esc(t.tail)}</pre>`).join("") : `<span class="muted">${v.reasons? esc(v.reasons.join("; ")) : "no verifier run yet"}</span>`;
+  $("d_files").innerHTML = (d.files||[]).map(f => `<div class="row"><span class="mono">${esc(f.path)}</span><span class="num tiny">+${f.added} / -${f.deleted}</span></div>`).join("") || '<span class="muted">none</span>';
+  $("d_receipts").innerHTML = (d.receipts||[]).map(r => `<div class="row"><span class="tiny">${esc(r.claim).slice(0,140)}<br><span class="muted">${esc(r.actor)} · ${esc(r.source)} · ${esc((r.evidence||[]).join(", ")).slice(0,120)}</span></span><span class="chip ${r.result_label==="verified"?"ok":r.result_label==="failed"?"bad":"warn"}">${esc(r.result_label)}</span></div>`).join("") || '<span class="muted">none</span>';
+  $("d_diff").textContent = d.diff || d.diff_error || "(no committed changes yet)";
+  render(await api("/v0/state"));
+}
+
+async function refresh() { try { render(await api("/v0/state")); } catch(e) {} }
+
+function connect() {
+  const es = new EventSource(`/v0/events?since=${lastSeq}&access_token=${encodeURIComponent(token)}`);
+  es.onopen = () => { $("conn").textContent = "live"; $("conn").className = "chip ok"; };
+  es.onerror = () => { $("conn").textContent = "reconnecting"; $("conn").className = "chip warn"; };
+  es.onmessage = e => {};
+  STAGES.concat(["GOAL_RECEIVED","TASK_CREATED","TASK_CLAIMED","WORKER_STARTED","MODEL_SELECTED","FILE_READ","FILE_CHANGED","TOOL_CALLED","TOOL_DENIED","TEST_STARTED","TEST_PASSED","TEST_FAILED","COMMIT_CREATED","CLAIM_WRITTEN","BLOCKED","OWNER_DECISION_REQUESTED","OWNER_DECISION_RECORDED","BUDGET_WARNING","WORKER_STALLED","WORKER_FINISHED","WORKER_KILLED","VERIFY_STARTED","VERIFY_PASSED","VERIFY_FAILED","PUSHED","PR_OPENED","INTEGRATION_STARTED","INTEGRATION_PASSED","INTEGRATION_FAILED","TASK_DONE","CONTROL"]).forEach(t => es.addEventListener(t, e => {
+    const d = JSON.parse(e.data); lastSeq = d.seq || lastSeq;
+    const box = $("events"); const row = document.createElement("div"); row.className = "ev";
+    row.innerHTML = `<span class="mono muted">${new Date(d.ts*1000).toLocaleTimeString([], {hour:"2-digit",minute:"2-digit",second:"2-digit"})}</span><span><span class="chip">${esc(d.type)}</span> ${esc(d.task_id||"")} ${esc(d.text)}</span>`;
+    box.prepend(row); while (box.children.length > 300) box.removeChild(box.lastChild);
+    refresh(); if (selected && d.task_id === selected && ["VERIFY_PASSED","VERIFY_FAILED","WORKER_FINISHED","TASK_DONE","PUSHED"].includes(d.type)) showTask(selected);
+  }));
+}
+
+$("goalform").onsubmit = async e => {
+  e.preventDefault();
+  const body = { project: $("project").value, text: $("text").value, task_type: $("task_type").value,
+    owned_area: $("owned").value.split(",").map(s=>s.trim()).filter(Boolean), budget_usd: $("budget").value ? Number($("budget").value) : null };
+  $("goalmsg").textContent = "submitting…";
+  try { const r = await api("/v0/goals", {method:"POST", body: JSON.stringify(body), headers: Object.assign(H(), {"Idempotency-Key": crypto.randomUUID()})});
+    $("goalmsg").textContent = r.task_ids ? "task " + r.task_ids.join(", ") + " created" : JSON.stringify(r); $("text").value = ""; refresh(); }
+  catch (err) { $("goalmsg").textContent = "failed: " + err; }
+};
+$("pause").onclick = () => api("/v0/control", {method:"POST", body: JSON.stringify({action:"pause"})}).then(refresh);
+$("resume").onclick = () => api("/v0/control", {method:"POST", body: JSON.stringify({action:"resume"})}).then(refresh);
+$("stop").onclick = () => api("/v0/control", {method:"POST", body: JSON.stringify({action:"stop"})}).then(refresh);
+
+if (!token) {
+  const t = window.prompt("Desktop-Agent API token (from ~/.config/desktop-agent/token):");
+  if (t) { token = t.trim(); try { localStorage.setItem("da_token", token); } catch(e) {} }
+}
+refresh(); connect(); setInterval(refresh, 15000);
+</script>
+</body>
+</html>

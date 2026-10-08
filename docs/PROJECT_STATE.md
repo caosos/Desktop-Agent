@@ -70,3 +70,14 @@ HANDOFF CAPSULE
 - Product invariants that matter here: receipt law; bounded disposable workers; scheduler-sized concurrency measured as verified work per dollar and hour; widget never does work; desktop Aria ≠ resident Aria
 - Do NOT change:    CAOSCare repo; anything under ~/CAOSCARE-*
 - Next safe action: wait for BUILD; then Stage 1 step 1 (store + events + receipts)
+
+## 2026-10-08 — BUILD authorised; Stage 1 control plane built (steps 1–6, 8)
+
+- **Agent/tool:** Claude Code (Fable 5.1) on the EliteDesk, acting as coordinator and sole worker (the platform cannot yet launch its own workers for its own repo).
+- **Authorization:** Michael's comment on PR #1: "BUILD. Keep busy until I'm needed." PR #1 merged to `main` (`13ae56a`).
+- **Branch/ref:** `build/stage-1` (Stage 1 integration branch; PR to `main` when the acceptance run is recorded).
+- **What changed:** `desktop_agent/control/` — events + stage derivation, SQLite/JSONL store, receipts (law enforced in code), contracts, project loader, runtime config, sandbox (systemd-run scope + bwrap, per-worker HOME with only the Claude credential), per-task git workspaces (local clone + remote fetch; the integration checkout is never touched), claude_headless adapter (stream-json → events), launcher, verifier (clean checkout, owned-area and shared-contract check, acceptance tests), integrator (push + ls-remote check + draft PR), router (class → model, escalation ladder), scheduler (admission formula from IMPLEMENTATION_PLAN §4, stall kill, retry → escalate → BLOCKED), service, FastAPI v0 API with SSE; `panel/index.html` instrument panel; `config/` runtime, CAOSCare project descriptor, worker prompt template; `tests/`.
+- **What was verified:** `19 passed, 1 warning in 4.78s` (unit + end-to-end pipeline with a fake executor against a local bare remote: good path DONE with verified receipt chain and remote SHA check; failing tests → retry → escalation → BLOCKED after attempt 3; shared-contract violation fails verification; worker BLOCKED claim; API auth/idempotency/state/control/receipts/events replay). Host checks: bwrap + systemd-run work for this user; Claude Code 2.1.293 runs headless from a per-worker HOME (one real $0.27 probe run); stream-json shapes recorded in the adapter docstring.
+- **Deviations from the plan, with reasons:** workspaces are per-task local clones rather than `git worktree` so a worker can never reach the integration checkout's `.git`; the governed MCP tool server is deferred because the worker's claim is its final message (parsed into CLAIM_WRITTEN + unverified receipt) and no worker-side tool needs the control plane yet; CAOSCare's project descriptor lives in `config/projects/caoscare.yaml` until CAOSCare carries its own.
+- **What is blocked:** nothing for the next step.
+- **Next safe step:** install the control plane as a user service, run the Stage 1 acceptance against CAOSCare (one docs/config-scope task), then build the Aria widget (step 7).
