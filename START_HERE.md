@@ -11,18 +11,27 @@ decisions or hard external blockers.
 
 **Law.** No action without a receipt. No receipt without provenance.
 
-**Status (2026-10-08).** Design phase. No code exists. The architecture
-review is written; eight decisions are waiting on Michael before the first
-vertical slice starts.
+**Status (2026-10-08).** DESIGN mode. No code exists. The architecture
+review and the implementation plan are written. Michael's Autonomous
+Execution Directive is recorded. Implementation waits for Michael's
+explicit BUILD authorisation.
+
+**Michael-facing surface.** A small desktop widget called Aria (text and
+push-to-talk) in Michael's GNOME session, backed by the control plane over a
+local API, plus a web instrument panel for inspection. Desktop Aria is a
+separate identity from CAOSCare's resident Aria; they share a name only.
 
 ## Reading order
 
 1. `AGENTS.md` — working rules (inherited from CAOSCare)
 2. this file
-3. `docs/ARCHITECTURE_REVIEW_2026-10-08.md` — the reviewed architecture:
-   what to reuse, what not to build, the minimum viable design, phases, and
-   the decisions for Michael (§12)
-4. `docs/PROJECT_STATE.md` — dated, append-only build state
+3. `docs/OWNER_DIRECTIVES.md` — Michael's direction, dated, in his terms
+4. `docs/IMPLEMENTATION_PLAN.md` — system shape, widget design, API,
+   dynamic scheduler, stages and acceptance, decision status
+5. `docs/ARCHITECTURE_REVIEW_2026-10-08.md` — the reviewed architecture:
+   what to reuse, what not to build, sandbox, state/event/receipt model.
+   Where it says "max two workers" the directive and plan supersede it.
+6. `docs/PROJECT_STATE.md` — dated, append-only build state
 
 ## First managed project
 
@@ -44,13 +53,13 @@ never copies it.
 
 ## Decisions pending with Michael
 
-See review §12. In short: run location during Pilot 1 week; API keys vs
-subscription for model usage; integration authority; owner-decision
-taxonomy; PR #67 in CAOSCare (persistent agent team) adopt or decline;
-`PROJECT_STATE.md` authorship; remote access. Decision 1 (separate repo) is
-answered: this repository, created 2026-10-08.
+Current table: `docs/IMPLEMENTATION_PLAN.md` §7. Answered so far: separate
+repository (this one), API keys for model usage, the owner-decision
+taxonomy. Open: BUILD authorisation; run location during Pilot 1 week;
+integration authority; CAOSCare PR #67; `PROJECT_STATE.md` authorship;
+remote access; which repository is "Deal Sniffer".
 
 ## Next step
 
-Phase 0, the vertical slice (review §11), once the pending decisions that
-gate it (run location, payment path) are answered.
+On BUILD: Stage 1 of the implementation plan (widget + control plane + one
+CAOSCare task end to end, no terminal), in the build order listed there.

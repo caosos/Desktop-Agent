@@ -49,9 +49,15 @@ This law is also the platform's own design invariant; see
 
 Every unit of work is one task, one branch, one worktree, tests, a commit, a
 receipt, a handoff, then exit. No long-lived agent sessions that accumulate
-context. At most two workers at once. Workers never push to `main`, never
-merge, never deploy, never hold provider or GitHub secrets. Idle is better
-than destructive parallelism.
+context. Workers never push to `main`, never merge, never deploy, never hold
+provider or GitHub secrets.
+
+Concurrency is not a fixed number. The platform's scheduler sizes it from
+hardware capacity, cost budget, provider limits and edit conflicts
+(`docs/IMPLEMENTATION_PLAN.md` §4; `docs/OWNER_DIRECTIVES.md` 2026-10-08).
+The measure is verified work per dollar and per hour, not agent count.
+Until the scheduler exists, humans launching workers by hand keep to two at
+once. Idle is better than destructive parallelism.
 
 ## Change discipline
 
@@ -83,8 +89,12 @@ than destructive parallelism.
 
 Stop and report before acting if:
 
-- the change needs a decision that is genuinely Michael's (review §12 and
-  the owner-decision taxonomy, once ratified)
+- the change needs a decision that is genuinely Michael's: owner/product
+  decisions, credentials, destructive operations, production deployment,
+  policy changes, or unavailable external dependencies (the taxonomy in
+  `docs/OWNER_DIRECTIVES.md` 2026-10-08, point 9)
+- implementation is requested while the project is in DESIGN mode (Michael
+  authorises BUILD explicitly)
 - a destructive or irreversible action is requested (deleting worktrees or
   branches with unique work, force pushes, touching another project's live
   services)
