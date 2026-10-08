@@ -5,7 +5,7 @@ import threading
 import pytest
 
 from widget.aria import Aria
-from widget.client import ApiError, Client, RefreshCoalescer
+from widget.client import ApiError, Client, RefreshCoalescer, class_label
 
 
 class StubClient:
@@ -33,6 +33,15 @@ def test_refresh_coalescer_keeps_one_trailing_refresh_per_burst():
     assert refreshes.request(10.9) is None
     refreshes.dispatched()
     assert refreshes.request(11.0) == pytest.approx(1.0)
+
+
+def test_class_label_known_unknown_and_missing():
+    state = {"class_labels": {"cloud_strong": "Strong label"}}
+    assert class_label(state, "cloud_strong") == "Strong label"
+    assert class_label(state, "cloud_other") == "cloud_other"
+    assert class_label({}, "cloud_strong") == "cloud_strong"
+    assert class_label({"class_labels": None}, "cloud_strong") == "cloud_strong"
+    assert class_label(state, None) == ""
 
 
 def test_direct_mode_confirms_then_submits():
