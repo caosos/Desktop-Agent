@@ -11,7 +11,7 @@ decisions or hard external blockers.
 
 **Law.** No action without a receipt. No receipt without provenance.
 
-**Status (2026-10-08).** BUILD, Stage 1 (PR #2, branch `build/stage-1`).
+**Status (2026-10-08).** BUILD, Stage 1 complete on the control-plane side (PR #2, branch `build/stage-1`, ready for review).
 Michael authorised BUILD on PR #1. The control plane runs as the user
 service `desktop-agent.service` on the EliteDesk (`127.0.0.1:8477`); the
 first real CAOSCare task went end to end with a verified receipt chain
