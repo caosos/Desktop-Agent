@@ -9,6 +9,7 @@ from pathlib import Path
 
 from . import router, workspace as ws
 from .adapters.claude_headless import ClaudeHeadlessAdapter
+from .adapters.codex_exec import CodexExecAdapter
 from .config import RuntimeConfig
 from .contracts import TaskContract, compile_contract
 from .events import Actor, Event, EventType as ET, Provenance, derive_stage
@@ -61,7 +62,7 @@ class Service:
         self.cfg = cfg
         self.store = Store(cfg.data_dir)
         self.projects = load_projects(cfg.project_files)
-        self.adapters = {"claude_headless": ClaudeHeadlessAdapter()}
+        self.adapters = {"claude_headless": ClaudeHeadlessAdapter(), "codex_exec": CodexExecAdapter()}
         self.launcher = Launcher(cfg, self.store, self.adapters)
         self.verifier = Verifier(cfg, self.store)
         self.integrator = Integrator(cfg, self.store)
@@ -94,7 +95,7 @@ class Service:
                     owned_area: list[str] | None = None, model_class: str | None = None,
                     why_now: str = "owner instruction", acceptance_tests: list[str] | None = None,
                     expected_artifacts: list[str] | None = None, budget_usd: float | None = None,
-                    max_attempts: int = 3) -> dict:
+                    max_attempts: int = 3, worker_adapter: str = "claude_headless") -> dict:
         if project not in self.projects:
             raise KeyError(f"unknown project {project!r}")
         pkg = self.projects[project]
@@ -102,14 +103,17 @@ class Service:
         self.store.save_goal(goal_id, project, text, source)
         self.store.append_event(Event(type=ET.GOAL_RECEIVED.value, task_id=None, payload={"goal_id": goal_id, "project": project, "text": text},
                                       provenance=Provenance(actor=Actor.HUMAN.value, source=source, evidence=[f"goal={goal_id}"])))
+        if worker_adapter not in self.adapters:
+            raise ValueError(f"unknown worker_adapter {worker_adapter!r}; known: {sorted(self.adapters)}")
         mc = router.at_least(model_class or router.default_class(task_type), pkg.min_model_class)
-        router.resolve(self.cfg, mc)
+        router.resolve(self.cfg, mc, worker_adapter)
         contract = compile_contract(
             project=pkg, objective=text, why_now=why_now, goal_id=goal_id, task_type=task_type,
             owned_area=owned_area or [], model_class=mc,
             budget_usd=budget_usd or self.cfg.default_budget_usd, max_turns=self.cfg.default_max_turns,
             wall_clock_sec=self.cfg.scope.runtime_max_sec, acceptance_tests=acceptance_tests,
             expected_artifacts=expected_artifacts, max_attempts=max_attempts)
+        contract.worker_adapter = worker_adapter
         self._create_task(contract, source=source)
         write_receipt(self.store, subject_type="goal", subject_id=goal_id, claim=f"goal accepted; task {contract.task_id} created",
                       actor=Actor.CONTROL.value, source="service", result_label=VERIFIED,

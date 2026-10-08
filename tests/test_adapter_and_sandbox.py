@@ -90,7 +90,10 @@ def test_sandbox_wrap_shapes(tmp_path: Path):
 
 def test_sandbox_wrap_executes(tmp_path: Path):
     """The wrapped command must actually run on this host (catches bad systemd/bwrap arguments)."""
-    import subprocess, uuid
+    import os, subprocess, uuid
+    import pytest
+    if os.environ.get("DESKTOP_AGENT_WORKER"):
+        pytest.skip("already inside a worker sandbox; nested systemd scopes are unavailable")
     cfg = RuntimeConfig(data_dir=tmp_path / "d", workspaces_dir=tmp_path / "w", token_file=tmp_path / "t")
     ws = tmp_path / "w" / "repo"; ws.mkdir(parents=True)
     home = tmp_path / "w" / "home"; home.mkdir()

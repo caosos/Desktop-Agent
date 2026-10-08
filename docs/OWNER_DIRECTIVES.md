@@ -95,3 +95,40 @@ hardware purchase or local models needed for that.
   decision 5.
 - Confirms review §12 decision 1 (separate repository, `caosos/Desktop-Agent`).
 - Adds a gate: no implementation until Michael says BUILD.
+
+---
+
+## 2026-10-08 (later) — Owner Expectations & Operating Directive
+
+Received from Michael with the command "BUILD. Keep busy until I'm needed." Recorded in summary; the full text is Michael's.
+
+1. **What is being built:** Aria as Michael's persistent desktop assistant and AI operating system: a small Linux desktop widget, voice or text, that understands a request ("Build this", "Fix this", "Show me what my agents are working on", "Finish this project", "Find out what's blocking progress", "Handle this and let me know when you actually need me"), identifies the project, organises and assigns work, monitors, verifies and continues. No terminals, no restarting agents, no babysitting.
+2. **One assistant managing everything:** one dashboard across Desktop-Agent, CAOSCare, Deal Sniffer/MichaelOS and future projects: projects and agents, what each is doing and with which model, last activity, health, stalls, failures, tests, changes, commits, verified results, real costs and remaining budgets, blockers, decisions, next actions. Detect stopped, stuck, duplicating or wasteful agents; investigate, recover, reassign or escalate.
+3. **Automatic model selection (extremely important):** never ask Michael to pick a model. Choose the least expensive model capable of the task: Luna-class for extraction, classification, summaries, repetitive work; Sol-class for normal development, coding, research, debugging; Astra-class only when justified. Capability classes, not vendor restrictions. Consider complexity, capabilities, context, pricing, quotas, previous failures and results; escalate intelligently on failure. Measure verified work per dollar and per hour. Track real costs; never invent estimates.
+4. **Autonomous execution:** persistent; as many bounded workers as resources, cost, permissions and dependencies allow; no arbitrary two-worker cap; workers do assigned work, test, report, exit; the control plane schedules the next useful task; no "continue" prompts; no busywork.
+5. **Bigger than coding:** eventually operate the computer through governed tools (files, software, websites, documents, spreadsheets, business workflows, desktop apps). Voice and text lead into the same execution system. Widget = interface; control plane = execution and supervision.
+6. **Hardware and model independence:** existing cloud services and owned Linux hardware first; no GPU prerequisite; possible RAM/storage upgrade; later local models, more machines, distributed processing; design for it now; no single-provider dependency.
+7. **Permanent rules:** "No action without a receipt. No receipt without provenance." "Capture everything. Execute one thing. Finish it. Then move." Independent verification; traceability to instruction, actor, files/systems, tests, outcome. Project truth survives lost conversations, expired sessions, replaced agents and restarts; nothing critical lives only in chat memory.
+8. **Michael's time:** reasonable technical choices made independently within approved boundaries; involve him only for owner decisions, credentials, unauthorised spend, destructive actions, significant governance changes, production deployment approval, unavoidable external dependencies. When a decision is needed: explain, recommend, ask one question.
+9. **Boundaries and coordination:** Desktop-Agent is separate from CAOSCare and Deal Sniffer; it may manage them later but must not silently change their implementations. **The ChatGPT Work agent is the sole active Desktop-Agent development coordinator**; other agents contribute research, review or assigned bounded work without competing implementations or conflicting project state. Use the existing repository, review, plan and history; do not restart solved work without evidence.
+10. **Standard for success:** tell Aria what is needed, walk away, and on return see what got done, what was independently verified, what remains, what failed and why, cost, what is next, and whether a decision is needed.
+
+### Acknowledgement and gap analysis by the Claude Code coordinator (this session)
+
+Acknowledged. From this point this session is **not** the development coordinator; it finishes the Codex-adapter piece it had in hand, leaves project state consistent, and takes only assigned bounded work, research or review from the ChatGPT Work coordinator or Michael.
+
+Measured against the directive, what exists today (`build/stage-1`, `build/stage-2`) and the genuine gaps:
+
+| Expectation | State today | Gap |
+|---|---|---|
+| Widget, voice/text → execution | GTK4 widget code with direct-command and conversational modes; push-to-talk optional | Not yet shown on Michael's desktop; no Anthropic key on the box for conversational mode |
+| Understand request → identify project → organise → assign | One instruction → one task contract (template); project named explicitly | **Planner missing**: natural-language request → project identification → several contracts with dependencies |
+| One dashboard across projects | Panel + API: projects, workers, model, last activity, tests, files, receipts, blockers, next, costs, hold reason | Health/stall shown only as kill events; no duplicate-work detection; MichaelOS not onboarded (repo name unconfirmed) |
+| Automatic model selection, least expensive capable, learns from failures | Class ladder (`cloud_cheap` / `cloud_strong` / `cloud_max` ≈ Luna / Sol / Astra), task-type default, per-project floor, escalate-on-failure, per-adapter maps | **No evaluation of complexity/context per task; no memory of prior outcomes per task type; no quota awareness across providers** |
+| Real costs, no invented estimates | Claude headless cost from its own `total_cost_usd`; Codex cost recorded as unknown with token counts | Subscription executors have no dollar figure; an API-key executor would make costs exact (owner item: key) |
+| As many workers as resources allow | Admission formula implemented; ceiling configured at 1 for Stage 1 | Ceiling must be raised by config once two concurrent runs are proven; feedback loop (verified/$ and /hour) not yet computed |
+| Verification and receipts | Enforced in code: worker claims `unverified`; verifier/integrator `verified` or `failed`; clean-checkout tests; ls-remote check | — |
+| Project truth survives sessions | SQLite + JSONL + git; project packages point at repo truth | — |
+| Governed desktop tools beyond coding | Not started (by plan, Phase 3) | — |
+| Provider independence | Two executors (Claude Code, Codex), both CLI/subscription based | No direct-API or local-model executor yet |
+| Only genuine owner decisions | Decision inbox exists in API/widget but nothing files decisions yet | Planner/scheduler should file decisions instead of BLOCKED-with-reason |

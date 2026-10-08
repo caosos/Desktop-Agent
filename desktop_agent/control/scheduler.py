@@ -129,7 +129,7 @@ class Scheduler:
             return
         contract = TaskContract.from_dict(row["contract"])
         project = self.projects[contract.project]
-        model = router.resolve(self.cfg, contract.model_class)
+        model = router.resolve(self.cfg, contract.model_class, contract.worker_adapter)
         port = free_port(*self.cfg.test_port_range, taken=self._ports)
         self._ports.add(port)
         self.store.set_task_status(task_id, "RUNNING")
