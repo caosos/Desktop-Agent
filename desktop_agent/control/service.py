@@ -313,9 +313,20 @@ class Service:
             ptasks = [t for t in tasks if t["project"] == name]
             active = [t for t in ptasks if t["status"] in ("READY", "RUNNING")]
             newest = max(ptasks, key=lambda t: t["last_activity_at"], default=None)
-            projects.append({"name": name, "integration_branch": pkg.integration_branch,
-                             "stage": (active[0]["stage"] if active else (newest["stage"] if newest else "IDLE")),
-                             "open_tasks": len(active), "last_activity": newest["last_activity"] if newest else "",
+            running = [t for t in active if t["status"] == "RUNNING"]
+            waiting = [d for d in self.store.open_decisions()]
+            if running:
+                stage = running[0]["stage"]
+            elif active:
+                stage = "PLANNING"                     # READY tasks waiting for a slot
+            elif any(t["status"] == "BLOCKED" for t in ptasks[-3:]) and waiting:
+                stage = "WAITING_OWNER"
+            else:
+                stage = "IDLE"                         # nothing active; history stays in the task list
+            projects.append({"name": name, "integration_branch": pkg.integration_branch, "stage": stage,
+                             "open_tasks": len(active), "blocked_tasks": sum(1 for t in ptasks if t["status"] == "BLOCKED"),
+                             "done_tasks": sum(1 for t in ptasks if t["status"] == "DONE"),
+                             "last_activity": newest["last_activity"] if newest else "",
                              "last_activity_at": newest["last_activity_at"] if newest else None})
         workers = [{"worker_id": r.worker_id, "task_id": tid, "started_at": r.started_at, "last_event_at": r.last_event_at}
                    for tid, r in self.launcher.running.items()]

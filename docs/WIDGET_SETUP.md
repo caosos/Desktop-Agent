@@ -18,8 +18,10 @@ cd ~/Desktop-Agent && git checkout build/stage-1      # until merged to main
 python3 -m widget.app --token '<paste token>'
 #    (stored in ~/.config/desktop-agent/widget.json, mode 0600)
 
-# 3. optional: conversational Aria (otherwise direct-command mode works):
-python3 -m widget.app --anthropic-api-key '<key>'
+# 3. conversational Aria needs no key: the control plane runs Aria's
+#    reasoning server-side (POST /v0/aria/chat, cheap structured calls on the
+#    subscription, about a cent per exchange). A local Anthropic key is only
+#    an alternative:  python3 -m widget.app --anthropic-api-key '<key>'
 #    optional voice: add "openai_api_key": "<key>" to the same json file
 #    and install alsa-utils for arecord.
 ```
@@ -35,11 +37,12 @@ Requirements already present on this host: Python 3.10, PyGObject with GTK 4.6.
   · Awaiting owner (n) · Paused · Blocked · Offline`, one row per project with
   its stage, the single next owner decision with answer buttons, worker count,
   slots and today's cost.
-- Text box: in direct mode, `in caoscare: <what to do>` (or just the
-  instruction when one project exists) asks for confirmation, then submits a
-  goal; `status`, `pause`, `resume`, `stop` work as commands. In
-  conversational mode (API key set) Aria uses the same control-plane tools and
-  confirms before submitting.
+- Text box: talk to Aria in plain language. By default the control plane's
+  Aria answers (status questions, explaining a task, submitting a goal after
+  confirming it, answering a decision, pause/resume/stop); single-word
+  `pause`, `resume`, `stop` act immediately without a model call. If the
+  control plane is unreachable the widget falls back to direct-command mode
+  (`in caoscare: <what to do>` asks for confirmation, then submits).
 - Push-to-talk microphone when an OpenAI key and `arecord` are present.
 - `Open panel` opens the web instrument panel in the browser with the token.
 
