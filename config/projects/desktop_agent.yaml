@@ -3,7 +3,7 @@ name: desktop_agent
 repo_path: ~/Desktop-Agent
 remote_url: https://github.com/caosos/Desktop-Agent.git
 github_repo: caosos/Desktop-Agent
-integration_branch: build/stage-2
+integration_branch: main
 
 start_here: START_HERE.md
 agents_file: AGENTS.md

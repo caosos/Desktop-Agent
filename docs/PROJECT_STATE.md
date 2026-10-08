@@ -150,3 +150,9 @@ HANDOFF CAPSULE
   expected by `CodexExecAdapter.commits_itself = False`.
 - **Next safe step:** the control plane creates the commit on the worker's
   behalf, reruns verification, then integrates under the approved policy.
+
+## 2026-10-08 — Michael: "codex is shut down, inspect and merge" → merged to main
+
+- Inspected PR #5 (Codex-produced widget SSE follow: `RefreshCoalescer` with a unit test, SSE connection-state callback, polling only while disconnected, stop event on close): sound. It conflicted with `build/stage-2` only in the append-only `docs/PROJECT_STATE.md`; resolved by keeping both entries (`24a1563` on `build/stage-1`, after PR #4 had merged stage-2 into stage-1).
+- Merged PR #2 (`build/stage-1` → `main`). `main` now carries Stage 1 and the Stage 2 work to date; test suite on `main`: 35 passed. Desktop-Agent's own project descriptor integrates on `main`; the control plane service restarted from `main`.
+- **Mistake made and undone during the merge:** a chained command checked out `main` while it still held only documents, which stopped the service, and then committed the untracked `.venv` (3,596 files) to `main` and pushed it (`578bb30`). It was removed within minutes by a force-with-lease push back to `13ae56a` (the exact bad SHA, nothing else touched); the local virtualenv, deleted by the reset, was rebuilt. Lesson recorded: never `git add -A` on a branch without the `.gitignore`, and never mask merge failures behind pipelines.
