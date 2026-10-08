@@ -33,6 +33,8 @@ class ProjectPackage:
     default_read_list: list[str] = field(default_factory=list)
     github_repo: str | None = None   # owner/name for gh
     min_model_class: str | None = None   # e.g. a repo whose CLAUDE.md context exceeds the cheap class
+    state_entry_by: str = "worker"       # "worker": workers append to current_state (owned area includes it);
+                                         # "control": the control plane appends one entry at integration
     source_file: Path | None = None
 
     @classmethod
@@ -62,8 +64,15 @@ class ProjectPackage:
             default_read_list=list(raw.get("default_read_list") or []),
             github_repo=raw.get("github_repo"),
             min_model_class=raw.get("min_model_class"),
+            state_entry_by=raw.get("state_entry_by", "worker"),
             source_file=path,
         )
+
+    def with_state_file(self, owned_area: list[str]) -> list[str]:
+        """When workers must append to the state file, every owned area includes it."""
+        if self.state_entry_by == "worker" and self.current_state and self.current_state not in owned_area and owned_area:
+            return list(owned_area) + [self.current_state]
+        return list(owned_area)
 
     def bootloader_files(self) -> list[str]:
         """The files a worker must read first, in order."""

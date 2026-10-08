@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import shutil
+import time
 
 from . import workspace as ws
 from .config import RuntimeConfig
@@ -22,6 +23,32 @@ class Integrator:
         self.store.append_event(Event(type=etype, task_id=task_id, payload=payload,
                                       provenance=Provenance(actor=Actor.CONTROL.value, source="integrator",
                                                             contract_hash=chash, evidence=evidence)))
+
+    async def record_state_entry(self, contract: TaskContract, project: ProjectPackage, wsp: ws.Workspace,
+                                 verify: dict) -> str | None:
+        """For projects with state_entry_by=control: append one dated entry to the project's state
+        file and commit it as the control plane, after verification (docs-only commit)."""
+        if project.state_entry_by != "control" or not project.current_state:
+            return None
+        head = await ws.head_sha(wsp.path)
+        tests = "; ".join(f"`{t['command']}` exit {t['exit_code']}" for t in verify.get("tests", [])) or "none declared"
+        files = ", ".join(f["path"] for f in verify.get("files", [])) or "none"
+        entry = (f"\n\n## {time.strftime('%Y-%m-%d')} — task `{contract.task_id}` verified (recorded by the control plane)\n\n"
+                 f"- **Objective:** {contract.objective[:300]}\n- **Why now:** {contract.why_now[:200]}\n"
+                 f"- **Model class:** {contract.model_class}; attempt {contract.attempt}; adapter {contract.worker_adapter}\n"
+                 f"- **Worker head:** `{head}` on `{wsp.branch}` from `{wsp.base_sha[:12]}`\n"
+                 f"- **Verifier (clean checkout):** {tests}\n- **Files:** {files}\n"
+                 f"- **Receipts:** worker claim unverified → verifier verified; integration follows this entry.\n")
+        path = wsp.path / project.current_state
+        with open(path, "a", encoding="utf-8") as fh:
+            fh.write(entry)
+        await ws.git("add", project.current_state, cwd=wsp.path)
+        await ws.git("-c", "user.name=Desktop-Agent control plane", "-c", "user.email=desktop-agent@users.noreply.github.com",
+                     "commit", "-q", "-m", f"[{contract.task_id}] project state entry (control plane, after verification)", cwd=wsp.path)
+        sha = await ws.head_sha(wsp.path)
+        self._emit(contract.task_id, ET.COMMIT_CREATED.value, {"sha": sha, "on_behalf": True, "state_entry": True, "verified_head": head},
+                   contract.hash(), [f"sha={sha}", f"verified_head={head}"])
+        return sha
 
     async def integrate(self, contract: TaskContract, project: ProjectPackage, wsp: ws.Workspace,
                         title: str, body: str) -> dict:

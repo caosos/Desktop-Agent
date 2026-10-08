@@ -132,8 +132,11 @@ that exists only locally is reported as **LOCAL ONLY** and is not complete.
 
 ## Project state
 
-Before finishing meaningful work, append a dated entry to
-`docs/PROJECT_STATE.md` (date, agent/tool, branch, what changed, what was
-verified, what is blocked, next safe step). Never erase history; label
-corrections. When the platform's own control plane exists, it becomes the
-single writer of that file at integration time (review §1.6, §12.7).
+`docs/PROJECT_STATE.md` is append-only. **Bounded workers launched by the
+platform do not edit it**: the control plane appends one entry per verified
+task at integration time (`state_entry_by: control` in this project's
+descriptor), which keeps a single writer and avoids merge conflicts between
+concurrent workers. Humans and the coordinator still append dated entries for
+work done outside a bounded task (date, agent/tool, branch, what changed, what
+was verified, what is blocked, next safe step). Never erase history; label
+corrections.

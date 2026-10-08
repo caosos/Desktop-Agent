@@ -42,6 +42,41 @@ def test_prompt_mentions_script_and_tail_only(tmp_path: Path):
     assert "agent/fix-x-ab12cd" in prompt and "abc" in prompt and "Write/Edit tools" in prompt
 
 
+def test_state_entry_policy(tmp_path: Path):
+    worker_mode = _project(tmp_path)
+    assert worker_mode.with_state_file(["panel/index.html"]) == ["panel/index.html", "docs/STATE.md"]
+    assert worker_mode.with_state_file([]) == []                       # unrestricted stays unrestricted
+    control_mode = _project(tmp_path, "state_entry_by: control\n")
+    assert control_mode.with_state_file(["panel/index.html"]) == ["panel/index.html"]
+    wsp = Workspace(path=tmp_path, branch="b", base_ref="main", base_sha="abc")
+    p1 = render_prompt(_contract(), worker_mode, wsp, 1, None)
+    p2 = render_prompt(_contract(), control_mode, wsp, 1, None)
+    assert "Append the dated entry" in p1 and "Do NOT edit docs/STATE.md" in p2
+
+
+def test_control_plane_state_entry_commit(tmp_path: Path):
+    import asyncio, subprocess
+    from desktop_agent.control.config import RuntimeConfig
+    from desktop_agent.control.integrator import Integrator
+    from desktop_agent.control.store import Store
+    repo = tmp_path / "repo"; (repo / "docs").mkdir(parents=True)
+    subprocess.run(["git", "init", "-q", "-b", "main", str(repo)], check=True)
+    (repo / "docs" / "STATE.md").write_text("# state\n")
+    subprocess.run(["git", "-C", str(repo), "add", "-A"], check=True)
+    subprocess.run(["git", "-C", str(repo), "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "base"], check=True)
+    base = subprocess.run(["git", "-C", str(repo), "rev-parse", "HEAD"], capture_output=True, text=True, check=True).stdout.strip()
+    pkg = _project(tmp_path, "state_entry_by: control\n")
+    cfg = RuntimeConfig(data_dir=tmp_path / "d", workspaces_dir=tmp_path / "w", token_file=tmp_path / "t")
+    integ = Integrator(cfg, Store(cfg.data_dir))
+    wsp = Workspace(path=repo, branch="agent/x", base_ref="main", base_sha=base)
+    sha = asyncio.run(integ.record_state_entry(_contract(), pkg, wsp, {"tests": [{"command": "./t.sh", "exit_code": 0}], "files": [{"path": "a.py"}]}))
+    assert sha and sha != base
+    text = (repo / "docs" / "STATE.md").read_text()
+    assert "recorded by the control plane" in text and "./t.sh` exit 0" in text and "fix-x-ab12cd" in text
+    assert subprocess.run(["git", "-C", str(repo), "status", "--porcelain"], capture_output=True, text=True).stdout == ""
+    assert asyncio.run(integ.record_state_entry(_contract(), _project(tmp_path), wsp, {})) is None   # worker mode: no-op
+
+
 def test_model_floor(tmp_path: Path):
     assert at_least("cloud_cheap", "cloud_strong") == "cloud_strong"
     assert at_least("cloud_max", "cloud_strong") == "cloud_max"

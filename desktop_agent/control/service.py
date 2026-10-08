@@ -117,7 +117,7 @@ class Service:
         router.resolve(self.cfg, mc, worker_adapter)
         contract = compile_contract(
             project=pkg, objective=text, why_now=why_now, goal_id=goal_id, task_type=task_type,
-            owned_area=owned_area or [], model_class=mc,
+            owned_area=pkg.with_state_file(owned_area or []), model_class=mc,
             budget_usd=budget_usd or self.cfg.default_budget_usd, max_turns=self.cfg.default_max_turns,
             wall_clock_sec=self.cfg.scope.runtime_max_sec, acceptance_tests=acceptance_tests,
             expected_artifacts=expected_artifacts, max_attempts=max_attempts)
@@ -188,7 +188,7 @@ class Service:
                 why_now += f" | model: {t.get('model_reason') or ''}{(' ; evidence: ' + why) if why else ''}"
             contract = compile_contract(
                 project=pkg, objective=t["objective"], why_now=why_now, goal_id=goal_id,
-                task_type=t["task_type"], owned_area=list(t["owned_area"]), model_class=mc,
+                task_type=t["task_type"], owned_area=pkg.with_state_file(list(t["owned_area"])), model_class=mc,
                 budget_usd=self.cfg.default_budget_usd, max_turns=self.cfg.default_max_turns,
                 wall_clock_sec=self.cfg.scope.runtime_max_sec,
                 acceptance_tests=None, expected_artifacts=list(t.get("expected_artifacts") or []),

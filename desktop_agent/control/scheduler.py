@@ -173,6 +173,7 @@ class Scheduler:
                 elif not result["ok"]:
                     await self._fail(contract, "; ".join(result["reasons"]), retryable=True, result=result)
                 else:
+                    await self.integrator.record_state_entry(contract, project, run.workspace, result)
                     integ = await self.integrator.integrate(
                         contract, project, run.workspace,
                         title=f"[{contract.task_id}] {contract.objective[:80]}",

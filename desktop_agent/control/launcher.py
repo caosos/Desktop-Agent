@@ -81,6 +81,10 @@ def render_prompt(contract: TaskContract, project: ProjectPackage, wsp: ws.Works
         "objective": contract.objective, "why_now": contract.why_now,
         "read_list": ", ".join(reads), "branch": wsp.branch,
         "test_script": str(test_script) if test_script else "(none)",
+        "state_rule": (f"Do NOT edit {project.current_state}: the control plane records this task there at integration."
+                       if project.state_entry_by == "control" and project.current_state
+                       else f"Append the dated entry the project's rules require to {project.current_state} (it is inside your owned area)."
+                       if project.current_state else "This project has no state file to update."),
         "base_ref": wsp.base_ref, "base_sha": wsp.base_sha,
         "owned_area": ", ".join(contract.owned_area) or "(whole repo)",
         "shared_contract_paths": ", ".join(project.shared_contract_paths) or "(none)",

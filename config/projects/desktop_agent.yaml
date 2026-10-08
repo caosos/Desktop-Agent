@@ -9,6 +9,7 @@ start_here: START_HERE.md
 agents_file: AGENTS.md
 current_state: docs/PROJECT_STATE.md
 acceptance: docs/IMPLEMENTATION_PLAN.md
+state_entry_by: control        # the control plane records each verified task; workers never edit PROJECT_STATE.md
 
 # The repo's own venv is gitignored; the verifier and workers use the one at the real checkout, read-only.
 test_command: /home/caoscare-1/Desktop-Agent/.venv/bin/python -m pytest -q
