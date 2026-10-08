@@ -65,6 +65,28 @@ def test_owned_area_validation_against_tracked_files():
     # new files inside existing directories (or at the top level) are allowed; widget/ and docs/ do not exist here so they are dropped
 
 
+def test_duplicate_open_task_is_not_created_twice(tmp_path):
+    projects = _projects(tmp_path)
+    cfg = RuntimeConfig(data_dir=tmp_path / "d", workspaces_dir=tmp_path / "w", token_file=tmp_path / "t",
+                        project_files=[tmp_path / "alpha.yaml"])
+    s = Service(cfg); s.scheduler.paused = True
+    first = s.submit_goal(project="alpha", text="Add the class labels map to the runtime config and expose it in state",
+                          source="t", task_type="docs", owned_area=["README.md"])
+    import pytest
+    with pytest.raises(ValueError, match="duplicate of open task"):
+        s.submit_goal(project="alpha", text="Add the class labels map to runtime config and expose it in the state",
+                      source="t", task_type="docs", owned_area=["README.md"])
+    assert s.duplicate_of("alpha", "Something entirely different about the widget microphone button") is None
+    assert s.duplicate_of("beta", "Add the class labels map to the runtime config and expose it in state") is None
+    s.planner.llm = FakeLLM([{"project": "alpha", "summary": "s", "questions": [], "tasks": [
+        {"objective": "Add the class labels map to the runtime config and expose it in state", "task_type": "docs",
+         "owned_area": ["README.md"], "model_class": "cloud_cheap", "why_now": "x"},
+        {"objective": "Write the widget microphone button documentation page", "task_type": "docs",
+         "owned_area": ["README.md"], "model_class": "cloud_cheap", "why_now": "x"}]}])
+    res = asyncio.run(s.plan_goal(text="do both", source="t", project_hint="alpha"))
+    assert len(res["task_ids"]) == 1 and any("duplicate of open task" in p for p in res["problems"])
+
+
 def test_plan_with_hint_skips_pick(tmp_path):
     projects = _projects(tmp_path)
     llm = FakeLLM([GOOD_PLAN])

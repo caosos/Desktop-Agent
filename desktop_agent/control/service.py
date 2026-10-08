@@ -3,6 +3,7 @@ scheduler; exposes the operations the API needs; owns the live event bus."""
 from __future__ import annotations
 
 import asyncio
+import re
 import time
 import uuid
 from pathlib import Path
@@ -109,6 +110,9 @@ class Service:
                                       provenance=Provenance(actor=Actor.HUMAN.value, source=source, evidence=[f"goal={goal_id}"])))
         if worker_adapter not in self.adapters:
             raise ValueError(f"unknown worker_adapter {worker_adapter!r}; known: {sorted(self.adapters)}")
+        dupe = self.duplicate_of(project, text)
+        if dupe:
+            raise ValueError(f"duplicate of open task {dupe}; stop or finish it first")
         mc = router.at_least(model_class or router.default_class(task_type), pkg.min_model_class)
         router.resolve(self.cfg, mc, worker_adapter)
         contract = compile_contract(
@@ -170,6 +174,13 @@ class Service:
         task_ids: list[str] = []
         stats = metrics.outcomes(self.store)
         for t in plan.tasks:
+            dupe = self.duplicate_of(plan.project, t["objective"])
+            if dupe:
+                plan.problems.append(f"task skipped: duplicate of open task {dupe}: {t['objective'][:80]}")
+                self.store.append_event(Event(type=ET.BLOCKED.value, task_id=None,
+                                              payload={"goal_id": goal_id, "reason": f"duplicate of open task {dupe}", "objective": t["objective"][:200]},
+                                              provenance=Provenance(actor=Actor.CONTROL.value, source="planner", evidence=[f"duplicate_of={dupe}"])))
+                continue
             chosen, why = metrics.choose_class(t["task_type"], t["model_class"], stats, router.LADDER)
             mc = router.at_least(chosen, pkg.min_model_class)
             why_now = t.get("why_now") or plan.summary
@@ -195,6 +206,20 @@ class Service:
                       correlation_id=goal_id, after_state=pd)
         return {"goal_id": goal_id, "status": "PLANNED", "project": plan.project, "summary": plan.summary,
                 "task_ids": task_ids, "problems": plan.problems}
+
+    def duplicate_of(self, project: str, objective: str, threshold: float = 0.6) -> str | None:
+        """An open (READY/RUNNING) task in the same project whose objective overlaps this one
+        heavily; two workers must not do the same work (directive 2026-10-08 point 2)."""
+        words = {w for w in re.findall(r"[a-z0-9_]+", objective.lower()) if len(w) > 2}
+        if len(words) < 4:
+            return None
+        for t in self.store.list_tasks(status="READY") + self.store.list_tasks(status="RUNNING"):
+            if t["project"] != project:
+                continue
+            other = {w for w in re.findall(r"[a-z0-9_]+", (t["contract"].get("objective") or "").lower()) if len(w) > 2}
+            if other and len(words & other) / len(words | other) >= threshold:
+                return t["task_id"]
+        return None
 
     def _create_task(self, contract: TaskContract, source: str) -> None:
         self.store.save_task(contract.task_id, contract.goal_id, contract.project, "READY", contract.to_dict(), contract.hash())
