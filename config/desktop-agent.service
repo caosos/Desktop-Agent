@@ -1,0 +1,15 @@
+[Unit]
+Description=Desktop-Agent control plane (persistent coordinator for disposable workers)
+After=default.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/caoscare-1/Desktop-Agent
+ExecStart=/home/caoscare-1/Desktop-Agent/.venv/bin/python -m desktop_agent
+Restart=on-failure
+RestartSec=5
+Environment=PATH=/home/caoscare-1/.nvm/versions/node/v24.18.0/bin:/usr/local/bin:/usr/bin:/bin
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=default.target

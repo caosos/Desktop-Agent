@@ -1,0 +1,65 @@
+# Desktop-Agent runtime configuration (control-plane-local).
+# Paths may use ~. Project descriptors are relative to this file.
+
+data_dir: ~/.local/share/desktop-agent
+workspaces_dir: ~/Desktop-Agent-work
+token_file: ~/.config/desktop-agent/token
+
+api:
+  host: 127.0.0.1
+  port: 8477
+
+# Per-worker HOME gets copies of exactly these two files (OAuth credentials and
+# the Claude Code config). Nothing else from the real HOME is visible.
+worker_home:
+  credentials: ~/.claude/.credentials.json
+  claude_config: ~/.claude.json
+  files:                                   # extra per-worker HOME files (Codex auth + config)
+    - {from: ~/.codex/auth.json, to: .codex/auth.json}
+    - {from: ~/.codex/config.toml, to: .codex/config.toml}
+
+sandbox:
+  bwrap: true
+  systemd_scope: true
+  # Read-only paths re-exposed inside the sandbox (the real HOME is hidden).
+  ro_paths:
+    - ~/.nvm            # node + the claude CLI
+
+# systemd-run --user --scope limits per worker (ARCHITECTURE_REVIEW §7).
+scope:
+  memory_max: 3G
+  cpu_quota: 200%
+  runtime_max_sec: 3600
+  nice: 10
+
+# IMPLEMENTATION_PLAN §4. Stage 1 runs the admission formula with ceiling 1.
+scheduler:
+  ceiling: 1
+  reserved_cores: 2
+  cores_per_worker: 2
+  host_reserve_mb: 4096
+  mem_per_worker_mb: 3072
+  hourly_cap_usd: 5.0
+  daily_cap_usd: 20.0
+  expected_cost_per_worker_hour_usd: 2.0
+  stall_after_sec: 600
+  tick_sec: 5
+
+models:                                    # claude_headless (default adapter)
+  cloud_cheap: claude-haiku-5-5
+  cloud_strong: claude-sonnet-5-5
+  cloud_max: claude-opus-5-5
+adapter_models:
+  codex_exec:                              # ChatGPT-subscription Codex; ids from ~/.codex/config.toml
+    cloud_cheap: gpt-5.6-sol
+    cloud_strong: gpt-5.6-sol
+    cloud_max: gpt-5.6-sol
+
+default_budget_usd: 3.0
+default_max_turns: 60
+test_port_range: [8100, 8199]
+open_draft_pr: true
+
+projects:
+  - projects/caoscare.yaml
+  - projects/desktop_agent.yaml

@@ -1,0 +1,73 @@
+# Project package for CAOSCARE.COM. Points at that repo's own truth; copies nothing.
+# Lives here until CAOSCare carries its own .agentproject/project.yaml.
+name: caoscare
+repo_path: ~/CAOSCARE.COM                       # local object source (fast clone); never edited
+remote_url: https://github.com/caosos/CAOSCARE.COM.git
+github_repo: caosos/CAOSCARE.COM
+integration_branch: integration/2026-09-27
+
+start_here: CAOSCARE_START_HERE.md
+agents_file: AGENTS.md
+ready_queue: docs/PILOT1_READY_QUEUE.md
+current_state: docs/PROJECT_STATE.md
+acceptance: docs/ENGINEERING_CONTRACT.md
+
+# Verifier runs this in a clean checkout with test_env; {port} and {task_id} are filled in.
+test_command: backend/scripts/run_backend_tests.sh
+test_env:
+  CAOSCARE_TEST_PORT: "{port}"
+  CAOSCARE_TEST_DB: "caoscare_gate_{task_id}"
+  CAOSCARE_TEST_VENV_PY: /home/caoscare-1/CAOSCARE.COM/backend/.venv/bin/python3
+  OPENAI_API_KEY: ""
+  HA_BASE_URL: ""
+  HA_TOKEN: ""
+
+shared_contract_paths:
+  - backend/models.py
+  - backend/server.py
+  - backend/routes/receipts.py
+  - backend/routes/actor_context.py
+
+never_read:
+  - ".env"
+  - "backend/.env"
+  - "frontend/.env"
+  - "**/credentials*"
+
+# Read-only paths the sandbox must expose for the test gate.
+runtime_ro_paths:
+  - ~/CAOSCARE.COM/backend/.venv
+
+# CAOSCare's CLAUDE.md imports its whole append-only PROJECT_STATE.md; the cheap
+# class cannot hold that context ("Prompt is too long", seen 2026-10-08).
+min_model_class: cloud_strong
+
+# Claude Code permission patterns granted to workers on this project. The
+# adapter always denies git push, gh, sudo, rm -rf, curl, wget, ssh, scp,
+# git reset --hard, git push --force; deny wins over allow. The launcher adds
+# the per-task test script.
+worker_allowed_tools:
+  - Read
+  - Glob
+  - Grep
+  - Edit
+  - Write
+  - MultiEdit
+  - "Bash(git:*)"
+  - "Bash(ls:*)"
+  - "Bash(cat:*)"
+  - "Bash(head:*)"
+  - "Bash(tail:*)"
+  - "Bash(grep:*)"
+  - "Bash(find:*)"
+  - "Bash(wc:*)"
+  - "Bash(echo:*)"
+  - "Bash(mkdir:*)"
+  - "Bash(sed -n:*)"
+  - "Bash(awk:*)"
+  - "Bash(sort:*)"
+  - "Bash(diff:*)"
+  - "Bash(test:*)"
+  - "Bash(cd:*)"
+  - "Bash(python3:*)"
+  - "Bash(/home/caoscare-1/CAOSCARE.COM/backend/.venv/bin/python3:*)"
