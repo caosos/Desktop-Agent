@@ -46,6 +46,10 @@ def world(tmp_path: Path):
 echo '{"type":"system","subtype":"init","session_id":"fake","tools":["Write"]}'
 echo '{"type":"assistant","message":{"model":"fake-model","content":[{"type":"tool_use","id":"a","name":"Read","input":{"file_path":"AGENTS.md"}}]}}'
 git config user.email w@w; git config user.name worker
+if [ "$1" = "limited" ]; then
+  printf '{"type":"result","subtype":"success","is_error":true,"num_turns":1,"result":"You'"'"'ve hit your session limit · resets 2:20pm (America/Chicago)","total_cost_usd":0,"usage":{}}\n'
+  exit 1
+fi
 if [ "$1" = "blocked" ]; then
   printf '{"type":"result","subtype":"success","result":"STATUS: BLOCKED\\nCOMMIT: none\\nTESTS: not run\\nFILES: none\\nBLOCKER: needs owner\\nNOTE: x","total_cost_usd":0.01,"usage":{"output_tokens":5}}\n'
   exit 0
@@ -156,6 +160,26 @@ def test_max_attempts_one(world):
     row = asyncio.run(_run_until(s, tid))
     assert row["status"] == "BLOCKED" and "attempt 1 failed" in row["result"]["reason"]
     assert not [t for t in s.store.list_tasks() if t["contract"].get("supersedes") == tid]
+
+
+def test_provider_limit_pauses_and_requeues(world):
+    s = _service(world, "limited")
+    tid = s.submit_goal(project="demo", text="Anything", source="test", task_type="docs")["task_ids"][0]
+
+    async def scenario():
+        for _ in range(100):
+            await s.scheduler.tick()
+            if s.scheduler.paused:
+                break
+            await asyncio.sleep(0.05)
+        while tid in s.scheduler._tasks:
+            await asyncio.sleep(0.05)
+    asyncio.run(scenario())
+    assert s.scheduler.paused and "provider limit" in (s.scheduler.hold_reason or "")
+    assert s.store.get_task(tid)["status"] == "READY"            # requeued, not failed
+    assert not [t for t in s.store.list_tasks() if t["contract"].get("supersedes") == tid]
+    assert any(e.type == ET.BUDGET_WARNING.value for e in s.store.events(tid))
+    assert s.state()["hold"].startswith("paused: provider limit")
 
 
 def test_blocked_worker(world):

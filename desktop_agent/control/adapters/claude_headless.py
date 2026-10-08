@@ -23,6 +23,7 @@ _WRITE_TOOLS = {"Edit", "Write", "MultiEdit", "NotebookEdit"}
 _TEST_HINT = re.compile(r"(run_tests\.sh|run_backend_tests|\bpytest\b|npm test|yarn test|npm run test|CI=true .*build|\./test\.sh)", re.I)
 _COMMIT_HINT = re.compile(r"\bgit\s+commit\b")
 _STATUS_RE = re.compile(r"^STATUS:\s*(DONE|BLOCKED|FAILED)", re.M)
+_LIMIT_RE = re.compile(r"(hit your (session|usage) limit|rate limit(ed)?|usage limit reached|resets \d{1,2}:\d{2}\s*[ap]m)", re.I)
 _COMMIT_RE = re.compile(r"^COMMIT:\s*([0-9a-f]{7,40}|none)", re.M | re.I)
 
 
@@ -148,6 +149,7 @@ class ClaudeHeadlessAdapter:
             "num_turns": msg.get("num_turns"),
             "duration_ms": msg.get("duration_ms"),
             "session_id": msg.get("session_id"),
+            "provider_limited": bool(_LIMIT_RE.search(text)) and (msg.get("num_turns") or 0) <= 1,
         }
         return Parsed(events=[(ET.CLAIM_WRITTEN.value, {"status": final["claim_status"], "commit": final["claim_commit"],
                                                        "claim": text[:4000]})], final=final)

@@ -80,6 +80,7 @@ class Scheduler:
         self.verifier, self.integrator, self.projects = verifier, integrator, projects
         self.retry_factory = retry_factory
         self.paused = False
+        self.hold_reason: str | None = None     # set when the scheduler pauses itself
         self._ports: set[int] = set()
         self._tasks: dict[str, asyncio.Task] = {}
 
@@ -139,6 +140,14 @@ class Scheduler:
             final = run.final or {}
             if run.killed:
                 await self._fail(contract, "worker killed", retryable=True)
+            elif final.get("provider_limited"):
+                # Not the worker's fault and retrying is pointless: pause the platform and say why.
+                msg = (final.get("claim") or "provider limit")[:200]
+                self.paused = True
+                self.hold_reason = f"paused: provider limit ({msg})"
+                self._emit(task_id, ET.BUDGET_WARNING.value, {"provider_limit": msg}, [msg])
+                self.store.set_task_status(task_id, "READY", {"reason": "requeued after provider limit: " + msg})
+                self._emit(task_id, ET.TASK_CREATED.value, {"requeued": True, "reason": msg, "model_class": contract.model_class}, [msg])
             elif final.get("claim_status") == "BLOCKED":
                 await self._block(contract, "worker reported BLOCKED: " + (final.get("claim") or "")[:500])
             elif run.exit_code != 0 or not final:

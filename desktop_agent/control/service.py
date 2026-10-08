@@ -141,6 +141,7 @@ class Service:
             self.scheduler.paused = True
         elif action == "resume":
             self.scheduler.paused = False
+            self.scheduler.hold_reason = None
         elif action == "stop":
             if task_id:
                 await self.launcher.kill(task_id, "owner stop")
@@ -190,7 +191,7 @@ class Service:
         workers = [{"worker_id": r.worker_id, "task_id": tid, "started_at": r.started_at, "last_event_at": r.last_event_at}
                    for tid, r in self.launcher.running.items()]
         slots = self.scheduler.slots()
-        hold = None
+        hold = self.scheduler.hold_reason if self.scheduler.paused else None
         if any(t["status"] == "READY" for t in tasks) and slots["free"] == 0 and not self.scheduler.paused:
             if not slots["daily_cap_ok"]:
                 hold = "daily budget cap reached"
