@@ -61,8 +61,8 @@ def test_owned_area_validation_against_tracked_files():
     files = ["desktop_agent/control/config.py", "desktop_agent/control/api.py", "panel/index.html", "tests/test_core.py", "README.md"]
     kept = owned_area_matches(["desktop_agent/control/runtime*.py", "desktop_agent/control/config.py", "tests/test_runtime*.py",
                                "panel/*", "widget/*.py", "NEWFILE.md", "docs/PROJECT_STATE.md"], files)
-    assert kept == ["desktop_agent/control/config.py", "tests/test_runtime*.py", "panel/*", "NEWFILE.md"]
-    # tests/ exists so a new test file glob is allowed; widget/ and docs/ do not exist here so they are dropped
+    assert kept == ["desktop_agent/control/runtime*.py", "desktop_agent/control/config.py", "tests/test_runtime*.py", "panel/*", "NEWFILE.md"]
+    # new files inside existing directories (or at the top level) are allowed; widget/ and docs/ do not exist here so they are dropped
 
 
 def test_plan_with_hint_skips_pick(tmp_path):

@@ -128,11 +128,11 @@ def owned_area_matches(globs: list[str], files: list[str]) -> list[str]:
     dirs = {p.rsplit("/", 1)[0] for p in files if "/" in p}
     ok = []
     for g in globs:
-        base = g.split("*")[0].rstrip("/")
-        if any(fnmatch.fnmatch(f, g) or f == g for f in files) or (base and (base in dirs or any(d.startswith(base + "/") or d == base for d in dirs))):
-            ok.append(g)
-        elif "/" not in g and "*" not in g:
-            ok.append(g)        # a new top-level file is a legitimate thing to create
+        if any(fnmatch.fnmatch(f, g) or f == g for f in files):
+            ok.append(g); continue
+        dirpart = (g.rsplit("/", 1)[0] if "/" in g else "").split("*")[0].rstrip("/")
+        if not dirpart or dirpart in dirs or any(d.startswith(dirpart + "/") for d in dirs):
+            ok.append(g)        # a new file inside an existing directory (or at the top level)
     return ok
 
 
