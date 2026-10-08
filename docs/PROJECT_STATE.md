@@ -92,3 +92,10 @@ HANDOFF CAPSULE
 - **Known spec error of mine:** the contract named `backend/actor_context.py` as a shared contract path; the file is `backend/routes/actor_context.py`. The worker reported the mismatch instead of guessing. Fixed in `config/projects/caoscare.yaml`; the copy inside PR #105 needs the same one-line edit (noted on the PR).
 - **What is blocked:** nothing. Runs 4 (red regression tests for the parked menu-parser cosmetics, `max_attempts: 1`, expected to fail verification and be shown as failed) and 5 (the fix) are queued.
 - **Next safe step:** record runs 4 and 5; then the widget check, which needs Michael in his desktop session (`docs/WIDGET_SETUP.md`).
+
+## 2026-10-08 — Stage 1 acceptance run 4: a failing run shown truthfully
+
+- **Task:** `write-red-regression-tests-expec-558993` (goal `g-4631ed49`, caoscare, `tests_only`, `max_attempts: 1`, strong class by project floor). Objective: red regression tests for the parked menu-parser cosmetics (acceptance report 2026-10-08 item 3), parser untouched.
+- **Result:** worker claim DONE at `b6e658b75e3225c078ca1f750feefb78b8fed7bf` with "3 failed, 396 deselected (exit 1)" (red by design, $1.93); verifier ran `backend/scripts/run_backend_tests.sh -k menu_parser_cosmetics` in a clean checkout → exit 1 → `VERIFY_FAILED`; task FAILED → BLOCKED after the single allowed attempt; nothing pushed, no PR. Receipts: worker `unverified`, verifier `failed`. The branch and its red tests remain in `~/Desktop-Agent-work/write-red-regression-tests-expec-558993/repo` for the fix task to reuse if the coordinator later chooses to.
+- **Defect found and fixed:** the verifier detail (test output) was dropped when FAILED became BLOCKED, so the panel could not show why. Fixed in `scheduler._fail`.
+- **Scheduler hold observed:** run 5 (`fix-the-three-parked-menu-paste--8b877c`) sat READY with `budget_slots = 0`: $3.75 spent in the last hour against the configured $5/hour cap and $2 expected per worker-hour. The hold reason is now shown in `/v0/state` and on the panel. Spending caps were not raised; the slot frees when the earlier spend ages out of the window.

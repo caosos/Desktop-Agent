@@ -189,13 +189,28 @@ class Service:
                              "last_activity_at": newest["last_activity_at"] if newest else None})
         workers = [{"worker_id": r.worker_id, "task_id": tid, "started_at": r.started_at, "last_event_at": r.last_event_at}
                    for tid, r in self.launcher.running.items()]
+        slots = self.scheduler.slots()
+        hold = None
+        if any(t["status"] == "READY" for t in tasks) and slots["free"] == 0 and not self.scheduler.paused:
+            if not slots["daily_cap_ok"]:
+                hold = "daily budget cap reached"
+            elif slots["budget_slots"] == 0:
+                hold = "hourly budget cap: waiting for spend to age out of the window"
+            elif slots["mem_slots"] == 0:
+                hold = "host memory below reserve"
+            elif slots["cpu_slots"] == 0:
+                hold = "no CPU slots"
+            elif slots["running"] >= slots["ceiling"]:
+                hold = "worker ceiling reached"
+            else:
+                hold = "ready tasks conflict with running work or wait on dependencies"
         return {
             "ts": time.time(), "uptime_sec": round(time.time() - self.started_at), "paused": self.scheduler.paused,
             "projects": projects, "tasks": tasks[-50:], "workers": workers,
             "inbox": self.store.open_decisions(), "costs": self.store.cost_summary(),
             "blocked": [t for t in tasks if t["status"] == "BLOCKED"][-20:],
             "next": next((t for t in tasks if t["status"] == "READY"), None),
-            "slots": self.scheduler.slots(), "last_seq": self.store.last_seq(),
+            "slots": slots, "hold": hold, "last_seq": self.store.last_seq(),
         }
 
     async def task_detail(self, task_id: str) -> dict | None:

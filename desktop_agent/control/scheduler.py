@@ -173,12 +173,13 @@ class Scheduler:
 
     async def _fail(self, contract: TaskContract, reason: str, retryable: bool, result: dict | None = None) -> None:
         self.store.set_task_status(contract.task_id, "FAILED", {"reason": reason} | ({"detail": _slim(result)} if result else {}))
+        detail = _slim(result) if result else None
         if not retryable or contract.attempt >= min(MAX_ATTEMPTS, contract.max_attempts):
-            await self._block(contract, f"attempt {contract.attempt} failed: {reason}" + ("" if retryable else " (not retryable)"))
+            await self._block(contract, f"attempt {contract.attempt} failed: {reason}" + ("" if retryable else " (not retryable)"), result=detail)
             return
         next_class = contract.model_class if contract.attempt == 1 else (router.escalate(contract.model_class) or contract.model_class)
         if contract.attempt >= 2 and next_class == contract.model_class:
-            await self._block(contract, f"attempt {contract.attempt} failed and no higher model class: {reason}")
+            await self._block(contract, f"attempt {contract.attempt} failed and no higher model class: {reason}", result=detail)
             return
         new = self.retry_factory(contract, next_class)
         self._emit(new.task_id, ET.TASK_CREATED.value,
