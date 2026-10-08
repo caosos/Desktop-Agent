@@ -114,3 +114,6 @@ def test_service_plan_goal_then_decision_replans(tmp_path):
         assert r3.status_code == 201 and len(r3.json()["task_ids"]) == 1
         types = [e.type for e in s.store.events()]
         assert ET.OWNER_DECISION_REQUESTED.value in types and ET.OWNER_DECISION_RECORDED.value in types
+        st = c.get("/v0/state", headers=h).json()
+        assert "feedback" in st and st["feedback"]["verified_tasks"] == 0 and "outcomes" in st
+        assert st["slots"]["owner_ceiling"] >= st["slots"]["ceiling"]
