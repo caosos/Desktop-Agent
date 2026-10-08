@@ -35,3 +35,38 @@ HANDOFF CAPSULE
 - Product invariants that matter here: receipt law; fresh bounded workers; project truth stays in the managed project's repo
 - Do NOT change:    CAOSCare repo files from this project
 - Next safe action: wait for §12 answers, then write the Phase 0 task contract
+
+## 2026-10-08 — Autonomous Execution Directive recorded; implementation plan written
+
+- **Agent/tool:** Claude Code (Fable 5.1) on the EliteDesk.
+- **Branch/ref:** `docs/directive-and-implementation-plan` → PR into `main`.
+- **What changed:** `docs/OWNER_DIRECTIVES.md` (new, append-only: Michael's
+  12-point directive, locked principle, staged product vision);
+  `docs/IMPLEMENTATION_PLAN.md` (new: system shape, Aria desktop widget
+  design, control-plane API v0, dynamic concurrency scheduler replacing the
+  fixed two-worker cap, stall/retry/escalation, stages with acceptance,
+  repository layout, decision status); `AGENTS.md` (concurrency rule now
+  scheduler-driven; owner-decision taxonomy from the directive; DESIGN-mode
+  stop condition); `START_HERE.md` (status, reading order, decisions, next
+  step).
+- **What was verified:** host facts for the widget design were checked on
+  the EliteDesk: the GNOME session belongs to user `michaelos` while repos
+  and CLIs belong to `caoscare-1`; PyGObject with GTK 4.6 is importable;
+  `xdotool` present, session type unconfirmed. No repository named Deal
+  Sniffer exists under `caosos`; `michael-business-os` is the closest
+  match (unconfirmed). Documentation only; nothing executed or built.
+- **What is blocked:** implementation, by design, until Michael says BUILD.
+- **Next safe step:** Michael reviews the plan and either authorises BUILD
+  (Stage 1 starts in the listed order) or amends the plan.
+
+HANDOFF CAPSULE
+- Objective:        DESIGN complete enough to start Stage 1 on BUILD
+- Branch:           docs/directive-and-implementation-plan (PR to main)
+- Lane / ownership: whole repo; never touch CAOSCare or Deal Sniffer implementation
+- Last proven state: documentation only; no runtime
+- Commits:          see PR
+- Runtime state:    none for this project
+- Unresolved proven defects: none
+- Product invariants that matter here: receipt law; bounded disposable workers; scheduler-sized concurrency measured as verified work per dollar and hour; widget never does work; desktop Aria ≠ resident Aria
+- Do NOT change:    CAOSCare repo; anything under ~/CAOSCARE-*
+- Next safe action: wait for BUILD; then Stage 1 step 1 (store + events + receipts)
