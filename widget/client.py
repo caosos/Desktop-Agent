@@ -47,6 +47,14 @@ class RefreshCoalescer:
             self._pending = False
 
 
+def class_label(state: dict | None, model_class: str | None) -> str:
+    """Label for a model class from the state's `class_labels`; the raw class name when unknown or absent."""
+    raw = model_class or ""
+    labels = (state or {}).get("class_labels")
+    label = labels.get(raw) if isinstance(labels, dict) else None
+    return label if isinstance(label, str) and label else raw
+
+
 def load_config() -> dict:
     cfg = {"url": "http://127.0.0.1:8477", "token": "", "anthropic_api_key": ""}
     if CONFIG_FILE.exists():

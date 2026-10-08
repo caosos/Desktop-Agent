@@ -20,7 +20,7 @@ gi.require_version("Gtk", "4.0")
 from gi.repository import GLib, Gtk  # noqa: E402
 
 from .aria import Aria  # noqa: E402
-from .client import ApiError, Client, RefreshCoalescer, load_config, save_config  # noqa: E402
+from .client import ApiError, Client, RefreshCoalescer, class_label, load_config, save_config  # noqa: E402
 from . import voice  # noqa: E402
 
 PANEL_PATH = "/"
@@ -188,7 +188,9 @@ class AriaWindow(Gtk.ApplicationWindow):
                 la = Gtk.Label(label=f"{p['last_activity'][:60]} · {ago(p.get('last_activity_at'))}", xalign=0, wrap=True); la.add_css_class("muted")
                 self.projects_box.append(la)
         cost = st["costs"]
-        self.workers_lbl.set_text(f"{len(st['workers'])} worker(s) · slots {st['slots']['slots']} · today ${cost['today_usd']:.2f}")
+        line = f"{len(st['workers'])} worker(s) · slots {st['slots']['slots']} · today ${cost['today_usd']:.2f}"
+        classes = sorted({class_label(st, t.get("model_class")) for t in running if t.get("model_class")})
+        self.workers_lbl.set_text(line + (" · " + ", ".join(classes) if classes else ""))
 
     @staticmethod
     def _clear(box: Gtk.Box) -> None:
