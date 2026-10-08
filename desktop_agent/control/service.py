@@ -299,7 +299,7 @@ class Service:
             "inbox": self.store.open_decisions(), "costs": self.store.cost_summary(),
             "blocked": [t for t in tasks if t["status"] == "BLOCKED"][-20:],
             "next": next((t for t in tasks if t["status"] == "READY"), None),
-            "slots": slots, "hold": hold, "last_seq": self.store.last_seq(),
+            "slots": slots, "hold": hold, "class_labels": dict(self.cfg.class_labels), "last_seq": self.store.last_seq(),
             "feedback": metrics.feedback(self.store),
             "outcomes": [{"task_type": k[0], "model_class": k[1], **v} for k, v in metrics.outcomes(self.store).items()],
         }

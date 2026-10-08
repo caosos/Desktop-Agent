@@ -11,6 +11,13 @@ import yaml
 DEFAULT_CONFIG_PATH = Path(__file__).resolve().parents[2] / "config" / "runtime.yaml"
 
 
+DEFAULT_CLASS_LABELS = {
+    "cloud_cheap": "Luna-class",
+    "cloud_strong": "Sol-class",
+    "cloud_max": "Astra-class",
+}
+
+
 @dataclass
 class ScopeLimits:
     memory_max: str = "3G"
@@ -53,6 +60,7 @@ class RuntimeConfig:
         "cloud_strong": "claude-sonnet-5-5",
         "cloud_max": "claude-opus-5-5",
     })
+    class_labels: dict[str, str] = field(default_factory=lambda: dict(DEFAULT_CLASS_LABELS))
     default_budget_usd: float = 3.0
     default_max_turns: int = 60
     test_port_range: tuple[int, int] = (8100, 8199)
@@ -96,6 +104,11 @@ class RuntimeConfig:
                 setattr(cfg.scheduler, k, v)
         if raw.get("models"):
             cfg.models.update(raw["models"])
+        labels = raw.get("class_labels") or {}
+        unknown = sorted(set(labels) - set(DEFAULT_CLASS_LABELS))
+        if unknown:
+            raise ValueError(f"class_labels: unknown class key(s) {unknown}; allowed: {sorted(DEFAULT_CLASS_LABELS)}")
+        cfg.class_labels.update({k: str(v) for k, v in labels.items()})
         cfg.default_budget_usd = float(raw.get("default_budget_usd", cfg.default_budget_usd))
         cfg.default_max_turns = int(raw.get("default_max_turns", cfg.default_max_turns))
         if raw.get("test_port_range"):
