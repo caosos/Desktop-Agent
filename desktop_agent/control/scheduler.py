@@ -9,7 +9,7 @@ import socket
 import time
 from typing import Callable
 
-from . import router
+from . import metrics, router
 from .config import RuntimeConfig
 from .contracts import TaskContract
 from .events import Actor, Event, EventType as ET, Provenance
@@ -33,17 +33,19 @@ def mem_available_mb() -> int:
     return 0
 
 
-def admission(cfg: RuntimeConfig, running: int, spend_last_hour: float, spend_today: float) -> dict:
+def admission(cfg: RuntimeConfig, running: int, spend_last_hour: float, spend_today: float,
+              ceiling: int | None = None) -> dict:
     s = cfg.scheduler
+    ceiling_eff = s.ceiling if ceiling is None else min(ceiling, s.ceiling)
     cores = os.cpu_count() or 2
     cpu_slots = max(0, (cores - s.reserved_cores) // max(1, s.cores_per_worker))
     mem_slots = max(0, (mem_available_mb() + running * s.mem_per_worker_mb - s.host_reserve_mb) // max(1, s.mem_per_worker_mb))
     budget_slots = max(0, int((s.hourly_cap_usd - spend_last_hour) // max(0.01, s.expected_cost_per_worker_hour_usd)))
     daily_ok = spend_today < s.daily_cap_usd
-    slots = min(cpu_slots, mem_slots, budget_slots, s.ceiling) if daily_ok else 0
+    slots = min(cpu_slots, mem_slots, budget_slots, ceiling_eff) if daily_ok else 0
     return {"cpu_slots": cpu_slots, "mem_slots": int(mem_slots), "budget_slots": budget_slots,
-            "ceiling": s.ceiling, "daily_cap_ok": daily_ok, "slots": int(slots), "running": running,
-            "free": max(0, int(slots) - running)}
+            "ceiling": ceiling_eff, "owner_ceiling": s.ceiling, "daily_cap_ok": daily_ok, "slots": int(slots),
+            "running": running, "free": max(0, int(slots) - running)}
 
 
 def areas_overlap(a: list[str], b: list[str]) -> bool:
@@ -90,7 +92,11 @@ class Scheduler:
 
     def slots(self) -> dict:
         c = self.store.cost_summary()
-        return admission(self.cfg, len(self.launcher.running), c["last_hour_usd"], c["today_usd"])
+        fb = metrics.feedback(self.store)
+        ceiling, why = metrics.effective_ceiling(self.cfg.scheduler.ceiling, fb)
+        out = admission(self.cfg, len(self.launcher.running), c["last_hour_usd"], c["today_usd"], ceiling)
+        out["ceiling_reason"] = why
+        return out
 
     def eligible(self) -> list[dict]:
         done = {t["task_id"] for t in self.store.list_tasks(status="DONE")}

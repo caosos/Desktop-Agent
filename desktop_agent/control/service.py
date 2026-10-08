@@ -7,7 +7,7 @@ import time
 import uuid
 from pathlib import Path
 
-from . import router, workspace as ws
+from . import metrics, router, workspace as ws
 from .adapters.claude_headless import ClaudeHeadlessAdapter
 from .adapters.codex_exec import CodexExecAdapter
 from .config import RuntimeConfig
@@ -168,10 +168,15 @@ class Service:
             return {"goal_id": goal_id, "status": "BLOCKED", "reason": reason, "task_ids": []}
         pkg = self.projects[plan.project]
         task_ids: list[str] = []
+        stats = metrics.outcomes(self.store)
         for t in plan.tasks:
-            mc = router.at_least(t["model_class"], pkg.min_model_class)
+            chosen, why = metrics.choose_class(t["task_type"], t["model_class"], stats, router.LADDER)
+            mc = router.at_least(chosen, pkg.min_model_class)
+            why_now = t.get("why_now") or plan.summary
+            if t.get("model_reason") or why:
+                why_now += f" | model: {t.get('model_reason') or ''}{(' ; evidence: ' + why) if why else ''}"
             contract = compile_contract(
-                project=pkg, objective=t["objective"], why_now=t.get("why_now") or plan.summary, goal_id=goal_id,
+                project=pkg, objective=t["objective"], why_now=why_now, goal_id=goal_id,
                 task_type=t["task_type"], owned_area=list(t["owned_area"]), model_class=mc,
                 budget_usd=self.cfg.default_budget_usd, max_turns=self.cfg.default_max_turns,
                 wall_clock_sec=self.cfg.scope.runtime_max_sec,
@@ -295,6 +300,8 @@ class Service:
             "blocked": [t for t in tasks if t["status"] == "BLOCKED"][-20:],
             "next": next((t for t in tasks if t["status"] == "READY"), None),
             "slots": slots, "hold": hold, "last_seq": self.store.last_seq(),
+            "feedback": metrics.feedback(self.store),
+            "outcomes": [{"task_type": k[0], "model_class": k[1], **v} for k, v in metrics.outcomes(self.store).items()],
         }
 
     async def task_detail(self, task_id: str) -> dict | None:
