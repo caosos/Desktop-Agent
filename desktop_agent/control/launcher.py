@@ -163,9 +163,31 @@ class Launcher:
         await self._finish(run, contract, project, adapter.name, model, chash)
         return run
 
+    async def commit_on_behalf(self, run: WorkerRun, contract: TaskContract, chash: str, claim: str) -> str | None:
+        """For executors that cannot write .git: commit the worker's changes with the
+        control plane as the committing actor and the claim as the message."""
+        if not await ws.is_dirty(run.workspace.path):
+            return None
+        subject = f"[{contract.task_id}] {contract.objective[:70]}"
+        body = f"Changes made by a {contract.worker_adapter} worker; committed by the Desktop-Agent control plane.\n\nWorker claim:\n{claim[:1500]}"
+        await ws.git("add", "-A", cwd=run.workspace.path)
+        await ws.git("-c", "user.name=Desktop-Agent worker", "-c", "user.email=desktop-agent@users.noreply.github.com",
+                     "commit", "-q", "-m", subject, "-m", body, cwd=run.workspace.path)
+        sha = await ws.head_sha(run.workspace.path)
+        self._emit(run, ET.COMMIT_CREATED.value, {"sha": sha, "on_behalf": True},
+                   actor=Actor.CONTROL.value, source="launcher", contract_hash=chash, evidence=[f"sha={sha}"])
+        return sha
+
     async def _finish(self, run: WorkerRun, contract: TaskContract, project: ProjectPackage,
                       adapter_name: str, model: str, chash: str) -> None:
         final = run.final or {}
+        adapter = self.adapters.get(adapter_name)
+        if final.get("claim_status") == "DONE" and adapter is not None and not getattr(adapter, "commits_itself", True) \
+                and not run.killed:
+            try:
+                await self.commit_on_behalf(run, contract, chash, final.get("claim", ""))
+            except ws.GitError as exc:
+                final["commit_error"] = str(exc)[:300]
         head = None
         try:
             head = await ws.head_sha(run.workspace.path)

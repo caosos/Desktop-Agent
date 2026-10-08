@@ -55,10 +55,37 @@ def test_codex_launch_argv_and_models(tmp_path: Path):
     spec = a.launch(contract=_contract(), project=None, prompt="hello", model="gpt-5.6-sol", workspace=tmp_path)
     assert spec.argv[:3] == ["codex", "exec", "--json"] and "--ephemeral" in spec.argv and spec.argv[-1] == "hello"
     assert spec.argv[spec.argv.index("-C") + 1] == str(tmp_path)
+    assert spec.argv[spec.argv.index("--sandbox") + 1] == "workspace-write"
+    assert "sandbox_workspace_write.network_access=true" in spec.argv
+    assert a.commits_itself is False
     cfg = RuntimeConfig(data_dir=tmp_path, workspaces_dir=tmp_path, token_file=tmp_path / "t",
                         adapter_models={"codex_exec": {"cloud_strong": "gpt-5.6-sol"}})
     assert resolve(cfg, "cloud_strong", "codex_exec") == "gpt-5.6-sol"
     assert resolve(cfg, "cloud_strong") == "claude-sonnet-5-5"
+
+
+def test_commit_on_behalf(tmp_path: Path):
+    """The control plane commits a non-committing worker's changes and records COMMIT_CREATED as its own act."""
+    import asyncio, subprocess
+    from desktop_agent.control.launcher import Launcher, WorkerRun
+    from desktop_agent.control.store import Store
+    from desktop_agent.control.workspace import Workspace
+    repo = tmp_path / "repo"; repo.mkdir()
+    subprocess.run(["git", "init", "-q", "-b", "main", str(repo)], check=True)
+    subprocess.run(["git", "-C", str(repo), "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "base"], check=True)
+    base = subprocess.run(["git", "-C", str(repo), "rev-parse", "HEAD"], capture_output=True, text=True, check=True).stdout.strip()
+    (repo / "x.txt").write_text("changed\n")
+    cfg = RuntimeConfig(data_dir=tmp_path / "d", workspaces_dir=tmp_path / "w", token_file=tmp_path / "t")
+    store = Store(cfg.data_dir)
+    launcher = Launcher(cfg, store, {"codex_exec": CodexExecAdapter()})
+    c = _contract()
+    run = WorkerRun(worker_id="w1", task_id=c.task_id, workspace=Workspace(path=repo, branch="agent/t", base_ref="main", base_sha=base))
+    sha = asyncio.run(launcher.commit_on_behalf(run, c, c.hash(), "STATUS: DONE\nNOTE: x"))
+    assert sha and sha != base
+    assert subprocess.run(["git", "-C", str(repo), "status", "--porcelain"], capture_output=True, text=True).stdout == ""
+    ev = [e for e in store.events(c.task_id) if e.type == ET.COMMIT_CREATED.value][0]
+    assert ev.provenance.actor == "control" and ev.payload["on_behalf"] and ev.payload["sha"] == sha
+    assert asyncio.run(launcher.commit_on_behalf(run, c, c.hash(), "again")) is None   # nothing left to commit
 
 
 def test_worker_home_extra_files(tmp_path: Path):

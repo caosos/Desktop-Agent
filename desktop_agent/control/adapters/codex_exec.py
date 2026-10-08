@@ -37,6 +37,7 @@ _COMMIT_HINT = re.compile(r"\bgit\s+commit\b")
 
 class CodexExecAdapter:
     name = "codex_exec"
+    commits_itself = False      # .git is read-only inside Codex's sandbox; the launcher commits
 
     def __init__(self, codex_bin: str = "codex"):
         self.codex_bin = codex_bin
@@ -50,8 +51,15 @@ class CodexExecAdapter:
                model: str, workspace: Path) -> LaunchSpec:
         self._test_cmds = [c.split()[0] for c in contract.acceptance_tests if c.strip()]
         self._last_message, self._usage, self._error = "", {}, None
+        # Codex's workspace-write sandbox stays on (inside our bwrap + scope). Two documented
+        # config overrides make it usable for bounded workers: loopback/network access so test
+        # gates can bind 127.0.0.1, and no approval prompts (exec mode is non-interactive).
+        # Codex keeps .git read-only in this mode, so the control plane commits on the
+        # worker's behalf (commits_itself = False).
         argv = [self.codex_bin, "exec", "--json", "--skip-git-repo-check", "--ephemeral",
-                "--sandbox", "workspace-write", "-C", str(workspace), "-m", model, prompt]
+                "--sandbox", "workspace-write",
+                "-c", "sandbox_workspace_write.network_access=true",
+                "-C", str(workspace), "-m", model, prompt]
         return LaunchSpec(argv=argv)
 
     def _is_test(self, cmd: str) -> bool:

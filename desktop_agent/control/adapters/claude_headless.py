@@ -29,6 +29,7 @@ _COMMIT_RE = re.compile(r"^COMMIT:\s*([0-9a-f]{7,40}|none)", re.M | re.I)
 
 class ClaudeHeadlessAdapter:
     name = "claude_headless"
+    commits_itself = True
 
     def __init__(self, claude_bin: str = "claude"):
         self.claude_bin = claude_bin
