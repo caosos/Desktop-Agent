@@ -23,6 +23,30 @@ class ApiError(RuntimeError):
     pass
 
 
+class RefreshCoalescer:
+    """Limit refresh scheduling while retaining one trailing burst refresh."""
+
+    def __init__(self, interval: float = 1.0):
+        self.interval = interval
+        self._next_at = 0.0
+        self._pending = False
+        self._lock = threading.Lock()
+
+    def request(self, now: float) -> float | None:
+        """Return seconds until the refresh, or None when one is already pending."""
+        with self._lock:
+            if self._pending:
+                return None
+            scheduled_at = max(now, self._next_at)
+            self._next_at = scheduled_at + self.interval
+            self._pending = True
+            return scheduled_at - now
+
+    def dispatched(self) -> None:
+        with self._lock:
+            self._pending = False
+
+
 def load_config() -> dict:
     cfg = {"url": "http://127.0.0.1:8477", "token": "", "anthropic_api_key": ""}
     if CONFIG_FILE.exists():
@@ -97,14 +121,18 @@ class Client:
     def receipts(self, task_id: str) -> list[dict]:
         return self._req("GET", f"/v0/receipts?task_id={task_id}")["receipts"]
 
-    def follow_events(self, on_event: Callable[[dict], None], since: int = 0, stop: threading.Event | None = None) -> None:
+    def follow_events(self, on_event: Callable[[dict], None], since: int = 0, stop: threading.Event | None = None,
+                      on_connection: Callable[[ApiError | None], None] | None = None) -> None:
         """Blocking SSE follower; run it in a thread. Reconnects until `stop` is set."""
         stop = stop or threading.Event()
         last = since
         while not stop.is_set():
             req = urllib.request.Request(f"{self.url}/v0/events?since={last}&access_token={self.token}")
+            error = None
             try:
                 with urllib.request.urlopen(req, timeout=60) as resp:
+                    if on_connection:
+                        on_connection(None)
                     for raw in resp:
                         if stop.is_set():
                             return
@@ -116,5 +144,10 @@ class Client:
                                 continue
                             last = ev.get("seq") or last
                             on_event(ev)
-            except (urllib.error.URLError, OSError, TimeoutError):
-                stop.wait(3)
+            except (urllib.error.URLError, OSError, TimeoutError) as exc:
+                error = ApiError(f"control-plane event stream unavailable: {exc}")
+            if stop.is_set():
+                return
+            if on_connection:
+                on_connection(error or ApiError("control-plane event stream closed"))
+            stop.wait(3)

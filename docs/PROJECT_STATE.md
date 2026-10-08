@@ -130,3 +130,23 @@ HANDOFF CAPSULE
 - Earlier attempts `b1cf8f` and `5e1749` stay BLOCKED in the store (Codex inner sandbox, before the fix).
 - **Coordinator handoff:** per Michael's Owner Expectations directive (`docs/OWNER_DIRECTIVES.md`), the ChatGPT Work agent is the sole development coordinator from here. This Claude Code session takes only assigned bounded work, research or review. The control plane service keeps running with an empty queue; the scheduler idles until a goal arrives.
 - **Open for the coordinator:** PR #2 (Stage 1) and PR #4 (Stage 2, stacked) for Michael's review; PR #5 (widget SSE) into `build/stage-2`; the gap table in OWNER_DIRECTIVES (planner first).
+## 2026-10-08 — Stage 2: Aria widget refreshes from SSE
+
+- **Agent/tool:** Desktop-Agent bounded worker via codex_exec.
+- **Branch/ref:** `agent/make-the-aria-widget-widget-app--6c3044` from
+  `build/stage-2` at `e40d395a48f1ba31c67d30dad428389722ab35f7`.
+- **What changed:** `widget/app.py` starts the client's SSE follower in a
+  daemon thread, coalesces event-triggered state refreshes to at most one per
+  second, polls every 5 seconds only while SSE is disconnected, and sets the
+  follower stop event when the window closes. `widget/client.py` reports SSE
+  connection state and provides the GTK-independent refresh coalescer;
+  `tests/test_widget.py` covers its burst behavior; `docs/WIDGET_SETUP.md`
+  describes the fallback-only poll.
+- **What was tested:** worker ran
+  `bin/run_tests.sh`: 34 passed, 1 skipped, 1 warning in 7.93s. This result is
+  **unverified** until the control plane reruns the gate.
+- **What is blocked:** nothing in the implementation or test gate. The Codex
+  sandbox's read-only `.git` mount rejected the worker's commit attempt, as
+  expected by `CodexExecAdapter.commits_itself = False`.
+- **Next safe step:** the control plane creates the commit on the worker's
+  behalf, reruns verification, then integrates under the approved policy.
