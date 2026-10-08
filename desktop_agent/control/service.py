@@ -235,6 +235,20 @@ class Service:
                                       provenance=Provenance(actor=Actor.HUMAN.value, source=source, evidence=[action])))
         return {"paused": self.scheduler.paused, "running": list(self.launcher.running)}
 
+    def ask_owner(self, *, question: str, options: list[str], why: str, source: str,
+                  recommendation: str | None = None, task_id: str | None = None, goal_id: str | None = None) -> dict:
+        """File a genuine owner decision into the inbox (directive 2026-10-08 point 9)."""
+        did = f"d-{uuid.uuid4().hex[:8]}"
+        q = question if not recommendation else f"{question} (recommended: {recommendation})"
+        self.store.save_decision(did, task_id, q, list(options), goal_id=goal_id)
+        self.store.append_event(Event(type=ET.OWNER_DECISION_REQUESTED.value, task_id=task_id,
+                                      payload={"decision_id": did, "goal_id": goal_id, "question": q, "options": options, "why": why},
+                                      provenance=Provenance(actor=Actor.CONTROL.value, source=source, evidence=[why[:200]])))
+        write_receipt(self.store, subject_type="decision", subject_id=did, claim=f"owner decision requested: {question[:160]}",
+                      actor=Actor.CONTROL.value, source=source, result_label=VERIFIED, evidence=[why[:200]],
+                      correlation_id=goal_id, task_id=task_id, after_state={"options": options, "recommendation": recommendation})
+        return {"decision_id": did, "question": q, "options": options}
+
     async def answer_decision(self, decision_id: str, answer: str, source: str) -> dict:
         row = self.store.answer_decision(decision_id, answer)
         if not row:

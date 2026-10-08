@@ -41,6 +41,15 @@ class ControlIn(BaseModel):
     task_id: str | None = None
 
 
+class AskIn(BaseModel):
+    question: str = Field(min_length=5, max_length=1000)
+    options: list[str] = []
+    why: str = Field(min_length=5, max_length=2000)
+    recommendation: str | None = None
+    task_id: str | None = None
+    goal_id: str | None = None
+
+
 def build_app(service: Service, token: str) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI):
@@ -147,6 +156,11 @@ def build_app(service: Service, token: str) -> FastAPI:
         if not view:
             raise HTTPException(404, "no such task")
         return view
+
+    @app.post("/v0/decisions", status_code=201)
+    async def ask(body: AskIn, request: Request, _: str = Depends(auth)):
+        return service.ask_owner(question=body.question, options=body.options, why=body.why, source=source(request),
+                                 recommendation=body.recommendation, task_id=body.task_id, goal_id=body.goal_id)
 
     @app.post("/v0/decisions/{decision_id}")
     async def decide(decision_id: str, body: DecisionIn, request: Request, _: str = Depends(auth)):

@@ -114,6 +114,13 @@ def test_service_plan_goal_then_decision_replans(tmp_path):
         assert r3.status_code == 201 and len(r3.json()["task_ids"]) == 1
         types = [e.type for e in s.store.events()]
         assert ET.OWNER_DECISION_REQUESTED.value in types and ET.OWNER_DECISION_RECORDED.value in types
+        # coordinator-filed owner decision shows in the inbox and is answerable
+        r4 = c.post("/v0/decisions", json={"question": "Which repo is Deal Sniffer?", "options": ["michael-business-os", "other"],
+                                           "why": "second project onboarding", "recommendation": "michael-business-os"}, headers=h)
+        assert r4.status_code == 201 and "recommended" in r4.json()["question"]
+        inbox = c.get("/v0/state", headers=h).json()["inbox"]
+        assert any(d["decision_id"] == r4.json()["decision_id"] for d in inbox)
+        assert c.post(f"/v0/decisions/{r4.json()['decision_id']}", json={"answer": "michael-business-os"}, headers=h).status_code == 200
         st = c.get("/v0/state", headers=h).json()
         assert "feedback" in st and st["feedback"]["verified_tasks"] == 0 and "outcomes" in st
         assert st["slots"]["owner_ceiling"] >= st["slots"]["ceiling"]
