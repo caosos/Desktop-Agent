@@ -46,6 +46,7 @@ class Watchdog:
     def __init__(self, store: Store, intake, deliverer, scheduler, cooldown_sec: int = WAKE_COOLDOWN_SEC):
         self.store, self.intake, self.deliverer, self.scheduler = store, intake, deliverer, scheduler
         self.cooldown_sec = cooldown_sec
+        self.workers = None                                      # WorkerMonitor, set by the service (feeds + open-PR refresh)
         self._last_wake: dict[str, tuple[float, str]] = {}      # project → (ts, reasons key)
 
     def _emit(self, project: str, etype: str, payload: dict, evidence: list) -> None:
@@ -72,6 +73,11 @@ class Watchdog:
             self.store.save_coordinator_check(src.project, entry)
             report[src.project] = {k: v for k, v in entry.items() if k != "state"}
         self._resume_after_quota_reset()
+        if self.workers is not None:
+            try:
+                report["workers"] = await self.workers.refresh_remote()
+            except Exception as exc:
+                report["workers"] = {"error": str(exc)[:200]}
         return report
 
     async def _wake(self, src: IntakeSource, reasons: list) -> dict:

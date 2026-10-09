@@ -74,6 +74,11 @@ def test_owner_panel_acceptance(served):
         # coordinators: alpha disconnected (no session at /nowhere), beta no integration → truthful labels
         coords = page.inner_text("#coords")
         assert "Disconnected" in coords and "Data unavailable" in coords and "VERIFIED" not in coords
+        # WORKERS shown separately from the coordinator: alpha's RUNNING record (process not found, said so);
+        # beta has no telemetry and no records → "not verified", never a count
+        alpha_row, beta_row = coords.split("beta")[0], coords.split("beta")[1]
+        assert "WORKERS" in alpha_row and "RUNNING" in alpha_row and "t-run" in alpha_row and "worker process not found" in alpha_row
+        assert "WORKERS" in beta_row and "UNKNOWN" in beta_row and "worker runtime not verified" in beta_row
         # shared inbox shows the delivered item with Defer; Defer records a receipt
         assert "Owner note about labels" in page.inner_text("#intake") and "DELIVERED" in page.inner_text("#intake")
         # a failed delivery is shown as RECEIVED with its failure note and UNACKNOWLEDGED, never as DELIVERED

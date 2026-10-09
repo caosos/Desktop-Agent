@@ -165,9 +165,16 @@ function render(st) {
   const fmt = ts => ts ? (ago(ts) + " ago") : "—";
   $("coords").innerHTML = st.projects.map(p => { const c = p.coordinator || {}; const ex = c.external || {}; const pr = c.probe || {};
     const wakeCls = (c.wake||"").startsWith("VERIFIED") ? "ok" : (c.wake||"").startsWith("unavailable") ? "bad" : "warn";
-    return `<div class="row"><span class="tiny"><b>${esc(p.name)}</b> <span class="muted">${esc(c.kind||"none")} · ${esc(c.detail||"")}</span><br>
+    // WORKERS are shown separately from the coordinator: a coordinator at rest never means nobody is working.
+    const w = p.workers || {status: "UNKNOWN", summary: "worker runtime not verified"};
+    const wCls = {RUNNING: "ok", FINISHED: "ok", STALE: "warn", WAITING: "warn", UNKNOWN: "bad"}[w.status] || "";
+    const wrows = (w.workers||[]).map(x => `<br><span class="muted">&nbsp;&nbsp;↳ <b>${esc(x.id)}</b> ${esc(x.status)}${x.stage ? " · " + esc(x.stage) : ""} · since ${x.started_at ? ago(x.started_at) + " ago" : "—"} · progress ${x.last_progress_at ? ago(x.last_progress_at) + " ago" : "—"} · ${esc(x.evidence||"")}</span>`).join("")
+      + (w.finished||[]).map(f => `<br><span class="muted">&nbsp;&nbsp;↳ <b>${esc(f.id)}</b> ${esc(f.status)} · <a href="${esc(f.pr_url)}">PR</a> · ${ago(f.at)} ago</span>`).join("")
+      + (w.notes||[]).map(n => `<br><span class="muted">&nbsp;&nbsp;${esc(n)}</span>`).join("");
+    return `<div class="row"><span class="tiny"><b>${esc(p.name)}</b> <span class="muted">COORDINATOR ${esc(c.kind||"none")} · ${esc(c.detail||"")}</span><br>
       <span class="muted">last check ${fmt(c.last_check_at)} · last wake ${fmt(c.last_wake_at)}${c.last_wake_kind ? " ("+esc(c.last_wake_kind)+")" : ""} · last ACK ${fmt(c.last_ack_at)}</span><br>
-      <span class="muted">${ex.open_items ? "open items " + ex.open_items.length + " · ready " + (ex.ready_unblocked||[]).length + " · waiting owner " + (ex.waiting_owner||[]).length + " · " : ""}${pr.verdict ? "probe " + esc(pr.verdict) + (pr.reasons && pr.reasons.length ? ": " + esc(pr.reasons.join("; ")).slice(0,80) : "") : ""}${c.check_error ? " · check error: " + esc(c.check_error).slice(0,80) : ""}</span></span>
+      <span class="muted">${ex.open_items ? "open items " + ex.open_items.length + " · ready " + (ex.ready_unblocked||[]).length + " · waiting owner " + (ex.waiting_owner||[]).length + " · " : ""}${pr.verdict ? "probe " + esc(pr.verdict) + (pr.reasons && pr.reasons.length ? ": " + esc(pr.reasons.join("; ")).slice(0,80) : "") : ""}${c.check_error ? " · check error: " + esc(c.check_error).slice(0,80) : ""}</span><br>
+      <span>WORKERS <span class="chip ${wCls}">${esc(w.status)}</span> <span class="muted">${esc(w.summary||"")}</span></span>${wrows}</span>
       <span class="chip ${wakeCls}">${esc(c.wake||"—")}</span></div>`; }).join("");
   if (st.quota) { const q = st.quota, w = q.windows || {}; $("quota").textContent = `subscription windows (from the last worker run ${ago(q.seen_at)} ago, not a bill): ` + Object.entries(w).map(([k,v]) => `${k} ${v.utilization!=null ? Math.round(v.utilization*100)+"%" : "—"} resets ${v.resets_at ? new Date(v.resets_at*1000).toLocaleString() : "—"}`).join(" · "); }
   const dsel = $("dir_project"); if (!dsel.options.length && st.intake) (st.intake.sources||[]).forEach(src => { const o = document.createElement("option"); o.value = src.project; o.textContent = `${src.project} → ${src.repo}#${src.issues.join(",")}`; dsel.appendChild(o); });

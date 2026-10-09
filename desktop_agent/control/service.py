@@ -95,6 +95,10 @@ class Service:
                                                                    source=kw["source"], recommendation=None))
         self.watchdog = Watchdog(self.store, self.intake, self.deliverer, self.scheduler)
         self.intake.watchdog = self.watchdog
+        from .intake import gh_api
+        from .workers import WorkerMonitor
+        self.workers = WorkerMonitor(self.store, self.projects, gh_api=gh_api)   # grounded worker visibility per project
+        self.watchdog.workers = self.workers
         self._subscribers: list[asyncio.Queue] = []
         self._loop: asyncio.AbstractEventLoop | None = None
         self.store.subscribe(self._fanout)
@@ -403,8 +407,10 @@ class Service:
                 stage = "WAITING_OWNER"
             else:
                 stage = "IDLE"                         # nothing active; history stays in the task list
+            coord = self.coordinator_state(pkg)
             projects.append({"name": name, "integration_branch": pkg.integration_branch, "stage": stage,
-                             "coordinator": self.coordinator_state(pkg),
+                             "coordinator": coord,
+                             "workers": self.workers.snapshot(pkg, ptasks, self.scheduler, last_confirmed=coord.get("last_ack_at")),
                              "open_tasks": len(active), "blocked_tasks": sum(1 for t in ptasks if t["status"] == "BLOCKED"),
                              "done_tasks": sum(1 for t in ptasks if t["status"] == "DONE"),
                              "last_activity": newest["last_activity"] if newest else "",

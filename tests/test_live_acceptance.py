@@ -77,6 +77,14 @@ def test_live_owner_acceptance():
             if prj["name"] == "michael_business_os":
                 assert "manual-only" in c.get("wake", "")
         report["coordinators"] = {prj["name"]: (prj["coordinator"].get("session_status") or prj["coordinator"].get("kind"), prj["coordinator"].get("wake")) for prj in st["projects"]}
+        # 7b. WORKERS separate from the coordinator, grounded: every counted worker has a live pid or a feed line;
+        # UNKNOWN never carries a count; the card shows the status chip and the summary for each project
+        for prj in st["projects"]:
+            w = prj["workers"]
+            assert w["status"] != "UNKNOWN" or w["active"] == 0
+            assert all((x["pid"] is not None) or x["source"] == "project feed" for x in w["workers"] if x["status"] in ("RUNNING", "STALE"))
+            assert f"WORKERS {w['status']}" in coords.replace("\n", " ") and w["summary"].split(" (verified")[0] in coords
+        report["workers"] = {prj["name"]: (prj["workers"]["status"], prj["workers"]["active"], [x["id"] for x in prj["workers"]["workers"]]) for prj in st["projects"]}
         # 8. reload: same counts
         page.reload(); page.wait_for_function("document.querySelector('#conn').textContent === 'live'", timeout=20000)
         page.wait_for_function("document.querySelector('#g_next').textContent.length > 0", timeout=20000)

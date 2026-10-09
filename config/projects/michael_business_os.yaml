@@ -63,3 +63,11 @@ intake:
       inbox_dir: docs/messages/inbox
       ack_branch: research/agent-01-coordinator
       ack_dir: docs/messages/acks
+
+# Worker visibility (grounded only): Agent 01's dispatcher runs `tools/worker.py <ID> --lane NN` under the other account
+# (visible read-only in the host process list), and its own non-LLM watchdog publishes a read-only health feed on :8479.
+workers:
+  process_patterns:
+    - 'tools/worker\.py (?P<id>[A-Z]-\d+)'
+  feed_url: http://127.0.0.1:8479/
+  feed_project: michael_business_os

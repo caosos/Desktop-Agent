@@ -36,6 +36,8 @@ class ProjectPackage:
     state_entry_by: str = "worker"       # "worker": workers append to current_state (owned area includes it);
                                          # "control": the control plane appends one entry at integration
     intake: dict | None = None           # owner-instruction intake: {issues: [..], owner_logins: [..], coordinator: {kind, session_cwd}}
+    workers: dict | None = None          # grounded worker telemetry: {process_patterns: [regex with (?P<id>)], feed_url, feed_project,
+                                         #   quota_shared_with_control_plane}; absent → "worker runtime not verified"
     source_file: Path | None = None
 
     @classmethod
@@ -67,6 +69,7 @@ class ProjectPackage:
             min_model_class=raw.get("min_model_class"),
             state_entry_by=raw.get("state_entry_by", "worker"),
             intake=raw.get("intake"),
+            workers=raw.get("workers"),
             source_file=path,
         )
 

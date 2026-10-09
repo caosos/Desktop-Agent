@@ -191,6 +191,9 @@ restarts do not duplicate.
 | Shared Inbox directions, item actions, coordinator `ASK-OWNER:` questions | VERIFIED-IMPLEMENTED | `tests/test_intake.py` `test_direction_roundtrip_actions_and_coordinator_question`; PROJECT_STATE "Shared Inbox slice" |
 | Live `ASK-OWNER:` question answered from the panel | HOST-UNVERIFIED | PROJECT_STATE "Communication loop verified…": "awaits a real question"; fakes only |
 | Live `DONE` link back to test results on the panel | HOST-UNVERIFIED | same entry: supported in code, not yet exercised live |
+| Coordinator watchdog: per-project state/probe scripts, one bounded wake per cooldown, liaison inbox + ack files, quota-reset resume ([`watchdog.py`](../desktop_agent/control/watchdog.py)) | VERIFIED-IMPLEMENTED | [`tests/test_watchdog.py`](../tests/test_watchdog.py); PROJECT_STATE "Coordinator watchdogs activated; three paths tested end to end" |
+| WORKERS separate from COORDINATOR: grounded sources only (own task records, host processes by declared pattern, project feed, open-PR check); RUNNING/STALE/FINISHED/WAITING/IDLE/UNKNOWN ([`workers.py`](../desktop_agent/control/workers.py), `workers:` block per project) | VERIFIED-IMPLEMENTED | [`tests/test_workers.py`](../tests/test_workers.py); PROJECT_STATE "WORKERS shown separately from COORDINATOR status" (live: idle coordinator with two running workers) |
+| First-time-owner acceptance against the live :8477 with real data (DONE evidenced, WORKING, BLOCKED, Shared Inbox statuses, packet, reload, idle coordinator, 400 px) | VERIFIED-IMPLEMENTED | [`tests/test_live_acceptance.py`](../tests/test_live_acceptance.py) (`DA_LIVE=1`); [`tests/test_panel_browser.py`](../tests/test_panel_browser.py) (offline, incl. failed delivery) |
 
 ## 11. Service operations
 

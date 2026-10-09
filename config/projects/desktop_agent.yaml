@@ -53,3 +53,10 @@ intake:
   coordinator:
     kind: claude_peer
     session_name: caoscare-1-20                # this coordinator Claude session (pinned by name; shown on the card when it changes)
+
+# Worker visibility: this control plane's own task records are the source; the sandbox command line names the task
+# workspace, which grounds each RUNNING record in a live process. Same subscription as the control plane.
+workers:
+  process_patterns:
+    - 'Desktop-Agent-work/(?P<id>[A-Za-z0-9_-]+)/repo'
+  quota_shared_with_control_plane: true
