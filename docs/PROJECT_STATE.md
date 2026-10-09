@@ -283,3 +283,14 @@ HANDOFF CAPSULE
 - **Other projects' gates, read truthfully:** CAOSCare's `waiting_owner` list comes from its coordinator's own state script (9 gates today: drivers/vehicles/hours, Pilot Room hardware facts, email provider, telephony, storage cleanup Phase 2, HA host protections, release/deploy approval, PR #67 adoption, security B-list); Michael Business OS gates are quoted from the owner-decision lines in Agent 01's ack files on its coordinator branch (today: the tmux self-wake stopgap question, recommendation no; the "My numbers" target/hours). Both shown **read-only** with the channel to answer on (a direction from the Shared Inbox → #117, or a liaison message); the panel never claims the MBOS coordinator is reachable.
 - **Classifier boundary stated on the card:** actions the Claude Code auto-mode safety classifier refuses (the MBOS tmux self-wake, "W-4") are a tool/security boundary, not an owner yes/no; no shell bypass or self-edited permission policy is proposed; such a step is an operator action with a check and a rollback.
 - **Verified:** offline API test (three decisions: one answered with its own receipt, one deferred without an answer receipt, one left untouched; external gates flagged not answerable here) and a real headless-Chrome pass through the card (radios, Submit, "1 recorded, 1 deferred", list shrinks). 73 tests. No spend, no deployments, no credentials; OpenAI gate still off.
+
+
+## 2026-10-09 — task `edit-docs-widget-setup-md-add-a--158f8d` verified (recorded by the control plane)
+
+- **Objective:** Edit docs/WIDGET_SETUP.md: add a short first paragraph directly under the title stating that the browser panel at http://127.0.0.1:8477/ (signed in with the token in ~/.config/desktop-agent/token) is the complete owner interface, covering projects, workers, the Shared Inbox, the approval packet and 
+- **Why now:** The owner asked for it directly, and the widget is currently described in a way that suggests it is required to use the control plane. | model: A two-file wording edit with exact placement instruction
+- **Model class:** cloud_cheap; attempt 1; adapter claude_headless
+- **Worker head:** `d08c6c6fed9bc47c8087ef7f2c3cfce3f5807131` on `agent/edit-docs-widget-setup-md-add-a--158f8d` from `e39d894b6cb6`
+- **Verifier (clean checkout):** `/home/caoscare-1/Desktop-Agent/.venv/bin/python -m pytest -q` exit 0
+- **Files:** README.md, docs/WIDGET_SETUP.md
+- **Receipts:** worker claim unverified → verifier verified; integration follows this entry.
