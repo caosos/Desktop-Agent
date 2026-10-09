@@ -114,6 +114,7 @@ a { color:var(--accent); }
   <div class="orow"><b>✓ Today</b><div id="o_done" class="tiny"></div></div>
   <div class="orow"><b>Decisions</b><div><div id="o_decisions" class="tiny"></div><div class="ctl" style="margin-top:6px"><button id="o_openpacket">Open approval packet</button><span class="muted tiny">optional unless marked; nothing changes until you submit</span></div></div></div>
   <div class="orow next"><b>NEXT</b><div id="o_next"></div></div>
+  <div class="orow"><b>Work</b><div id="o_work" class="tiny"></div></div>
   <details class="tiny" style="margin-top:10px"><summary>What the words mean</summary>
     <div class="muted" style="margin-top:4px">
       <b>Project</b> = the repo and its work. <b>Coordinator</b> = the Claude session (or liaison) that steers it; <i>idle</i> means it is waiting for a message, not down. <b>Dispatcher</b> (Business OS) = the loop that launches its workers. <b>Workers</b> = jobs running right now, counted from live processes and the project's own feed.<br>
@@ -390,6 +391,12 @@ function renderOwner() {
     : n.kind === "decide" ? (blockedAny ? "Look at the amber alert above." : "Nothing is blocked.") + ` An optional decision is waiting; open the approval packet when you want to answer it.`
     : esc(n.text);
   document.querySelectorAll('#o_next a[data-mode]').forEach(a => a.onclick = () => setMode("details"));
+  // what can run now / needs you / waiting on others, from live sources: never a bare "nothing needs you"
+  const wk = st.work || {can_run_now: [], needs_owner: [], waiting: []};
+  const li = (items, empty) => items.length ? items.map(x => `<div>• <b>${esc(x.project)}</b> ${esc(x.text)}</div>`).join("") : `<div class="muted">${empty}</div>`;
+  $("o_work").innerHTML = `<div><span class="ok-mark">▶ Can run now</span></div>${li(wk.can_run_now, "nothing is runnable right now: no queued task, no unblocked coordinator work, no approved rows")}` +
+    `<div style="margin-top:6px"><span class="amber">● Needs you</span></div>${li(wk.needs_owner, "nothing")}` +
+    `<div style="margin-top:6px"><span class="muted">◌ Waiting on others</span></div>${li(wk.waiting, "nothing")}`;
 }
 function setMode(m) {
   document.body.dataset.mode = m; $("mode").textContent = m === "owner" ? "Details ▸" : "◂ Owner view"; $("mode").setAttribute("aria-pressed", String(m === "details"));

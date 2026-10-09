@@ -437,6 +437,12 @@ class Service:
                   "working": [{"task_id": t["task_id"], "stage": t["stage"], "objective": (t.get("objective") or "")[:90], "last_activity": t["last_activity"]} for t in running],
                   "blocked": [{"task_id": t["task_id"], "reason": (t.get("result") or {}).get("reason", "")[:140]} for t in blocked_list[:5]],
                   "next_action": next_action}
+        from .drilldown import work_summary
+        intake_summary = self.intake.summary() if self.intake.sources else {}
+        work = work_summary(projects, tasks, inbox, intake_summary, self.scheduler, slots, self.store)
+        if next_action["kind"] == "none" and (work["needs_owner"] or work["waiting"]):
+            next_action = {"kind": "none", "text": (f"Needs you: {work['needs_owner'][0]['text'][:110]}" if work["needs_owner"] else f"Waiting on others: {work['waiting'][0]['text'][:110]}")}
+            glance["next_action"] = next_action
         if any(t["status"] == "READY" for t in tasks) and slots["free"] == 0 and not self.scheduler.paused:
             if not slots["daily_cap_ok"]:
                 hold = "daily budget cap reached"
@@ -454,7 +460,7 @@ class Service:
             "ts": time.time(), "uptime_sec": round(time.time() - self.started_at), "paused": self.scheduler.paused,
             "projects": projects, "tasks": tasks[-50:], "workers": workers,
             "inbox": inbox, "costs": self.store.cost_summary(),
-            "blocked": blocked_list[-20:], "glance": glance,
+            "blocked": blocked_list[-20:], "glance": glance, "work": work,
             "next": next((t for t in tasks if t["status"] == "READY"), None),
             "slots": slots, "hold": hold, "class_labels": dict(self.cfg.class_labels), "last_seq": self.store.last_seq(),
             "feedback": metrics.feedback(self.store),

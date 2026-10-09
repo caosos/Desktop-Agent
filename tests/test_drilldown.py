@@ -78,3 +78,27 @@ def test_drilldown_roster_live_vs_declared_and_instructions(tmp_path: Path, monk
     s.store.set_kv("feed:mbos", {"fetched_at": time.time(), "url": "u", "data": {"work": {"dispatcher_running": False, "stalled_workers": [], "approved_ready_rows_for_specialist_lanes": 2}, "last_check": "t"}})
     assert s.drill.build("mbos")["primary_action"].startswith("dispatcher stopped")
     assert s.drill.build("nope") is None
+
+
+def test_work_summary_three_lists(tmp_path: Path):
+    from types import SimpleNamespace
+    from desktop_agent.control.drilldown import work_summary
+    from desktop_agent.control.store import Store
+    store = Store(tmp_path)
+    store.set_kv("feed:mbos", {"fetched_at": time.time(), "data": {"work": {"dispatcher_running": True, "approved_ready_rows_for_specialist_lanes": 2}, "quota_allows_a_turn": True}})
+    store.set_kv("roster:mbos", {"rows": [{"lane": "02", "role": "Discovery", "blocker": "B-12 live smoke: credentials + MICHAEL_DECISIONS #8"}, {"lane": "07", "role": "QA", "blocker": "none"}]})
+    projects = [{"name": "caoscare", "workers": {"status": "IDLE", "finished": [{"id": "c2e594", "status": "FINISHED (verified; PR open, not merged)", "pr_url": "https://x/110"}]},
+                 "coordinator": {"external": {"ready_unblocked": ["RQ-052 docs"], "open_items": ["da-1"], "waiting_owner": ["drivers", "telephony"]}}},
+                {"name": "mbos", "workers": {"status": "RUNNING", "active": 1, "workers": [{"id": "F-39"}]}, "coordinator": {}}]
+    tasks = [{"task_id": "t-ready", "status": "READY"}]
+    intake = {"items": [{"project": "mbos", "kind": "liaison", "flagged": 1, "status": "RECEIVED"}, {"project": "mbos", "kind": "liaison", "flagged": 1, "status": "RECEIVED"}]}
+    w = work_summary(projects, tasks, [{"question": "Optional: key?", "project": "desktop_agent"}], intake, SimpleNamespace(paused=False, hold_reason=None), {"free": 1}, store)
+    can, need, wait = [x["text"] for x in w["can_run_now"]], [x["text"] for x in w["needs_owner"]], [x["text"] for x in w["waiting"]]
+    assert any("1 queued control-plane task(s) start" in t for t in can) and any("RQ-052 docs" in t for t in can)
+    assert any("2 approved row(s) ready; its own dispatcher launches them" in t for t in can) and any("1 worker(s) running now: F-39" in t for t in can)
+    assert need[0] == "optional decision: Optional: key?" and any("merge the verified PR https://x/110" in t for t in need)
+    assert any("2 gate(s) on its own list" in t and "drivers; telephony" in t for t in need) and any("lane 02 Discovery: B-12 live smoke" in t for t in need)
+    assert not any("lane 07" in t for t in need)
+    assert any("instruction da-1 in its coordinator's hands" in t for t in wait) and any("2 instruction(s) delivered, not acknowledged: Agent 01 reads the liaison branch" in t for t in wait)
+    w2 = work_summary(projects, tasks, [], intake, SimpleNamespace(paused=True, hold_reason="paused: provider limit"), {"free": 0}, store)
+    assert any("held: scheduler paused (paused: provider limit)" in t for t in [x["text"] for x in w2["waiting"]])

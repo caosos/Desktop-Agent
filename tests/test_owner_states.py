@@ -96,6 +96,11 @@ def test_owner_view_states_and_evidence_on_demand(served):
             assert "waiting — scheduler paused" in gamma and "provider limit" in gamma
             assert "Add the labels" in page.inner_text("#o_done") and "PR open, not merged" in page.inner_text("#o_done") and "merged" in page.inner_text("#o_done")
             assert "Optional: approve the pilot?" in page.inner_text("#o_decisions") and "amber alert" in page.inner_text("#o_next")
+            wk = page.inner_text("#o_work")
+            assert "Can run now" in wk and "2 worker(s) running now: t-run, rq-050-claim" in wk            # alpha's live workers
+            assert "Needs you" in wk and "optional decision: Optional: approve the pilot?" in wk and "merge the verified PR https://x/pr/11" in wk
+            assert "beta 2 approved row(s) ready but its dispatcher is stopped" in wk
+            assert "Waiting on others" in wk and "1 queued control-plane task(s) held: scheduler paused" in wk and "1 instruction(s) delivered, not acknowledged" in wk
             assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth + 1"), f"overflow at {w}"
             assert page.evaluate("[...document.querySelectorAll('button')].filter(b => b.getBoundingClientRect().width > 0 && (b.getBoundingClientRect().width < 48 || b.getBoundingClientRect().height > 48)).length") == 0
             if w >= 1280:
