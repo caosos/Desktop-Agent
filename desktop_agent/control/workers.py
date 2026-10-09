@@ -98,6 +98,7 @@ class WorkerMonitor:
     # ---- host processes ---------------------------------------------------------------------
     def _matched(self, project: str, patterns: list[str], procs: list[dict], now: float) -> list[dict]:
         found: dict[str, dict] = {}
+        meta: dict[str, dict] = {}
         for pat in patterns:
             rx = re.compile(pat)
             for p in procs:
@@ -108,13 +109,14 @@ class WorkerMonitor:
                 if wid in found and found[wid]["started_at"] <= p["started_at"]:
                     continue
                 found[wid] = p
+                meta[wid] = {k: v for k, v in m.groupdict().items() if k != "id" and v}     # e.g. lane
         out = []
         for wid, p in found.items():
             ticks = _tree_ticks(p["pid"], procs)
             last, observed = self._progress((project, wid), ticks, now, p["started_at"] if ticks == 0 else now)
             stale = observed and now - last > self.stale_after_sec
             out.append({"id": wid, "pid": p["pid"], "user": p["user"], "started_at": p["started_at"], "last_progress_at": last,
-                        "status": "STALE" if stale else "RUNNING", "source": "host process",
+                        "status": "STALE" if stale else "RUNNING", "source": "host process", **meta.get(wid, {}),
                         "evidence": f"pid {p['pid']} ({p['user']}) alive now; CPU {ticks} ticks" + ("" if observed else "; first observation")})
         return sorted(out, key=lambda w: w["started_at"])
 

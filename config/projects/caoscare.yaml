@@ -1,6 +1,7 @@
 # Project package for CAOSCARE.COM. Points at that repo's own truth; copies nothing.
 # Lives here until CAOSCare carries its own .agentproject/project.yaml.
 name: caoscare
+mission: "CAOSCARE.COM — the care platform and its Pilot 1 room node (resident Aria, intake, voice); truth in CAOSCARE_START_HERE.md and docs/PROJECT_STATE.md."
 repo_path: ~/CAOSCARE.COM                       # local object source (fast clone); never edited
 remote_url: https://github.com/caosos/CAOSCARE.COM.git
 github_repo: caosos/CAOSCARE.COM

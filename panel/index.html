@@ -39,6 +39,10 @@ body[data-mode="owner"] #packetcard:not(.show) { display:none; }
 .ocards { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(300px,100%),1fr)); gap:10px; margin-bottom:12px; }
 .ocard { border:1px solid var(--line); padding:10px 12px; min-width:0; display:flex; flex-direction:column; gap:4px; }
 .ocard h3 { margin:0; font-size:15px; display:flex; justify-content:space-between; gap:8px; align-items:center; }
+.ocard { cursor:pointer; }
+.ocard:focus-visible, .ocard.open { outline:2px solid var(--accent); outline-offset:-1px; }
+#drill table td, #drill table th { padding:3px 6px; border-bottom:1px solid var(--line); min-width:0; overflow-wrap:anywhere; }
+#drill { overflow-x:auto; }
 .orow { display:grid; grid-template-columns:minmax(90px,120px) 1fr; gap:8px; padding:8px 0; border-top:1px solid var(--line); align-items:start; }
 .orow > b { font-size:14px; }
 .orow.next { background:var(--soft); margin:8px -14px -12px; padding:12px 14px; border-top:none; }
@@ -92,6 +96,7 @@ a { color:var(--accent); }
 
 <section id="owner" class="card owner-only" aria-label="Owner view" style="margin:12px 0">
   <div class="ocards" id="o_projects"></div>
+  <div id="drill" class="card" hidden style="margin-bottom:12px" aria-live="polite"></div>
   <div class="orow"><b>✓ Today</b><div id="o_done" class="tiny"></div></div>
   <div class="orow"><b>Decisions</b><div><div id="o_decisions" class="tiny"></div><div class="ctl" style="margin-top:6px"><button id="o_openpacket">Open approval packet</button><span class="muted tiny">optional unless marked; nothing changes until you submit</span></div></div></div>
   <div class="orow next"><b>NEXT</b><div id="o_next"></div></div>
@@ -215,9 +220,41 @@ function ocard(p, st) {
     : `IDLE — nothing running now, verified ${w.verified_at ? ago(w.verified_at) + " ago" : ""}`;
   const openPrs = (w.finished || []).filter(f => f.status.includes("open"));
   const chip = alerts.length ? '<span class="chip warn">▲ attention</span>' : w.status === "RUNNING" ? '<span class="chip ok">working</span>' : '<span class="chip ok">✓ ok</span>';
-  return `<div class="ocard"><h3>${esc(p.name)} ${chip}</h3><div class="tiny muted">coordinator: ${esc(coord)}</div><div class="tiny">${wtext}</div>` +
+  const open = drillOpen === p.name;
+  return `<div class="ocard${open ? " open" : ""}" role="button" tabindex="0" data-p="${esc(p.name)}" aria-expanded="${open}" aria-label="Open ${esc(p.name)} details"><h3>${esc(p.name)} ${chip}</h3><div class="tiny muted">coordinator: ${esc(coord)}</div><div class="tiny">${wtext}</div>` +
     openPrs.map(f => `<div class="tiny muted">✓ ${esc(f.id).slice(0, 34)} finished, awaiting your merge · <a href="${esc(f.pr_url)}">PR</a> · ${evidenceLink(f.id)}</div>`).join("") +
-    alerts.map(a => `<div class="tiny amber">▲ ${esc(a)}</div>`).join("") + `</div>`;
+    alerts.map(a => `<div class="tiny amber">▲ ${esc(a)}</div>`).join("") + `<div class="tiny muted" style="margin-top:auto">${open ? "▴ close" : "▾ click for coordinator, agents, tasks, instructions"}</div></div>`;
+}
+// ---- project drilldown: in place, from /v0/projects/{name}/drilldown (existing sources only) ----
+let drillOpen = null;
+async function openDrill(name) {
+  if (drillOpen === name) { drillOpen = null; $("drill").hidden = true; renderOwner(); return; }
+  drillOpen = name; renderOwner();
+  const d = await api(`/v0/projects/${encodeURIComponent(name)}/drilldown`);
+  const c = d.coordinator || {}, w = d.workers || {}, fr = d.freshness || {};
+  const live = c.kind === "control_plane" ? "this control plane" : c.kind === "liaison" ? `liaison on another Linux account; ${c.process ? `coordinator process pid ${c.process.pid} (${esc(c.process.user)}) alive since ${ago(c.process.alive_since)} ago; ` : ""}${c.feed_session ? `its own feed reports session ${esc(c.feed_session.name)} <b>${esc(c.feed_session.status)}</b> (${esc(fr.feed_self_time||"")})` : esc(c.feed_note||"")}; manual-only, no cross-account wake`
+    : c.connected ? `session ${esc(c.session)} <b>${esc(c.session_status)}</b> (live session registry)` : "DOWN — no live coordinator session";
+  const act = a => ({RUNNING: "ok", STALE: "warn", "NOT RUNNING": "", UNKNOWN: "bad"}[a] || (a.startsWith("SESSION") ? "ok" : ""));
+  const roster = (d.roster||[]).length ? `<table class="tiny" style="width:100%;border-collapse:collapse"><tr class="muted"><th style="text-align:left">lane · role</th><th style="text-align:left">declared</th><th style="text-align:left">actual now</th><th style="text-align:left">proof / last result</th></tr>` +
+    d.roster.map(r => `<tr><td style="vertical-align:top"><b>${esc(r.lane)}</b> ${esc(r.role)}${r.id ? " · " + esc(r.id) : ""}</td><td style="vertical-align:top">${esc(r.declared_state||"—")}${r.blocker && r.blocker !== "none" ? `<br><span class="amber">blocker: ${esc(r.blocker)}</span>` : ""}</td><td style="vertical-align:top"><span class="chip ${act(r.actual)}">${esc(r.actual)}</span><br><span class="muted">${esc(r.launched_by)}</span></td><td style="vertical-align:top">${esc(r.proof)}${r.last_result ? `<br><span class="muted">last: ${esc(r.last_result)}</span>` : ""}${r.ready && r.ready !== "none" ? `<br><span class="muted">ready: ${esc(r.ready)}</span>` : ""}</td></tr>`).join("") + "</table>"
+    + (d.roster_source ? `<div class="muted tiny">declared roster from <a href="${esc(d.roster_source.url)}">${esc(d.roster_source.source)}</a> @${esc(d.roster_source.sha)} (read ${ago(d.roster_source.fetched_at)} ago; the table itself says "as of ${esc(fr.roster_declared_as_of||"?")}"); live columns from host processes and the feed only</div>` : "")
+    : '<span class="muted tiny">no declared roster; live workers only</span>';
+  const t = d.tasks || {};
+  const tasks = (t.running||[]).map(x => `<div class="tiny"><span class="spin"></span> ${esc(x.task_id)} · ${esc(x.stage)} · ${esc(x.last_activity)}</div>`).join("") +
+    (t.ready||[]).map(x => `<div class="tiny muted">queued: ${esc(x)}</div>`).join("") +
+    (t.done||[]).map(x => `<div class="tiny">✓ ${esc(x.task_id)} · ${esc(x.status)} · <a href="${esc(x.pr_url)}">PR</a> · ${evidenceLink(x.task_id)}</div>`).join("") +
+    (t.blocked||[]).map(x => `<div class="tiny amber">■ ${esc(x.task_id)} · ${esc(x.reason)}</div>`).join("") || '<span class="muted tiny">no control-plane tasks for this project</span>';
+  const instr = (d.instructions||[]).map(i => `<div class="tiny"><a href="${esc(i.url)}">${esc(i.item_id)}</a> ${esc(i.title)} <span class="chip ${i.flagged && (i.status==="RECEIVED"||i.status==="DELIVERED") ? "warn" : i.status==="DONE" ? "ok" : ""}">${esc(i.status)}</span> <span class="muted">${esc(i.age)}</span>${i.next ? `<br><span class="${i.flagged ? "amber" : "muted"}">→ ${esc(i.next)}</span>` : ""}</div>`).join("") || '<span class="muted tiny">none</span>';
+  $("drill").innerHTML = `<div class="row" style="border:none;padding:0"><span><b style="font-size:16px">${esc(d.name)}</b> <span class="muted tiny">${esc(d.mission)} · truth: <code>${esc(d.start_here)}</code> on <code>${esc(d.integration_branch)}</code></span></span><button class="tiny" id="drill_close">close</button></div>
+    <div class="orow"><b>Now</b><div class="tiny"><span class="chip ${w.status==="RUNNING"?"ok":w.status==="UNKNOWN"?"bad":w.status==="STALE"||w.status==="WAITING"?"warn":""}">${esc(w.status)}</span> ${esc(w.summary||"")}${(w.alerts||[]).filter(a=>a.level==="amber").map(a => `<br><span class="amber">▲ ${esc(a.text)}</span>`).join("")}<br><span class="muted">coordinator: </span>${live}</div></div>
+    <div class="orow"><b>Agents</b><div>${roster}</div></div>
+    <div class="orow"><b>Tasks</b><div>${tasks}</div></div>
+    <div class="orow"><b>Instructions</b><div>${instr}</div></div>
+    <div class="orow"><b>Freshness</b><div class="tiny muted">coordinator checked ${fr.coordinator_checked ? ago(fr.coordinator_checked)+" ago" : "—"} · workers verified ${fr.workers_verified ? ago(fr.workers_verified)+" ago" : "—"} · feed read ${fr.feed_read ? ago(fr.feed_read)+" ago" : "n/a"} · roster read ${fr.roster_read ? ago(fr.roster_read)+" ago" : "n/a"}</div></div>
+    <div class="orow next"><b>DO</b><div>${esc(d.primary_action)} <span class="ctl" style="display:inline-flex;margin-left:12px"><button class="tiny" id="drill_ask" data-p="${esc(d.name)}">Ask Aria about this project</button></span><div id="drill_ask_out" class="tiny muted" style="margin-top:6px"></div></div></div>`;
+  $("drill").hidden = false; $("drill").scrollIntoView({behavior: "smooth", block: "nearest"});
+  $("drill_close").onclick = () => { drillOpen = null; $("drill").hidden = true; renderOwner(); };
+  $("drill_ask").onclick = () => { $("drill_ask_out").innerHTML = `Stage A: deterministic status, no model call. ${esc(d.name)}: ${esc(w.summary||"")}; ${d.unacknowledged} instruction(s) unacknowledged; primary action: ${esc(d.primary_action)}. Model-grounded conversation arrives with the Ask Aria chat (Stage B), only on a configured, permitted model.`; };
 }
 // evidence on demand: opens the Details view on the task's trace (events, receipts, tests, files, diff)
 const evidenceLink = tid => `<a href="#detail" class="evidence" data-t="${esc(tid)}">evidence</a>`;
@@ -225,13 +262,18 @@ function openEvidence(tid) { setMode("details"); showTask(tid).then(() => $("det
 function renderOwner() {
   const st = lastState; if (!st) return;
   $("o_projects").innerHTML = st.projects.map(p => ocard(p, st)).join("");
+  document.querySelectorAll("#o_projects .ocard").forEach(el => {
+    el.onclick = ev => { if (ev.target.closest("a")) return; openDrill(el.dataset.p); };
+    el.onkeydown = ev => { if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); openDrill(el.dataset.p); } };
+  });
   const done = (st.glance || {}).done_today || [];
   $("o_done").innerHTML = done.slice(-3).reverse().map(d => `<span class="ok-mark">✓</span> ${esc(d.objective)} ${mergeBadge(d.task_id)} ${evidenceLink(d.task_id)}`).join("<br>") + (done.length > 3 ? `<br><span class="muted">+ ${done.length - 3} more in Details</span>` : "") || '<span class="muted">nothing verified yet today</span>';
   document.querySelectorAll("#owner a.evidence").forEach(a => a.onclick = ev => { ev.preventDefault(); openEvidence(a.dataset.t); });
   const ds = (lastPacket || {}).decisions || [];
   $("o_decisions").innerHTML = ds.slice(0, 3).map(d => `• ${esc(d.question).slice(0, 120)}${d.question.length > 120 ? "…" : ""} <span class="muted">(${esc(d.project)} · optional · asked ${ago(d.asked_at)} ago)</span>`).join("<br>") + (ds.length > 3 ? `<br><span class="muted">+ ${ds.length - 3} more in the packet</span>` : "") || '<span class="muted">none waiting</span>';
   const n = (st.glance || {}).next_action || {};
-  const blockedAny = st.projects.some(p => p.blocked_tasks) || st.projects.some(p => ((p.workers || {}).alerts || []).some(a => a.level === "amber"));
+  const unackedAny = ((st.intake || {}).unacknowledged || []).length;
+  const blockedAny = st.projects.some(p => p.blocked_tasks) || st.projects.some(p => ((p.workers || {}).alerts || []).some(a => a.level === "amber")) || unackedAny > 0;
   $("o_next").innerHTML = n.kind === "unblock" ? `${esc(n.text)} <a href="#blockedcard" data-mode="details">open Details</a>`
     : n.kind === "decide" ? (blockedAny ? "Look at the amber alert above." : "Nothing is blocked.") + ` An optional decision is waiting; open the approval packet when you want to answer it.`
     : esc(n.text);

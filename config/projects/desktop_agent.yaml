@@ -1,5 +1,6 @@
 # Project package for Desktop-Agent itself (the platform improving its own code).
 name: desktop_agent
+mission: "Desktop-Agent — this control plane and Mission Control: bounded sandboxed workers, receipts with provenance, one supervisor panel for all projects."
 repo_path: ~/Desktop-Agent
 remote_url: https://github.com/caosos/Desktop-Agent.git
 github_repo: caosos/Desktop-Agent

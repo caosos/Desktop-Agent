@@ -260,6 +260,14 @@ def build_app(service: Service, token: str) -> FastAPI:
     async def aria_greeting(_: str = Depends(auth)):
         return service.aria.greeting()
 
+    @app.get("/v0/projects/{name}/drilldown")
+    async def project_drilldown(name: str, _: str = Depends(auth)):
+        """Owner: one project's mission, coordinator vs workers, declared-vs-live roster, tasks, instructions, freshness."""
+        d = service.drill.build(name)
+        if not d:
+            raise HTTPException(404, "no such project")
+        return d
+
     @app.post("/v0/aria/chat")
     async def aria_chat(body: ChatIn, _: str = Depends(auth)):
         if body.reset:

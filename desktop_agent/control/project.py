@@ -36,6 +36,8 @@ class ProjectPackage:
     state_entry_by: str = "worker"       # "worker": workers append to current_state (owned area includes it);
                                          # "control": the control plane appends one entry at integration
     intake: dict | None = None           # owner-instruction intake: {issues: [..], owner_logins: [..], coordinator: {kind, session_cwd}}
+    mission: str | None = None           # one sentence for the project drilldown; the project's own start_here is the truth
+    roster: dict | None = None           # declared agent roster source: {branch, path, kind: active_work_table, persistent_lanes}
     workers: dict | None = None          # grounded worker telemetry: {process_patterns: [regex with (?P<id>)], feed_url, feed_project,
                                          #   quota_shared_with_control_plane}; absent → "worker runtime not verified"
     source_file: Path | None = None
@@ -70,6 +72,8 @@ class ProjectPackage:
             state_entry_by=raw.get("state_entry_by", "worker"),
             intake=raw.get("intake"),
             workers=raw.get("workers"),
+            mission=raw.get("mission"),
+            roster=raw.get("roster"),
             source_file=path,
         )
 

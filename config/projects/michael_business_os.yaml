@@ -3,6 +3,7 @@
 # gives Michael visibility and may run planned tasks as draft PRs into the coordinator branch, but it does
 # not dispatch from that project's READY_QUEUE on its own: Agent 01 owns that queue.
 name: michael_business_os
+mission: "Deal Sniffer / Michael Business OS — find, score and act on asset-resale and service opportunities with a durable, receipted spine; all external actions dry-run until Michael approves."
 repo_path: ~/michael-business-os                 # local object source (clone of main; truth lives on the branch below)
 remote_url: https://github.com/caosos/michael-business-os.git
 github_repo: caosos/michael-business-os
@@ -68,6 +69,17 @@ intake:
 # (visible read-only in the host process list), and its own non-LLM watchdog publishes a read-only health feed on :8479.
 workers:
   process_patterns:
-    - 'tools/worker\.py (?P<id>[A-Z]-\d+)'
+    - 'tools/worker\.py (?P<id>[A-Z]-\d+)(?: --lane (?P<lane>\d+))?'
   feed_url: http://127.0.0.1:8479/
   feed_project: michael_business_os
+
+# Declared agent roster (design roster, not live sessions): Agent 01's own ACTIVE_WORK table on its coordinator branch.
+# Read through the free GitHub contents API by the watchdog; rows are quoted, never invented. Live state per lane comes
+# only from host processes (tools/worker.py --lane NN) and the :8479 feed's session entry for lane 01.
+roster:
+  branch: research/agent-01-coordinator
+  path: docs/status/ACTIVE_WORK.md
+  kind: active_work_table
+  persistent_lanes: ["01"]
+  # Agent 01 itself is a Claude session under the other account; its process is visible read-only on this host.
+  coordinator_process_pattern: "MICHAEL BUSINESS OS — ROUND TWO AGENT 01 — COORDINATOR"

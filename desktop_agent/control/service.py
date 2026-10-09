@@ -99,6 +99,9 @@ class Service:
         from .workers import WorkerMonitor
         self.workers = WorkerMonitor(self.store, self.projects, gh_api=gh_api)   # grounded worker visibility per project
         self.watchdog.workers = self.workers
+        from .drilldown import Drilldown
+        self.drill = Drilldown(self)                                            # per-project drilldown from existing sources
+        self.watchdog.drill = self.drill
         self._subscribers: list[asyncio.Queue] = []
         self._loop: asyncio.AbstractEventLoop | None = None
         self.store.subscribe(self._fanout)

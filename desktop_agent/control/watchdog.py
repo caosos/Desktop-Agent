@@ -78,6 +78,11 @@ class Watchdog:
                 report["workers"] = await self.workers.refresh_remote()
             except Exception as exc:
                 report["workers"] = {"error": str(exc)[:200]}
+        if getattr(self, "drill", None) is not None:
+            try:
+                report["rosters"] = await self.drill.refresh_remote()
+            except Exception as exc:
+                report["rosters"] = {"error": str(exc)[:200]}
         return report
 
     async def _wake(self, src: IntakeSource, reasons: list) -> dict:

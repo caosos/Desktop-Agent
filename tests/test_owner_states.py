@@ -101,8 +101,27 @@ def test_owner_view_states_and_evidence_on_demand(served):
             if w >= 1280:
                 assert page.evaluate("document.querySelector('#owner').getBoundingClientRect().bottom") <= h + 160
             page.screenshot(path=str(Path(s.cfg.data_dir) / f"owner-states-{w}.png"), full_page=True)
-        # evidence only on demand: the ✓ Today row's "evidence" link opens the Details view on the task's trace
+        # project drilldown: click a card (and keyboard Enter on another) → in-place pane with coordinator vs workers,
+        # roster rows that say NOT RUNNING instead of inventing sessions, instructions with age and next action, freshness
         page.set_viewport_size({"width": 1648, "height": 900})
+        page.click("#o_projects .ocard[data-p='alpha']")
+        page.wait_for_function("!document.querySelector('#drill').hidden && document.querySelector('#drill').textContent.includes('Agents')", timeout=15000)
+        drill = page.inner_text("#drill")
+        assert "alpha" in drill and "DOWN" in drill and "coordinator session" in drill and "NOT RUNNING" in drill          # the DOWN coordinator row
+        assert "t-run" in drill and "RUNNING" in drill and "this control plane" in drill and "rq-050-claim" in drill and "project coordinator" in drill
+        assert "Bounced note" in drill and "RECEIVED" in drill and "not acknowledged" in drill and "ago" in drill and "ACKNOWLEDGED" in drill
+        assert "Freshness" in drill and "workers verified" in drill and "DO" in drill
+        page.click("#drill_ask"); assert "no model call" in page.inner_text("#drill_ask_out")
+        page.screenshot(path=str(Path(s.cfg.data_dir) / "owner-states-drill-alpha.png"), full_page=True)
+        page.focus("#o_projects .ocard[data-p='beta']"); page.keyboard.press("Enter")
+        page.wait_for_function("document.querySelector('#drill').textContent.includes('beta') && document.querySelector('#drill').textContent.includes('dispatcher stopped')", timeout=15000)
+        assert page.evaluate("document.querySelector('#o_projects .ocard[data-p=\"beta\"]').getAttribute('aria-expanded')") == "true"
+        for w in (1280, 390):
+            page.set_viewport_size({"width": w, "height": 900}); page.wait_for_timeout(250)
+            assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth + 1"), f"drilldown overflow at {w}"
+        page.set_viewport_size({"width": 1648, "height": 900})
+        page.click("#drill_close"); page.wait_for_function("document.querySelector('#drill').hidden", timeout=5000)
+        # evidence only on demand: the ✓ Today row's "evidence" link opens the Details view on the task's trace
         page.click("#o_done a.evidence[data-t='t-done']")
         page.wait_for_function("document.body.dataset.mode === 'details' && !document.querySelector('#detail').hidden && document.querySelector('#d_timeline').textContent.includes('DONE')", timeout=15000)
         assert "READING" in page.inner_text("#d_timeline") and "cost $0.02" in page.inner_text("#d_summary")
