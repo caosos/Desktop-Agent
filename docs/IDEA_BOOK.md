@@ -1,0 +1,79 @@
+# Idea Book
+
+Michael's capture book and the short checklist that comes out of it. One document,
+owner-visible, maintained by the coordinator from Michael's notes, Aria conversations and
+owner comments. Projects keep their own queues (CAOSCare `docs/PILOT1_READY_QUEUE.md`,
+Michael Business OS `docs/status/READY_QUEUE.md`); this book never dispatches work into them.
+
+**Rule (Michael):** "Capture everything. Execute one thing. Finish it. Then move."
+Capturing an idea is not authorization to build it. A checklist item is checked only on evidence
+(a receipt, a verified task, a merged change, a thing Michael saw work).
+
+---
+
+## 1. Prioritized checklist — owner-approved NEXT actions only (max 3)
+
+| # | Action | Project | Depends on | Done when (verifiable) |
+|---|---|---|---|---|
+| **1** | **Install the OpenAI key** with the one-line command as `michaelos`, then "done" on inbox `d-58f742d0` | Desktop-Agent | nothing | `--check-providers` reports `key_present: true`; panel shows the key file mode 0600; usable model ids listed (free call) |
+| 2 | Open the Aria widget in your own desktop session and give Aria one real task | Desktop-Agent | nothing (`docs/WIDGET_SETUP.md`) | the task appears on :8477 with a verified receipt and you opened no terminal |
+| 3 | Answer the Anthropic key decision (`d-528e97b0`): yes if your Claude plan is Max or Team (API credits included), otherwise no | Desktop-Agent | nothing | decision recorded; if yes, `anthropic.key` present and `--check-providers` shows it |
+
+Sorted by utility and finishability: #1 unlocks exact metered costs and the first paid-pilot approval question; #2 is the Stage 1 acceptance observation; #3 is a yes/no.
+
+## 2. Doing (limit 2)
+
+| What | Who | Since | Evidence so far |
+|---|---|---|---|
+| Michael Business OS liaison round trip: message `ARIA-20261008-2209-desktop-agent-central-monitor-now-reads` awaiting Agent 01's ack file | watchdog (free poll) | 2026-10-09 03:10Z | item `da-9284d4f259` SENT; 8/8 earlier messages ACKNOWLEDGED |
+
+## 3. Done (plain language, with evidence)
+
+| Date | Result | Evidence |
+|---|---|---|
+| 2026-10-09 | Owner instructions on GitHub now reach the running coordinators automatically and their acknowledgments show on :8477; CAOSCare and Desktop-Agent paths verified end to end, Business OS monitored via its liaison branch | `docs/PROJECT_STATE.md` 2026-10-09 entries; issue #3 and CAOSCARE.COM #117 comments |
+| 2026-10-09 | Coordinator watchdog: cheap checks, one bounded wake only on a WAKE probe, quota windows shown, auto-resume after a reset | same; 68 tests |
+| 2026-10-09 | System blueprint written by the platform itself and merged | `docs/BLUEPRINT.md` (PR #10) |
+| 2026-10-09 | Provider setup report with official sources; Anthropic prices configured; no paid calls | `docs/PROVIDER_SETUP_REPORT.md` |
+| 2026-10-08 | Stage 2 core: planner, concurrency with feedback, owner inbox, server-side Aria, Shared Inbox | PRs #6–#9; state entries |
+| 2026-10-08 | Stage 1: control plane, sandboxed workers, first real CAOSCare tasks verified (CAOSCARE.COM PRs #105, #110) | PRs #2, #4, #5 |
+
+Counts: 8 platform tasks verified and merged on 2026-10-08/09; ~$8 known spend plus unpriced subscription use.
+
+## 4. Parked decisions (return to them without losing the thought)
+
+| Captured | Thought | Why parked | Return when |
+|---|---|---|---|
+| 2026-10-08 | Egress allowlist / network namespace for workers | cuts workers off from the host's Mongo and providers without a proxy; threat model does not justify it yet | a project or host needs it |
+| 2026-10-08 | Desktop control tools (files, apps, browser) through governed MCP tools | staged for Phase 3; separate permissions and acceptance | after the widget is in daily use |
+| 2026-10-08 | Local models (Pi 5 / EliteDesk ≤4B) for labelling and routing | no coding value on this hardware; room node must stay unloaded during Pilot 1 | hardware upgrade or an idle second box |
+| 2026-10-08 | Raspberry Pi as the always-on control-plane host | useful, not urgent; EliteDesk carries it today | if build load disturbs the room node |
+| 2026-10-08 | Tailscale for phone access to :8477 | owner decision (review §12.8); LAN works | when Michael wants the panel off-site |
+| 2026-10-09 | Deal Sniffer Operator UI at localhost:8765 shown inside :8477 | owner said "later", after Desktop-Agent's own interface is usable | after checklist #2 |
+| 2026-10-09 | Event-driven wake for Michael Business OS Agent 01 | its coordinator runs under another Linux account; no channel from the control plane | if Michael moves it to the control-plane account or adds a cross-account channel |
+
+## 5. Idea Book — capture (newest first; one line each; source and project)
+
+| Date | Idea / note | Source | Project |
+|---|---|---|---|
+| 2026-10-09 | "When I make notes they don't help me a lot until I have some kind of checklist made out of them in priority" → this document | owner, issue #3 (`da-4624e90014`) | all |
+| 2026-10-09 | One dashboard, three projects, two-way communication, clear approvals, live verifiable work | owner, issue #3 (`da-e2ab69583a`) | Desktop-Agent |
+| 2026-10-09 | Aria greets and walks through pending decisions one at a time | owner, issue #3 (`da-56edcaa991`) | Desktop-Agent |
+| 2026-10-08 | Model classes named Luna / Sol / Astra; least expensive capable, escalate on evidence | owner directive | all |
+| 2026-10-08 | Widget: small, cool, clean, color-coded; a thing to talk to | owner directive | Desktop-Agent |
+| 2026-10-08 | Possible RAM to 32 GB and storage to 500 GB–1 TB | owner directive | host |
+| 2026-10-08 | eMeet microphone placement vs the EliteDesk fan as a wake-detection confound | owner test notes, CAOSCARE.COM #117 | CAOSCare |
+
+### Sample: how one note became a checklist item
+Note (2026-10-08, owner): "Go ahead and figure out this whole OpenAI and Anthropic API key." →
+captured above → turned into checklist **#1** only after the preparatory work that needs no owner
+was finished (provider layer built, verified with zero paid calls, report written) and the single
+remaining step was identified as an owner action with a verifiable "done when" → it will be checked
+off when `--check-providers` shows the key present, not when the command is believed to have run.
+
+---
+
+*Maintenance:* the coordinator appends captures as they arrive (intake items, Aria conversations,
+owner notes), promotes at most three to the checklist with Michael's approval, moves finished items
+to Done with their evidence, and parks the rest with a return condition. Edits are commits with
+receipts like everything else in this repository.
