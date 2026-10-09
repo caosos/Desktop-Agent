@@ -147,7 +147,7 @@ class Service:
         pd = plan.to_dict()
         evidence = [f"goal={goal_id}", f"backend={pd.get('backend')}", f"model={pd.get('model')}",
                     f"cost={pd.get('cost_usd')}", f"tokens={pd.get('tokens')}"]
-        if plan.completion and plan.completion.cost_usd:
+        if plan.completion:
             self.store.add_cost(None, None, plan.completion.model, plan.completion.cost_usd,
                                 plan.completion.input_tokens, plan.completion.output_tokens)
         if plan.questions:
@@ -353,8 +353,22 @@ class Service:
             "next": next((t for t in tasks if t["status"] == "READY"), None),
             "slots": slots, "hold": hold, "class_labels": dict(self.cfg.class_labels), "last_seq": self.store.last_seq(),
             "feedback": metrics.feedback(self.store),
+            "budgets": self.budgets(),
+            "llm": self.llm.status(),
             "outcomes": [{"task_type": k[0], "model_class": k[1], **v} for k, v in metrics.outcomes(self.store).items()],
         }
+
+    def budgets(self) -> dict:
+        """Caps, actual spend against them, and usage with no dollar figure (never estimated)."""
+        c = self.store.cost_summary()
+        s = self.cfg.scheduler
+        return {"hourly_cap_usd": s.hourly_cap_usd, "daily_cap_usd": s.daily_cap_usd,
+                "per_task_default_usd": self.cfg.default_budget_usd,
+                "spent_last_hour_usd": c["last_hour_usd"], "spent_today_usd": c["today_usd"],
+                "remaining_hour_usd": round(max(0.0, s.hourly_cap_usd - c["last_hour_usd"]), 4),
+                "remaining_today_usd": round(max(0.0, s.daily_cap_usd - c["today_usd"]), 4),
+                "unknown_usage": c["unknown_usage"],
+                "note": "unknown_usage = subscription executors or unpriced models: tokens recorded, dollars not estimated"}
 
     async def task_detail(self, task_id: str) -> dict | None:
         row = self.store.get_task(task_id)

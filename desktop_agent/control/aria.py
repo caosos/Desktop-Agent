@@ -83,6 +83,8 @@ class AriaBrain:
         """One owner message → reply, after at most MAX_STEPS model/action rounds."""
         started = time.time()
         cost = 0.0
+        unknown_cost = False
+        tokens_in = tokens_out = 0
         actions_taken: list[dict] = []
         pending = text
         self.history.append({"role": "owner", "text": text})
@@ -93,7 +95,11 @@ class AriaBrain:
             except LLMError as exc:
                 reply = f"Model call failed: {exc}"
                 break
-            cost += comp.cost_usd or 0.0
+            if comp.cost_usd is None:
+                unknown_cost = True
+            else:
+                cost += comp.cost_usd
+            tokens_in += comp.input_tokens; tokens_out += comp.output_tokens
             reply = str(comp.data.get("reply") or "").strip()
             action = comp.data.get("action")
             if not action or not action.get("name"):
@@ -104,9 +110,10 @@ class AriaBrain:
             self.history.append({"role": "action", "text": f"{action['name']} → {json.dumps(result, default=str)[:3000]}"})
             pending = "(continue: use the action result above to answer the owner)"
         self.history.append({"role": "aria", "text": reply})
-        if cost:
-            self.service.store.add_cost(None, None, self.llm.model_for("cloud_cheap"), cost)
-        return {"reply": reply or "(no reply)", "actions": actions_taken, "cost_usd": round(cost, 5),
+        if cost or unknown_cost:
+            self.service.store.add_cost(None, None, self.llm.model_for("cloud_cheap"), None if unknown_cost else cost, tokens_in, tokens_out)
+        return {"reply": reply or "(no reply)", "actions": actions_taken,
+                "cost_usd": None if unknown_cost else round(cost, 5), "tokens": {"in": tokens_in, "out": tokens_out},
                 "duration_ms": int((time.time() - started) * 1000)}
 
     def reset(self) -> None:

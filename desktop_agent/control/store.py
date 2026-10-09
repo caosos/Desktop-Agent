@@ -272,7 +272,9 @@ class Store:
 
     # ---- costs / idempotency ---------------------------------------------
     def add_cost(self, task_id: str | None, worker_id: str | None, model: str | None,
-                 usd: float, input_tokens: int = 0, output_tokens: int = 0) -> None:
+                 usd: float | None, input_tokens: int = 0, output_tokens: int = 0) -> None:
+        """usd=None records usage whose dollar cost is unknown (subscription or unpriced model);
+        it is counted separately and never estimated."""
         with self._lock:
             self._db.execute(
                 "INSERT INTO costs(ts, task_id, worker_id, model, usd, input_tokens, output_tokens) VALUES (?,?,?,?,?,?,?)",
@@ -287,9 +289,14 @@ class Store:
             hour = self._db.execute("SELECT COALESCE(SUM(usd),0) s FROM costs WHERE ts > ?", (now - 3600,)).fetchone()["s"]
             total = self._db.execute("SELECT COALESCE(SUM(usd),0) s FROM costs").fetchone()["s"]
             per_task = self._db.execute(
-                "SELECT task_id, SUM(usd) s FROM costs GROUP BY task_id ORDER BY MAX(ts) DESC LIMIT 20").fetchall()
+                "SELECT task_id, SUM(usd) s FROM costs WHERE usd IS NOT NULL GROUP BY task_id ORDER BY MAX(ts) DESC LIMIT 20").fetchall()
+            unknown = self._db.execute(
+                "SELECT COUNT(*) n, COALESCE(SUM(input_tokens),0) i, COALESCE(SUM(output_tokens),0) o,"
+                " SUM(CASE WHEN ts > ? THEN 1 ELSE 0 END) n_today FROM costs WHERE usd IS NULL", (now - 86400,)).fetchone()
         return {"today_usd": round(day, 4), "last_hour_usd": round(hour, 4), "total_usd": round(total, 4),
-                "per_task": {r["task_id"]: round(r["s"], 4) for r in per_task}}
+                "per_task": {r["task_id"]: round(r["s"], 4) for r in per_task},
+                "unknown_usage": {"calls": unknown["n"], "calls_today": unknown["n_today"] or 0,
+                                  "input_tokens": unknown["i"], "output_tokens": unknown["o"]}}
 
     def idempotent(self, key: str) -> dict | None:
         with self._lock:

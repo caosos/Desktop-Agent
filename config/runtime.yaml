@@ -63,3 +63,30 @@ open_draft_pr: true
 projects:
   - projects/caoscare.yaml
   - projects/desktop_agent.yaml
+
+# Direct-API providers for the control plane's own calls (planner, Aria). Keys are read from
+# a 0600 file (or the named env var) by the control-plane process only and never reach workers.
+# `models` map class → model id. Fill OpenAI's ids after `python -m desktop_agent --check-providers`
+# (a free GET /v1/models) shows which ids this key can use; leave null until then.
+providers:
+  openai:
+    key_file: ~/.config/desktop-agent/openai.key
+    env: OPENAI_API_KEY
+    models:
+      cloud_cheap: null
+      cloud_strong: null
+      cloud_max: null
+  anthropic:
+    key_file: ~/.config/desktop-agent/anthropic.key
+    env: ANTHROPIC_API_KEY
+    models:
+      cloud_cheap: claude-haiku-5-5
+      cloud_strong: claude-sonnet-5-5
+      cloud_max: claude-opus-5-5
+
+# First available backend wins. claude_cli is the subscription fallback (reports its own USD).
+llm_backend_order: [openai_api, anthropic_api, claude_cli]
+
+# USD per 1M tokens; a call on an unpriced model is recorded with tokens and an UNKNOWN cost.
+# Owner-provided figures only; nothing here is estimated by the platform.
+pricing: {}

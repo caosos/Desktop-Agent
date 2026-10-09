@@ -1,13 +1,13 @@
-"""Structured model calls for the control plane itself (planner, classifier).
+"""Structured model calls for the control plane itself (planner, Aria).
 
-Provider-neutral surface: `complete(prompt, schema, model_class)` → dict.
-Backends:
-  - claude_cli: `claude -p --output-format json --json-schema ... --tools ""` with no
-    tools and no MCP, so it is a pure model call billed to the subscription and
-    reported with its own `total_cost_usd`.
-  - anthropic_api / openai_api: direct API calls when a key is configured (Stage 2+).
-Every call returns the parsed object plus cost and model so the caller can
-write a receipt with provenance.
+Provider-neutral: `complete(prompt, schema, model_class)` → Completion.
+Backends, tried in the configured order, first available wins:
+  - openai_api     : Chat Completions with a JSON-schema response format; key from a 0600 file or env.
+  - anthropic_api  : Messages API with a forced tool call carrying the schema; key from file or env.
+  - claude_cli     : `claude -p --json-schema` with no tools (subscription; reports its own USD).
+Costs: API backends price the reported token usage with the configured price table;
+without a price the cost is recorded as unknown, never estimated. Keys live only in
+this process and are never passed to workers.
 """
 from __future__ import annotations
 
@@ -16,12 +16,15 @@ import json
 import os
 import re
 import time
+import urllib.error
 import urllib.request
 from dataclasses import dataclass
 from typing import Any
 
 from .config import RuntimeConfig
 
+OPENAI_URL = "https://api.openai.com/v1/chat/completions"
+OPENAI_MODELS_URL = "https://api.openai.com/v1/models"
 ANTHROPIC_URL = "https://api.anthropic.com/v1/messages"
 
 
@@ -30,11 +33,15 @@ class Completion:
     data: dict
     model: str
     backend: str
-    cost_usd: float | None          # None = unknown (no figure reported)
+    cost_usd: float | None          # None = unknown (no figure reported or no price configured)
     input_tokens: int
     output_tokens: int
     duration_ms: int
     raw_text: str = ""
+
+    @property
+    def cost_known(self) -> bool:
+        return self.cost_usd is not None
 
 
 class LLMError(RuntimeError):
@@ -51,24 +58,107 @@ def _extract_json(text: str) -> dict:
     return json.loads(m.group(0))
 
 
+def _post_json(url: str, body: dict, headers: dict[str, str], timeout: int) -> dict:
+    req = urllib.request.Request(url, data=json.dumps(body).encode(), method="POST")
+    req.add_header("content-type", "application/json")
+    for k, v in headers.items():
+        req.add_header(k, v)
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            return json.loads(r.read().decode())
+    except urllib.error.HTTPError as exc:
+        raise LLMError(f"{url.split('/')[2]} HTTP {exc.code}: {exc.read().decode(errors='replace')[:300]}") from None
+    except (urllib.error.URLError, OSError) as exc:
+        raise LLMError(f"{url.split('/')[2]} unreachable: {exc}") from None
+
+
 class LLM:
     def __init__(self, cfg: RuntimeConfig, backend: str | None = None, claude_bin: str = "claude"):
         self.cfg = cfg
         self.claude_bin = claude_bin
-        self.anthropic_key = os.environ.get("ANTHROPIC_API_KEY", "")
-        self.backend = backend or ("anthropic_api" if self.anthropic_key else "claude_cli")
+        self._forced = backend
+        self.backend = backend or self._pick_backend()
 
-    def model_for(self, model_class: str) -> str:
+    def refresh(self) -> str:
+        """Re-pick the backend (a key file may have appeared since start; no restart needed)."""
+        if not self._forced:
+            self.backend = self._pick_backend()
+        return self.backend
+
+    # ---- selection ----------------------------------------------------------
+    def available(self, backend: str) -> bool:
+        if backend == "claude_cli":
+            return True
+        name = backend.replace("_api", "")
+        return self.cfg.provider_key(name) is not None and self.cfg.provider_status(name)["configured"]
+
+    def _pick_backend(self) -> str:
+        for b in self.cfg.llm_backend_order:
+            if self.available(b):
+                return b
+        return "claude_cli"
+
+    def model_for(self, model_class: str, backend: str | None = None) -> str:
+        b = backend or self.backend
+        if b in ("openai_api", "anthropic_api"):
+            models = (self.cfg.providers.get(b.replace("_api", "")) or {}).get("models") or {}
+            m = models.get(model_class) or models.get("cloud_cheap")
+            if m:
+                return m
         return self.cfg.models.get(model_class) or self.cfg.models["cloud_cheap"]
+
+    def status(self) -> dict:
+        return {"backend": self.backend, "order": list(self.cfg.llm_backend_order),
+                "providers": {n: self.cfg.provider_status(n) for n in self.cfg.providers}}
 
     async def complete(self, prompt: str, schema: dict, model_class: str = "cloud_cheap",
                        system: str | None = None, timeout: int = 180) -> Completion:
+        self.refresh()
         model = self.model_for(model_class)
+        if self.backend == "openai_api":
+            return await asyncio.to_thread(self._openai, prompt, schema, model, system, timeout)
         if self.backend == "anthropic_api":
             return await asyncio.to_thread(self._anthropic, prompt, schema, model, system, timeout)
         return await self._claude_cli(prompt, schema, model, system, timeout)
 
-    # ---- backends ---------------------------------------------------------
+    # ---- backends -----------------------------------------------------------
+    def _openai(self, prompt: str, schema: dict, model: str, system: str | None, timeout: int) -> Completion:
+        key = self.cfg.provider_key("openai")
+        if not key:
+            raise LLMError("openai_api: no key")
+        started = time.time()
+        messages = ([{"role": "system", "content": system}] if system else []) + [{"role": "user", "content": prompt}]
+        body: dict[str, Any] = {"model": model, "messages": messages,
+                                "response_format": {"type": "json_schema", "json_schema": {"name": "answer", "schema": schema}}}
+        resp = _post_json(OPENAI_URL, body, {"authorization": "Bearer " + key}, timeout)
+        text = ((resp.get("choices") or [{}])[0].get("message") or {}).get("content") or ""
+        data = _extract_json(text)
+        u = resp.get("usage") or {}
+        itok, otok = int(u.get("prompt_tokens") or 0), int(u.get("completion_tokens") or 0)
+        return Completion(data=data, model=resp.get("model") or model, backend="openai_api",
+                          cost_usd=self.cfg.price(resp.get("model") or model, itok, otok) if self.cfg.pricing else self.cfg.price(model, itok, otok),
+                          input_tokens=itok, output_tokens=otok, duration_ms=int((time.time() - started) * 1000), raw_text=text[:2000])
+
+    def _anthropic(self, prompt: str, schema: dict, model: str, system: str | None, timeout: int) -> Completion:
+        key = self.cfg.provider_key("anthropic")
+        if not key:
+            raise LLMError("anthropic_api: no key")
+        started = time.time()
+        tool = {"name": "emit", "description": "Return the structured answer.", "input_schema": schema}
+        body: dict[str, Any] = {"model": model, "max_tokens": 4000, "tools": [tool],
+                                "tool_choice": {"type": "tool", "name": "emit"},
+                                "messages": [{"role": "user", "content": prompt}]}
+        if system:
+            body["system"] = system
+        resp = _post_json(ANTHROPIC_URL, body, {"x-api-key": key, "anthropic-version": "2023-06-01"}, timeout)
+        data = next((b["input"] for b in resp.get("content", []) if b.get("type") == "tool_use"), None)
+        if not isinstance(data, dict):
+            raise LLMError("anthropic_api returned no tool_use block")
+        u = resp.get("usage") or {}
+        itok, otok = int(u.get("input_tokens") or 0), int(u.get("output_tokens") or 0)
+        return Completion(data=data, model=model, backend="anthropic_api", cost_usd=self.cfg.price(model, itok, otok),
+                          input_tokens=itok, output_tokens=otok, duration_ms=int((time.time() - started) * 1000))
+
     async def _claude_cli(self, prompt: str, schema: dict, model: str, system: str | None, timeout: int) -> Completion:
         argv = [self.claude_bin, "-p", prompt, "--output-format", "json", "--json-schema", json.dumps(schema),
                 "--model", model, "--max-turns", "1", "--tools", "", "--no-session-persistence",
@@ -76,11 +166,12 @@ class LLM:
         if system:
             argv += ["--append-system-prompt", system]
         started = time.time()
+        env = {k: v for k, v in os.environ.items() if not k.endswith("_API_KEY")}   # subscription path, no keys
         proc = await asyncio.create_subprocess_exec(
             *argv, stdin=asyncio.subprocess.DEVNULL, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
-            env={**os.environ, "DESKTOP_AGENT_LLM": "1"}, limit=16 * 1024 * 1024)
+            env=env | {"DESKTOP_AGENT_LLM": "1"}, limit=16 * 1024 * 1024)
         try:
-            out, err = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+            out, _ = await asyncio.wait_for(proc.communicate(), timeout=timeout)
         except asyncio.TimeoutError:
             proc.kill()
             raise LLMError("claude_cli call timed out")
@@ -102,23 +193,17 @@ class LLM:
             output_tokens=int(usage.get("output_tokens") or 0),
             duration_ms=int((time.time() - started) * 1000), raw_text=str(msg.get("result") or "")[:2000])
 
-    def _anthropic(self, prompt: str, schema: dict, model: str, system: str | None, timeout: int) -> Completion:
-        started = time.time()
-        tool = {"name": "emit", "description": "Return the structured answer.", "input_schema": schema}
-        body: dict[str, Any] = {"model": model, "max_tokens": 4000, "tools": [tool],
-                                "tool_choice": {"type": "tool", "name": "emit"},
-                                "messages": [{"role": "user", "content": prompt}]}
-        if system:
-            body["system"] = system
-        req = urllib.request.Request(ANTHROPIC_URL, data=json.dumps(body).encode(), method="POST")
-        req.add_header("content-type", "application/json"); req.add_header("x-api-key", self.anthropic_key)
-        req.add_header("anthropic-version", "2023-06-01")
+
+def list_openai_models(cfg: RuntimeConfig, timeout: int = 30) -> list[str]:
+    """Free verification call: the model ids this key can use (GET /v1/models, no charge)."""
+    key = cfg.provider_key("openai")
+    if not key:
+        raise LLMError("openai: no key")
+    req = urllib.request.Request(OPENAI_MODELS_URL)
+    req.add_header("authorization", "Bearer " + key)
+    try:
         with urllib.request.urlopen(req, timeout=timeout) as r:
-            resp = json.loads(r.read().decode())
-        data = next((b["input"] for b in resp.get("content", []) if b.get("type") == "tool_use"), None)
-        if not isinstance(data, dict):
-            raise LLMError("anthropic_api returned no tool_use block")
-        u = resp.get("usage") or {}
-        return Completion(data=data, model=model, backend="anthropic_api", cost_usd=None,
-                          input_tokens=int(u.get("input_tokens") or 0), output_tokens=int(u.get("output_tokens") or 0),
-                          duration_ms=int((time.time() - started) * 1000))
+            data = json.loads(r.read().decode())
+    except urllib.error.HTTPError as exc:
+        raise LLMError(f"openai HTTP {exc.code}: {exc.read().decode(errors='replace')[:200]}") from None
+    return sorted(m.get("id", "") for m in data.get("data", []))

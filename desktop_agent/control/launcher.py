@@ -200,9 +200,12 @@ class Launcher:
         commits = []
         if head and head != run.workspace.base_sha:
             commits = await ws.commits_since(run.workspace.path, run.workspace.base_sha)
-        if final.get("cost_usd"):
-            self.store.add_cost(run.task_id, run.worker_id, model, final["cost_usd"],
-                                final.get("input_tokens", 0), final.get("output_tokens", 0))
+        if final:
+            # Known dollars when the executor reports them; otherwise tokens with an UNKNOWN cost
+            # (subscription executors such as Codex), never an estimate.
+            known = final.get("cost_known", True) and final.get("cost_usd") is not None
+            self.store.add_cost(run.task_id, run.worker_id, model, float(final["cost_usd"]) if known else None,
+                                int(final.get("input_tokens") or 0), int(final.get("output_tokens") or 0))
         payload = {
             "exit_code": run.exit_code, "killed": run.killed, "head_sha": head,
             "commits": commits, "cost_usd": final.get("cost_usd"), "cost_known": final.get("cost_known", True),

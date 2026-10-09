@@ -52,6 +52,17 @@ class RuntimeConfig:
     # Extra files copied into the per-worker HOME as (source, relative destination), e.g. Codex auth.
     worker_home_files: list[tuple[Path, str]] = field(default_factory=list)
     adapter_models: dict[str, dict[str, str]] = field(default_factory=dict)   # adapter → class → model
+    # Direct-API providers for the control plane's own calls (planner, Aria). Keys come from a
+    # 0600 file or the environment; they are read only by the control-plane process and are
+    # never passed to workers. `models` maps class → model id; None = not configured.
+    providers: dict[str, dict] = field(default_factory=lambda: {
+        "openai": {"key_file": "~/.config/desktop-agent/openai.key", "env": "OPENAI_API_KEY",
+                   "models": {"cloud_cheap": None, "cloud_strong": None, "cloud_max": None}},
+        "anthropic": {"key_file": "~/.config/desktop-agent/anthropic.key", "env": "ANTHROPIC_API_KEY",
+                      "models": {"cloud_cheap": "claude-haiku-5-5", "cloud_strong": "claude-sonnet-5-5", "cloud_max": "claude-opus-5-5"}},
+    })
+    llm_backend_order: list[str] = field(default_factory=lambda: ["openai_api", "anthropic_api", "claude_cli"])
+    pricing: dict[str, dict[str, float]] = field(default_factory=dict)        # model → {"in": usd/1M, "out": usd/1M}
     sandbox_ro_paths: list[str] = field(default_factory=list)   # e.g. ~/.nvm for node + claude
     scope: ScopeLimits = field(default_factory=ScopeLimits)
     scheduler: SchedulerPolicy = field(default_factory=SchedulerPolicy)
@@ -117,7 +128,53 @@ class RuntimeConfig:
         cfg.open_draft_pr = bool(raw.get("open_draft_pr", True))
         cfg.project_files = [(base / x) if not Path(x).expanduser().is_absolute() else p(x)
                              for x in raw.get("projects", [])]
+        for name, pv in (raw.get("providers") or {}).items():
+            cur = cfg.providers.setdefault(name, {"key_file": None, "env": None, "models": {}})
+            for k in ("key_file", "env"):
+                if pv.get(k) is not None:
+                    cur[k] = pv[k]
+            if pv.get("models"):
+                cur.setdefault("models", {}).update(pv["models"])
+        if raw.get("llm_backend_order"):
+            cfg.llm_backend_order = list(raw["llm_backend_order"])
+        cfg.pricing = {m: {"in": float(v.get("in", 0)), "out": float(v.get("out", 0))}
+                       for m, v in (raw.get("pricing") or {}).items()}
         return cfg
+
+    # ---- credentials and pricing --------------------------------------------
+    def provider_key(self, name: str) -> str | None:
+        """The provider's API key from its 0600 key file or environment variable; None if absent.
+        Read on demand by the control plane only; never written anywhere."""
+        pv = self.providers.get(name) or {}
+        kf = pv.get("key_file")
+        if kf:
+            path = Path(kf).expanduser()
+            try:
+                key = path.read_text().strip()
+                if key:
+                    return key
+            except OSError:
+                pass
+        env = pv.get("env")
+        return os.environ.get(env) if env else None
+
+    def provider_status(self, name: str) -> dict:
+        pv = self.providers.get(name) or {}
+        kf = Path(pv["key_file"]).expanduser() if pv.get("key_file") else None
+        mode = None
+        if kf and kf.exists():
+            mode = oct(kf.stat().st_mode & 0o777)
+        return {"provider": name, "key_present": self.provider_key(name) is not None,
+                "key_file": str(kf) if kf else None, "key_file_mode": mode,
+                "models": dict(pv.get("models") or {}),
+                "configured": all((pv.get("models") or {}).get(c) for c in ("cloud_cheap", "cloud_strong", "cloud_max"))}
+
+    def price(self, model: str, input_tokens: int, output_tokens: int) -> float | None:
+        """USD for a call when the model's price is configured; None means unknown (never estimated)."""
+        p = self.pricing.get(model)
+        if not p:
+            return None
+        return round(input_tokens * p["in"] / 1_000_000 + output_tokens * p["out"] / 1_000_000, 6)
 
     def ensure_token(self) -> str:
         """Create the API bearer token on first run (mode 0640 so a desktop
