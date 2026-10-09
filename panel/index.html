@@ -327,19 +327,27 @@ $("aria_send").onclick = async () => {
 // Dictation state machine: Ready → Listening → (Transcribing while interim results arrive) → Text ready | Error.
 // The browser engine ends a session after silence; while the owner has not clicked Stop we restart it, so long
 // dictation with pauses accumulates into the text box. Nothing is ever sent without the Send button.
-let rec = null, wantListening = false, micBase = "";
+let rec = null, wantListening = false, micBase = "", sessionFinals = [];
+// Web Speech delivers a CUMULATIVE results list: every event repeats all earlier results of the session. Each
+// finalized segment is therefore stored under its result index (consumed once, interim→final replaces in place)
+// and the text is rebuilt from base + session finals; on an engine restart the session finals fold into the base.
+function foldSession() { const finals = sessionFinals.filter(Boolean).join(" "); micBase = (micBase + (finals ? finals + " " : "")).replace(/\s+/g, " "); sessionFinals = []; }
 function micState(s, cls) { $("mic_state").textContent = s; $("mic_state").className = cls || "muted"; }
 function startDictation() {
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!SR) { micState("Dictation unavailable: this browser has no speech recognition. Type instead, or use Chrome.", "amber"); $("mic").disabled = true; return; }
   rec = new SR(); rec.continuous = true; rec.interimResults = true; rec.lang = navigator.language || "en-US";
-  micBase = $("aria_text").value ? $("aria_text").value.replace(/\s*$/, "") + " " : "";
+  micBase = $("aria_text").value ? $("aria_text").value.replace(/\s*$/, "") + " " : ""; sessionFinals = [];
   wantListening = true; $("mic").classList.add("on"); $("mic").setAttribute("aria-pressed", "true"); $("mic").textContent = "■ Stop";
   micState("Listening… speak in complete thoughts; click Stop when done", "ok-mark");
   rec.onresult = ev => {
-    let finals = "", interim = "";
-    for (let i = 0; i < ev.results.length; i++) { const r = ev.results[i]; if (r.isFinal) finals += r[0].transcript + " "; else interim += r[0].transcript; }
-    if (finals) { micBase = (micBase + finals).replace(/\s+/g, " "); $("aria_text").value = micBase; }
+    let interim = "";
+    for (let i = ev.resultIndex || 0; i < ev.results.length; i++) {
+      const r = ev.results[i]; if (!r || !r[0]) continue;
+      if (r.isFinal) sessionFinals[i] = r[0].transcript.trim(); else interim += r[0].transcript;
+    }
+    const finals = sessionFinals.filter(Boolean).join(" ");
+    $("aria_text").value = (micBase + finals).replace(/\s+/g, " ").replace(/^\s+/, "");
     $("interim").textContent = interim ? "… " + interim : "";
     micState(interim ? "Transcribing…" : "Listening…", "ok-mark");
   };
@@ -351,7 +359,9 @@ function startDictation() {
     else if (e !== "aborted") { wantListening = false; micState("Dictation error: " + e, "amber"); }
     if (!wantListening) resetMic();
   };
-  rec.onend = () => { if (wantListening) { try { rec.start(); } catch (e) { wantListening = false; resetMic(); micState("Dictation stopped: " + e, "amber"); } } else { resetMic(); if ($("aria_text").value.trim()) micState("Text ready — edit if needed, then Send", "ok-mark"); } };
+  rec.onend = () => { foldSession(); $("interim").textContent = "";
+    if (wantListening) { try { rec.start(); } catch (e) { wantListening = false; resetMic(); micState("Dictation stopped: " + e, "amber"); } }
+    else { resetMic(); if ($("aria_text").value.trim()) micState("Text ready — edit if needed, then Send", "ok-mark"); } };
   try { rec.start(); } catch (e) { wantListening = false; resetMic(); micState("Could not start the microphone: " + e, "amber"); }
 }
 function stopDictation() { if (!rec) return; wantListening = false; try { rec.stop(); } catch (e) {} }

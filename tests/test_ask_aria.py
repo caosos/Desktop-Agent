@@ -60,16 +60,18 @@ def test_no_model_mode_is_deterministic_and_project_brief_grounds_answers(tmp_pa
 
 
 FAKE_SR = """
+// Models the real Web Speech contract: `results` is CUMULATIVE for the session (every event carries all earlier
+// results), `resultIndex` is the first changed index, an interim result at index i is later REPLACED by the final
+// at the same index, and a new session after onend starts again at index 0.
 window.__sr = [];
 class FakeSR {
-  constructor() { this.continuous = false; this.interimResults = false; this.started = 0; window.__sr.push(this); }
-  start() { this.started++; if (window.__srMode === 'denied') { setTimeout(() => this.onerror({error: 'not-allowed'}), 10); setTimeout(() => this.onend(), 20); } }
+  constructor() { this.continuous = false; this.interimResults = false; this.started = 0; this.results = []; window.__sr.push(this); }
+  start() { this.started++; this.results = []; if (window.__srMode === 'denied') { setTimeout(() => this.onerror({error: 'not-allowed'}), 10); setTimeout(() => this.onend(), 20); } }
   stop() { setTimeout(() => this.onend(), 10); }
-  emit(finals, interim) { const results = finals.map(t => Object.assign([{transcript: t}], {isFinal: true})); if (interim) results.push(Object.assign([{transcript: interim}], {isFinal: false})); this.onresult({results}); }
+  say(index, transcript, isFinal) { this.results[index] = Object.assign([{transcript}], {isFinal}); this.onresult({results: this.results, resultIndex: index}); }
 }
 if (window.__srMode !== 'none') { window.webkitSpeechRecognition = FakeSR; window.SpeechRecognition = FakeSR; }
 """
-
 
 @pytest.fixture
 def served(tmp_path):
@@ -122,14 +124,21 @@ def test_dictation_states_and_send_in_browser(served):
                 ctx.close(); continue
             page.click("#mic"); page.wait_for_function("document.querySelector('#mic').getAttribute('aria-pressed') === 'true'", timeout=5000)
             assert "Listening" in page.inner_text("#mic_state") and page.evaluate("window.__sr[0].continuous && window.__sr[0].interimResults")
-            page.evaluate("window.__sr[0].emit([], 'what is')"); assert "Transcribing" in page.inner_text("#mic_state") and "what is" in page.inner_text("#interim")
-            page.evaluate("window.__sr[0].emit(['What is agent six doing right now?'], '')")
+            sr = "window.__sr[window.__sr.length-1]"
+            page.evaluate(sr + ".say(0, 'what is', false)"); assert "Transcribing" in page.inner_text("#mic_state") and "what is" in page.inner_text("#interim")
+            page.evaluate(sr + ".say(0, 'What is agent six doing right now?', true)")        # interim → final at the same index
             assert page.input_value("#aria_text").strip() == "What is agent six doing right now?"
-            page.evaluate("window.__sr[0].onend()")                                          # the engine stops after a pause: not the owner's Stop
+            page.evaluate(sr + ".say(1, 'and is', false)")                                     # the cumulative list still carries index 0
+            page.evaluate(sr + ".say(1, 'And is anything blocked on lane six?', true)")
+            assert page.input_value("#aria_text").strip() == "What is agent six doing right now? And is anything blocked on lane six?", page.input_value("#aria_text")
+            page.evaluate(sr + ".say(2, 'Aria Aria', true)")                                   # legitimately repeated words survive, once
+            page.evaluate(sr + ".say(2, 'Aria Aria', true)")                                   # a re-delivered final at the same index does not duplicate
+            assert page.input_value("#aria_text").strip() == "What is agent six doing right now? And is anything blocked on lane six? Aria Aria"
+            page.evaluate(sr + ".onend()")                                                     # the engine stops after a pause: not the owner's Stop
             page.wait_for_function("window.__sr[0].started === 2", timeout=5000)             # … so we restart and keep listening
             assert page.get_attribute("#mic", "aria-pressed") == "true"
-            page.evaluate("window.__sr[0].emit(['And is anything blocked on lane six?'], '')")
-            assert page.input_value("#aria_text").strip() == "What is agent six doing right now? And is anything blocked on lane six?"
+            page.evaluate(sr + ".say(0, 'Second session sentence.', true)")                  # new session: indices start at 0 again, text must append
+            assert page.input_value("#aria_text").strip() == "What is agent six doing right now? And is anything blocked on lane six? Aria Aria Second session sentence."
             page.click("#mic"); page.wait_for_function("document.querySelector('#mic').getAttribute('aria-pressed') === 'false'", timeout=5000)
             assert "Text ready" in page.inner_text("#mic_state") and page.locator("#aria_log .turn").count() == 0      # nothing sent by itself
             page.fill("#aria_text", "What is F-39 doing right now?")                              # the owner corrects the text
