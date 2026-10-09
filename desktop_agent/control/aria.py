@@ -20,11 +20,16 @@ HISTORY_TURNS = 12
 ACTIONS = {
     "get_state": "current workers, tasks with stages, blocked items, open owner decisions, costs, feedback",
     "list_projects": "projects the control plane manages",
+    "project_brief": "one project's drilldown: mission, coordinator vs workers, agent roster (declared vs actual now, with proof), tasks, instructions with status/age, freshness, primary action: args {project}",
     "explain_task": "details of one task: args {task_id}",
-    "submit_goal": "create bounded work from a confirmed instruction: args {text, project (optional)}",
-    "answer_decision": "record the owner's answer to an open decision: args {decision_id, answer}",
-    "control": "pause, resume or stop: args {action, task_id (optional)}",
+    "submit_goal": "NEW WORK: create bounded work from a confirmed instruction: args {text, project (optional)}",
+    "send_direction": "DIRECTION: message a project's existing coordinator through the Shared Inbox (posted to GitHub, delivered, tracked POSTED→DELIVERED→ACK→DONE); never completes work by itself: args {project, text}",
+    "answer_decision": "OWNER DECISION: record the owner's answer to an open decision: args {decision_id, answer}",
+    "control": "pause, resume or stop this control plane's scheduler: args {action, task_id (optional)}",
 }
+KIND_BY_ACTION = {"submit_goal": "new work", "send_direction": "direction", "answer_decision": "owner decision", "control": "control"}
+HISTORY_KV = "aria:history"
+HISTORY_KEEP = 60
 
 SCHEMA = {
     "type": "object",
@@ -42,11 +47,14 @@ class AriaBrain:
     def __init__(self, service, llm: LLM | None = None):
         self.service = service
         self.llm = llm or service.llm
-        self.history: list[dict] = []          # {"role": "owner"|"aria"|"action", "text": ...}
+        self.history: list[dict] = list((service.store.get_kv(HISTORY_KV) or {}).get("turns") or [])   # recoverable: {"role", "text", "ts"}
         self.system = (PROMPT_FILE.read_text() if PROMPT_FILE.exists() else "You are Aria.") + \
             "\n\nYou answer with a JSON object: {\"reply\": <one or two sentences for Michael>, \"action\": null | {\"name\", \"args\"}}. " \
             "Available actions:\n" + "\n".join(f"- {k}: {v}" for k, v in ACTIONS.items()) + \
-            "\nUse at most one action per step; after its result you will be asked again. Ask for confirmation before submit_goal unless the owner already said yes/go/do it."
+            "\nUse at most one action per step; after its result you will be asked again. Ask for confirmation before submit_goal, send_direction, answer_decision and control unless the owner already said yes/go/do it. " \
+            "Classify the owner's message: a QUESTION is answered read-only from actions like get_state, project_brief, explain_task; a DIRECTION goes to the project's coordinator via send_direction; NEW WORK via submit_goal; an OWNER DECISION via answer_decision. " \
+            "Ground every status claim in an action result and name its source (host process, project feed, roster table, receipt, GitHub item); if the data does not say, answer 'unknown' rather than guessing. " \
+            "A submitted direction or goal is not finished work: say what will happen next and how the owner will see the result. You have no web access and no knowledge beyond these actions."
 
     async def run_action(self, name: str, args: dict) -> dict:
         s = self.service
@@ -60,6 +68,13 @@ class AriaBrain:
                                          "items": [{k: i.get(k) for k in ("item_id", "project", "kind", "title", "status", "posted_at", "url")} for i in (ik.get("items") or [])[-12:]]}}
             if name == "list_projects":
                 return {"projects": [p.summary() for p in s.projects.values()]}
+            if name == "project_brief":
+                d = s.drill.build(str(args.get("project", "")))
+                if not d:
+                    return {"error": f"no such project; known: {list(s.projects)}"}
+                return {k: d[k] for k in ("name", "mission", "coordinator", "workers", "roster", "tasks", "instructions", "unacknowledged", "freshness", "primary_action")}
+            if name == "send_direction":
+                return await s.intake.send_direction(str(args.get("project", "")), str(args.get("text", "")), "aria")
             if name == "explain_task":
                 t = await s.task_detail(str(args.get("task_id", "")))
                 if not t:
@@ -82,6 +97,31 @@ class AriaBrain:
         lines.append(f"OWNER: {text}")
         return "CONVERSATION SO FAR (newest last):\n" + "\n".join(lines) + "\n\nRespond with the JSON object."
 
+    def status(self) -> dict:
+        """Whether a model is configured and permitted for conversation, which one, and what it costs. Never flips a gate."""
+        backend = self.llm.refresh_backend() if hasattr(self.llm, "refresh_backend") else getattr(self.llm, "backend", "fake")
+        ok = bool(self.llm.available(backend)) if hasattr(self.llm, "available") else True
+        model = self.llm.model_for("cloud_cheap") if ok else None
+        cost_note = ("subscription (Claude CLI): about a cent per exchange, recorded as token-equivalent, not an invoice" if backend == "claude_cli"
+                     else "metered API: recorded per token at the configured price, UNKNOWN if unpriced" if ok else "")
+        return {"available": ok, "backend": backend if ok else None, "model": model, "cost_note": cost_note,
+                "reason": None if ok else "conversation requires a configured and permitted model; status answers stay deterministic",
+                "turns": len(self.history), "actions": list(ACTIONS)}
+
+    def _persist(self) -> None:
+        self.history = self.history[-HISTORY_KEEP:]
+        self.service.store.set_kv(HISTORY_KV, {"turns": self.history, "saved_at": time.time()})
+
+    def _deterministic(self, text: str) -> str:
+        """No model permitted: a truthful status line from live state, no reasoning, no fabrication."""
+        st = self.service.state()
+        running = [t for t in st["tasks"] if t["status"] == "RUNNING"]
+        ik = st.get("intake") or {}
+        proj = ", ".join(f"{p['name']} workers {p['workers']['status'].lower()}" + (f" ({p['workers']['active']})" if p['workers']['active'] else "") for p in st["projects"])
+        return ("Conversation requires model approval, so this is a deterministic status, not an answer to your question. "
+                f"Projects: {proj}. Running control-plane tasks: {len(running)}. Open decisions: {len(st['inbox'])}. "
+                f"Unacknowledged instructions: {len(ik.get('unacknowledged') or [])}. Open a project card for its roster, instructions and evidence.")
+
     async def chat(self, text: str) -> dict:
         """One owner message → reply, after at most MAX_STEPS model/action rounds."""
         started = time.time()
@@ -90,14 +130,23 @@ class AriaBrain:
         tokens_in = tokens_out = 0
         actions_taken: list[dict] = []
         pending = text
-        self.history.append({"role": "owner", "text": text})
+        self.history.append({"role": "owner", "text": text, "ts": started})
         reply = ""
+        if not self.status()["available"]:
+            reply = self._deterministic(text)
+            self.history.append({"role": "aria", "text": reply, "ts": time.time(), "kind": "status (no model)"})
+            self._persist()
+            return {"reply": reply, "actions": [], "kind": "status (no model)", "model": None, "cost_usd": 0.0, "tokens": {"in": 0, "out": 0},
+                    "duration_ms": int((time.time() - started) * 1000)}
         for _ in range(MAX_STEPS):
             try:
                 comp = await self.llm.complete(self._prompt(pending), SCHEMA, "cloud_cheap", system=self.system, timeout=90)
-            except LLMError as exc:
-                reply = f"Model call failed: {exc}"
-                break
+            except LLMError as first:
+                try:                                           # one bounded retry: the CLI occasionally returns an empty error
+                    comp = await self.llm.complete(self._prompt(pending), SCHEMA, "cloud_cheap", system=self.system, timeout=90)
+                except LLMError as exc:
+                    reply = f"Model call failed twice: {first}; {exc}. Nothing was changed."
+                    break
             if comp.cost_usd is None:
                 unknown_cost = True
             else:
@@ -108,19 +157,28 @@ class AriaBrain:
             if not action or not action.get("name"):
                 break
             result = await self.run_action(action["name"], action.get("args") or {})
-            actions_taken.append({"name": action["name"], "args": action.get("args") or {}, "ok": "error" not in result})
-            self.history.append({"role": "aria", "text": reply})
-            self.history.append({"role": "action", "text": f"{action['name']} → {json.dumps(result, default=str)[:3000]}"})
+            evidence = {k: result.get(k) for k in ("item_id", "status", "url", "task_ids", "decision_id", "note") if isinstance(result, dict) and result.get(k)}
+            actions_taken.append({"name": action["name"], "args": action.get("args") or {}, "ok": "error" not in result, "evidence": evidence})
+            self.history.append({"role": "aria_step", "text": reply, "ts": time.time()})
+            self.history.append({"role": "action", "text": f"{action['name']} → {json.dumps(result, default=str)[:3000]}", "ts": time.time()})
             pending = "(continue: use the action result above to answer the owner)"
-        self.history.append({"role": "aria", "text": reply})
+        kind = next((KIND_BY_ACTION[a["name"]] for a in actions_taken if a["name"] in KIND_BY_ACTION), "question")
+        self.history.append({"role": "aria", "text": reply, "ts": time.time(), "kind": kind,
+                             "actions": [{"name": a["name"], "ok": a["ok"], "evidence": a["evidence"]} for a in actions_taken]})
+        self._persist()
         if cost or unknown_cost:
             self.service.store.add_cost(None, None, self.llm.model_for("cloud_cheap"), None if unknown_cost else cost, tokens_in, tokens_out)
-        return {"reply": reply or "(no reply)", "actions": actions_taken,
+        return {"reply": reply or "(no reply)", "actions": actions_taken, "kind": kind, "model": self.llm.model_for("cloud_cheap"),
                 "cost_usd": None if unknown_cost else round(cost, 5), "tokens": {"in": tokens_in, "out": tokens_out},
                 "duration_ms": int((time.time() - started) * 1000)}
 
+    def transcript(self) -> list[dict]:
+        """Owner and Aria turns (action rows folded into the Aria turn), for the panel after reload or restart."""
+        return [h for h in self.history if h["role"] in ("owner", "aria")]
+
     def reset(self) -> None:
         self.history.clear()
+        self._persist()
 
     def greeting(self) -> dict:
         """Opening line from live state, no model call: decisions waiting, what is running, what finished,

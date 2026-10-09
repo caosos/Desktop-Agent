@@ -35,6 +35,13 @@
 
 Pause, Resume and Stop never touch CAOSCare's or Business OS's own workers.
 
+## Ask Aria (bubble, bottom right)
+
+- **What it is:** a text conversation with the control plane's Aria on the existing `/v0/aria/chat`. The header line names the model and backend in use and its cost note; when no model is permitted it says so and answers with a deterministic status only.
+- **Kinds of message, shown as a chip on each reply:** *question* (answered read-only from live state, project briefs, task details: the reply names its source), *direction* (sent to the project's coordinator through the Shared inbox, tracked POSTED → DELIVERED → ACK → DONE; never finished work by itself), *new work* (a bounded worker task via the planner, confirmed first), *owner decision* (recorded in the packet, confirmed first), *control* (pause / resume / stop, confirmed first). Every action leaves a receipt and is listed under the reply.
+- **Dictation (🎤 Dictate):** click to start, speak in complete thoughts with pauses, click **Stop**. States: Ready → Listening → Transcribing → Text ready, or an error that says what to do (permission denied, no speech engine, speech service unreachable). Text lands in the box; edit it; nothing is sent until you press **Send**. Audio goes to your browser's speech service (in Chrome: Google's servers), never to this panel or Aria; no recordings are kept. Needs Chrome, microphone permission on click, and a localhost or HTTPS page (your SSH tunnel qualifies). On-device speech is not installed (one owner decision); the metered OpenAI path stays off.
+- **Transcript:** kept by the control plane (last 60 turns) so a reload or restart shows it again; "Ask Aria about this project" in a drilldown opens the bubble with that project named.
+
 ## Money
 
 Known dollars are token-equivalent list prices reported by the Claude CLI on the subscription, not an invoice. Anything the platform cannot price shows as **UNKNOWN**, never `$0`. Metered API invoices are impossible while OpenAI is DISABLED and no Anthropic key exists; both decisions are optional and stay unanswered until you submit them.

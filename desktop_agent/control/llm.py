@@ -183,7 +183,8 @@ class LLM:
         except json.JSONDecodeError as exc:
             raise LLMError(f"claude_cli returned non-JSON: {text[:200]!r} ({exc})")
         if msg.get("is_error") and not msg.get("structured_output"):
-            raise LLMError(f"claude_cli error: {str(msg.get('result'))[:300]}")
+            detail = msg.get("result") or msg.get("error") or msg.get("errors") or msg.get("subtype") or {k: msg[k] for k in ("subtype", "num_turns", "stop_reason") if k in msg}
+            raise LLMError(f"claude_cli error: {str(detail)[:300]}")
         data = msg.get("structured_output")
         if not isinstance(data, dict):
             data = _extract_json(str(msg.get("result") or ""))

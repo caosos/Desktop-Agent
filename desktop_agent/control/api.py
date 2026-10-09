@@ -260,6 +260,23 @@ def build_app(service: Service, token: str) -> FastAPI:
     async def aria_greeting(_: str = Depends(auth)):
         return service.aria.greeting()
 
+    @app.get("/v0/aria/status")
+    async def aria_status(_: str = Depends(auth)):
+        """Is a model configured and permitted for conversation, which, at what cost; plus the dictation disclosure."""
+        return service.aria.status() | {"dictation": {
+            "mode": "browser_speech",
+            "disclosure": "Dictation uses your browser's speech recognition. In Chrome the audio is sent to Google's speech servers for "
+                          "recognition; it is not processed on this computer and this panel stores no audio. The microphone is opened only "
+                          "when you click the mic and closed when you click Stop. Text is never sent to Aria until you press Send.",
+            "requirements": "Chrome (or another browser with SpeechRecognition); microphone permission granted on click; the page on localhost "
+                            "or HTTPS (a localhost SSH tunnel qualifies).",
+            "on_device_alternative": "not installed: an offline speech model would be new software on this host (one owner decision)",
+            "metered_alternative": "widget/voice.py path (OpenAI transcription) stays off; OpenAI is disabled"}}
+
+    @app.get("/v0/aria/history")
+    async def aria_history(_: str = Depends(auth)):
+        return {"turns": service.aria.transcript()}
+
     @app.get("/v0/projects/{name}/drilldown")
     async def project_drilldown(name: str, _: str = Depends(auth)):
         """Owner: one project's mission, coordinator vs workers, declared-vs-live roster, tasks, instructions, freshness."""

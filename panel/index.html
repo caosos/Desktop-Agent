@@ -50,6 +50,20 @@ body[data-mode="owner"] #packetcard:not(.show) { display:none; }
 .spin { display:inline-block; width:11px; height:11px; border:2px solid var(--line); border-top-color:var(--accent); border-radius:50%; animation:spin 1s linear infinite; vertical-align:-1px; }
 @keyframes spin { to { transform:rotate(360deg); } }
 .amber { color:var(--warn); }
+/* Ask Aria: a small fixed bubble; the conversation opens as a drawer (right on desktop, bottom sheet on phones) */
+#aria_bubble { position:fixed; right:16px; bottom:calc(16px + env(safe-area-inset-bottom, 0px)); z-index:40; padding:10px 16px; border-radius:24px; background:var(--accent); color:#fff; border:none; font-weight:600; box-shadow:0 4px 14px rgba(0,0,0,.25); }
+#aria { position:fixed; right:0; bottom:0; top:0; width:min(520px, 100vw); z-index:41; background:var(--surface); border-left:1px solid var(--line); display:flex; flex-direction:column; box-shadow:-6px 0 20px rgba(0,0,0,.2); padding:12px 14px calc(12px + env(safe-area-inset-bottom, 0px)); }
+#aria[hidden] { display:none; }
+@media (max-width:700px) { #aria { top:auto; width:100vw; max-height:85vh; border-left:none; border-top:1px solid var(--line); } }
+#aria_log { flex:1 1 auto; overflow:auto; min-height:120px; padding:4px 0; }
+.turn { padding:6px 8px; margin:4px 0; border-radius:6px; max-width:95%; overflow-wrap:anywhere; }
+.turn.owner { background:var(--soft); margin-left:auto; }
+.turn.aria { background:var(--bg); border:1px solid var(--line); }
+.turn .meta { font-size:11px; color:var(--muted); margin-top:3px; }
+#aria_text { min-height:84px; }
+#mic.on { background:var(--warnsoft); border-color:var(--warn); color:var(--warn); }
+#mic_state { font-size:11.5px; }
+#interim { font-size:12px; color:var(--muted); min-height:1.2em; font-style:italic; }
 .ok-mark { color:var(--ok); font-weight:600; }
 #mode { font-weight:600; }
 .card { background:var(--surface); border:1px solid var(--line); padding:10px 12px; min-width:0; }
@@ -106,6 +120,21 @@ a { color:var(--accent); }
       <b>IDLE</b> = verified that nothing is running now. <b>DOWN</b> = a coordinator session that should be reachable is not, or a dispatcher is stopped with work queued. <b>not verified</b> = no telemetry, so no claim.<br>
       ✓ verified · <span class="spin"></span> actually running · <span class="amber">amber</span> actual blocker · NEXT one plain action. Full runbook: <code>docs/PANEL_RUNBOOK.md</code>.
     </div></details>
+</section>
+
+<button id="aria_bubble" aria-controls="aria" aria-expanded="false" title="Ask Aria: talk or type; nothing runs without your Send and confirmation">Ask Aria</button>
+<section id="aria" hidden aria-label="Ask Aria" role="dialog">
+  <div class="row" style="border:none;padding:0 0 6px"><span><b style="font-size:16px">Ask Aria</b> <span id="aria_model" class="muted tiny"></span></span><button class="tiny" id="aria_close">close</button></div>
+  <div id="aria_log" aria-live="polite"></div>
+  <div class="tiny muted" id="aria_hint">Questions are answered read-only. A direction goes to a project's coordinator through the Shared inbox. New work and decisions are confirmed before anything runs. Every action leaves a receipt.</div>
+  <div id="interim" aria-live="polite"></div>
+  <textarea id="aria_text" placeholder="Type, or click the microphone and speak in complete thoughts. You can edit before you Send." aria-label="Message to Aria"></textarea>
+  <div class="ctl" style="margin-top:6px">
+    <button id="mic" type="button" aria-pressed="false" title="Click to start dictation; click again to stop. Audio goes to your browser's speech service; nothing is sent to Aria until you press Send.">🎤 Dictate</button>
+    <span id="mic_state" class="muted">Ready</span>
+    <button class="primary" id="aria_send" type="button" style="margin-left:auto">Send</button>
+  </div>
+  <details class="tiny" style="margin-top:6px"><summary>Where does my voice go? · cost</summary><div id="aria_disclosure" class="muted"></div></details>
 </section>
 
 <div class="stages details-only" id="stages"></div>
@@ -254,8 +283,81 @@ async function openDrill(name) {
     <div class="orow next"><b>DO</b><div>${esc(d.primary_action)} <span class="ctl" style="display:inline-flex;margin-left:12px"><button class="tiny" id="drill_ask" data-p="${esc(d.name)}">Ask Aria about this project</button></span><div id="drill_ask_out" class="tiny muted" style="margin-top:6px"></div></div></div>`;
   $("drill").hidden = false; $("drill").scrollIntoView({behavior: "smooth", block: "nearest"});
   $("drill_close").onclick = () => { drillOpen = null; $("drill").hidden = true; renderOwner(); };
-  $("drill_ask").onclick = () => { $("drill_ask_out").innerHTML = `Stage A: deterministic status, no model call. ${esc(d.name)}: ${esc(w.summary||"")}; ${d.unacknowledged} instruction(s) unacknowledged; primary action: ${esc(d.primary_action)}. Model-grounded conversation arrives with the Ask Aria chat (Stage B), only on a configured, permitted model.`; };
+  $("drill_ask").onclick = () => { openAria(`About ${d.name}: `); $("drill_ask_out").textContent = "Ask Aria opened with this project in context."; };
 }
+
+// ---- Ask Aria: conversation drawer on the existing /v0/aria/chat; dictation through the browser's speech engine ----
+let ariaStatus = null;
+async function openAria(prefill) {
+  $("aria").hidden = false; $("aria_bubble").setAttribute("aria-expanded", "true");
+  if (!ariaStatus) await loadAria();
+  if (prefill !== undefined) { $("aria_text").value = prefill; }
+  $("aria_text").focus(); const v = $("aria_text").value; $("aria_text").setSelectionRange(v.length, v.length);
+}
+async function loadAria() {
+  try {
+    ariaStatus = await api("/v0/aria/status");
+    $("aria_model").textContent = ariaStatus.available ? `model ${ariaStatus.model} via ${ariaStatus.backend} · ${ariaStatus.cost_note}` : `no model permitted: ${ariaStatus.reason}`;
+    const dct = ariaStatus.dictation || {};
+    $("aria_disclosure").innerHTML = `<b>Dictation:</b> ${esc(dct.disclosure||"")}<br><b>Needs:</b> ${esc(dct.requirements||"")}<br><b>On-device alternative:</b> ${esc(dct.on_device_alternative||"")}<br><b>Metered alternative:</b> ${esc(dct.metered_alternative||"")}<br><b>Aria's model:</b> ${ariaStatus.available ? esc(ariaStatus.cost_note) : esc(ariaStatus.reason||"")}`;
+    const h = await api("/v0/aria/history");
+    $("aria_log").innerHTML = (h.turns || []).map(turnHtml).join("") || '<div class="muted tiny">No conversation yet. Ask about a project, an agent, a task, or give a direction.</div>';
+    $("aria_log").scrollTop = $("aria_log").scrollHeight;
+  } catch (e) { $("aria_model").textContent = "Aria status unavailable: " + e; }
+}
+function turnHtml(t) {
+  if (t.role === "owner") return `<div class="turn owner">${esc(t.text)}<div class="meta">you · ${t.ts ? ago(t.ts) + " ago" : ""}</div></div>`;
+  const acts = (t.actions || []).map(a => `${esc(a.name)}${a.ok ? " ✓" : " ✗"}${a.evidence && Object.keys(a.evidence).length ? " " + esc(Object.entries(a.evidence).map(([k, v]) => `${k}=${String(v).slice(0, 60)}`).join(", ")) : ""}`).join("; ");
+  return `<div class="turn aria">${esc(t.text)}<div class="meta">Aria · <span class="chip ${t.kind === "question" || !t.kind ? "" : t.kind && t.kind.startsWith("status") ? "warn" : "ok"}">${esc(t.kind || "question")}</span>${acts ? " · " + acts : ""}${t.cost_usd != null ? ` · $${Number(t.cost_usd).toFixed(3)}` : ""}${t.ts ? " · " + ago(t.ts) + " ago" : ""}</div></div>`;
+}
+$("aria_bubble").onclick = () => openAria();
+$("aria_close").onclick = () => { stopDictation(); $("aria").hidden = true; $("aria_bubble").setAttribute("aria-expanded", "false"); $("aria_bubble").focus(); };
+$("aria_send").onclick = async () => {
+  const text = $("aria_text").value.trim(); if (!text) return;
+  stopDictation();
+  $("aria_log").insertAdjacentHTML("beforeend", turnHtml({role: "owner", text, ts: Date.now() / 1000})); $("aria_text").value = ""; $("aria_log").scrollTop = $("aria_log").scrollHeight;
+  $("aria_send").disabled = true; $("aria_send").textContent = "thinking…";
+  try {
+    const r = await api("/v0/aria/chat", {method: "POST", body: JSON.stringify({text})});
+    $("aria_log").insertAdjacentHTML("beforeend", turnHtml({role: "aria", text: r.reply, kind: r.kind, actions: r.actions, cost_usd: r.cost_usd, ts: Date.now() / 1000}));
+    if ((r.actions || []).length) refresh();
+  } catch (e) { $("aria_log").insertAdjacentHTML("beforeend", turnHtml({role: "aria", text: "Request failed: " + e, kind: "error"})); }
+  $("aria_send").disabled = false; $("aria_send").textContent = "Send"; $("aria_log").scrollTop = $("aria_log").scrollHeight; $("aria_text").focus();
+};
+// Dictation state machine: Ready → Listening → (Transcribing while interim results arrive) → Text ready | Error.
+// The browser engine ends a session after silence; while the owner has not clicked Stop we restart it, so long
+// dictation with pauses accumulates into the text box. Nothing is ever sent without the Send button.
+let rec = null, wantListening = false, micBase = "";
+function micState(s, cls) { $("mic_state").textContent = s; $("mic_state").className = cls || "muted"; }
+function startDictation() {
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR) { micState("Dictation unavailable: this browser has no speech recognition. Type instead, or use Chrome.", "amber"); $("mic").disabled = true; return; }
+  rec = new SR(); rec.continuous = true; rec.interimResults = true; rec.lang = navigator.language || "en-US";
+  micBase = $("aria_text").value ? $("aria_text").value.replace(/\s*$/, "") + " " : "";
+  wantListening = true; $("mic").classList.add("on"); $("mic").setAttribute("aria-pressed", "true"); $("mic").textContent = "■ Stop";
+  micState("Listening… speak in complete thoughts; click Stop when done", "ok-mark");
+  rec.onresult = ev => {
+    let finals = "", interim = "";
+    for (let i = 0; i < ev.results.length; i++) { const r = ev.results[i]; if (r.isFinal) finals += r[0].transcript + " "; else interim += r[0].transcript; }
+    if (finals) { micBase = (micBase + finals).replace(/\s+/g, " "); $("aria_text").value = micBase; }
+    $("interim").textContent = interim ? "… " + interim : "";
+    micState(interim ? "Transcribing…" : "Listening…", "ok-mark");
+  };
+  rec.onerror = ev => {
+    const e = ev.error || "error";
+    if (e === "not-allowed" || e === "service-not-allowed") { wantListening = false; micState("Microphone permission denied. Allow the microphone for this site in the address bar, then click Dictate again.", "amber"); }
+    else if (e === "no-speech") { micState("No speech heard yet… still listening", "muted"); }
+    else if (e === "network") { wantListening = false; micState("The browser's speech service could not be reached (it needs the internet). Type instead.", "amber"); }
+    else if (e !== "aborted") { wantListening = false; micState("Dictation error: " + e, "amber"); }
+    if (!wantListening) resetMic();
+  };
+  rec.onend = () => { if (wantListening) { try { rec.start(); } catch (e) { wantListening = false; resetMic(); micState("Dictation stopped: " + e, "amber"); } } else { resetMic(); if ($("aria_text").value.trim()) micState("Text ready — edit if needed, then Send", "ok-mark"); } };
+  try { rec.start(); } catch (e) { wantListening = false; resetMic(); micState("Could not start the microphone: " + e, "amber"); }
+}
+function stopDictation() { if (!rec) return; wantListening = false; try { rec.stop(); } catch (e) {} }
+function resetMic() { $("mic").classList.remove("on"); $("mic").setAttribute("aria-pressed", "false"); $("mic").textContent = "🎤 Dictate"; $("interim").textContent = ""; rec = null; }
+$("mic").onclick = () => { if (wantListening) { stopDictation(); micState("Stopping…", "muted"); } else startDictation(); };
+window.addEventListener("beforeunload", stopDictation);
 // evidence on demand: opens the Details view on the task's trace (events, receipts, tests, files, diff)
 const evidenceLink = tid => `<a href="#detail" class="evidence" data-t="${esc(tid)}">evidence</a>`;
 function openEvidence(tid) { setMode("details"); showTask(tid).then(() => $("detail").scrollIntoView({behavior: "smooth", block: "start"})); }

@@ -111,7 +111,9 @@ def test_owner_view_states_and_evidence_on_demand(served):
         assert "t-run" in drill and "RUNNING" in drill and "this control plane" in drill and "rq-050-claim" in drill and "project coordinator" in drill
         assert "Bounced note" in drill and "RECEIVED" in drill and "not acknowledged" in drill and "ago" in drill and "ACKNOWLEDGED" in drill
         assert "Freshness" in drill and "workers verified" in drill and "DO" in drill
-        page.click("#drill_ask"); assert "no model call" in page.inner_text("#drill_ask_out")
+        page.click("#drill_ask"); page.wait_for_function("!document.querySelector('#aria').hidden", timeout=5000)
+        assert page.input_value("#aria_text") == "About alpha: " and "opened" in page.inner_text("#drill_ask_out")
+        page.click("#aria_close")
         page.screenshot(path=str(Path(s.cfg.data_dir) / "owner-states-drill-alpha.png"), full_page=True)
         page.focus("#o_projects .ocard[data-p='beta']"); page.keyboard.press("Enter")
         page.wait_for_function("document.querySelector('#drill').textContent.includes('beta') && document.querySelector('#drill').textContent.includes('dispatcher stopped')", timeout=15000)
