@@ -153,26 +153,41 @@ class WorkerMonitor:
                 else:
                     label = "DONE (verified; PR merged or closed)"
                 finished.append({"id": t["task_id"], "pr_url": pr, "status": label, "at": float(t["updated_at"])})
-        # read-only feed (fetched by the watchdog)
+        # read-only feed (fetched by the watchdog); operational alerts come only from what the feed states
+        alerts: list[dict] = []
         feed = self.store.get_kv(f"feed:{pkg.name}") if cfg.get("feed_url") else None
         if feed:
             sources.append(f"project feed {cfg['feed_url']}")
             d = feed.get("data") or {}
             w = d.get("work") or {}
             if w:
+                when = d.get("last_check") or feed.get("fetched_at")
+                rows = w.get("approved_ready_rows_for_specialist_lanes")
                 notes.append(f"feed: dispatcher {'running' if w.get('dispatcher_running') else 'not running'}, stalled {len(w.get('stalled_workers') or [])}, "
-                             f"ready rows {w.get('approved_ready_rows_for_specialist_lanes', '?')}, quota allows a turn: {d.get('quota_allows_a_turn', '?')} ({d.get('last_check') or feed.get('fetched_at')})")
+                             f"ready rows {rows if rows is not None else '?'}, quota allows a turn: {d.get('quota_allows_a_turn', '?')} ({when})")
+                if not w.get("dispatcher_running"):
+                    if rows:
+                        alerts.append({"level": "amber", "text": f"dispatcher stopped — {rows} approved row(s) queued and not being dispatched (feed {when})"})
+                    else:
+                        alerts.append({"level": "info", "text": f"dispatcher stopped, nothing queued (feed {when})"})
+                if w.get("stalled_workers"):
+                    alerts.append({"level": "amber", "text": f"feed reports stalled workers: {', '.join(map(str, w['stalled_workers']))} (feed {when})"})
                 for sid in w.get("stalled_workers") or []:
                     if not any(x["id"] == sid for x in workers):
                         workers.append({"id": str(sid), "pid": None, "user": None, "started_at": None, "last_progress_at": None, "status": "STALE",
                                         "source": "project feed", "evidence": "listed as stalled by the project's own feed"})
         elif cfg.get("feed_url"):
             notes.append(f"feed {cfg['feed_url']} not fetched yet or unreachable")
+            alerts.append({"level": "info", "text": "project feed not reachable; worker picture from host processes only"})
+        for x in workers:
+            if x["status"] == "STALE" and x.get("source") != "project feed":
+                alerts.append({"level": "amber", "text": f"{x['id']}: alive but no CPU progress for {int((now - (x['last_progress_at'] or now)) // 60)} min"})
         # waiting on this control plane's scheduler (quota or owner pause)
         paused = bool(scheduler is not None and getattr(scheduler, "paused", False))
         ready = [t for t in ptasks if t["status"] == "READY"]
         if paused and (ready or running_tasks):
             notes.append(f"scheduler paused: {getattr(scheduler, 'hold_reason', None) or 'by owner'}; {len(ready)} ready task(s) waiting")
+            alerts.append({"level": "amber", "text": f"control-plane scheduler paused ({getattr(scheduler, 'hold_reason', None) or 'by owner'}); {len(ready)} ready task(s) waiting"})
         if cfg.get("quota_shared_with_control_plane"):
             q = self.store.get_kv("quota") or {}
             if q.get("windows"):
@@ -197,7 +212,7 @@ class WorkerMonitor:
         else:
             summary = f"{active} active now (verified at {time.strftime('%H:%M:%S', time.localtime(now))} from {', '.join(sources)})"
         return {"status": status, "active": active, "summary": summary, "workers": workers, "finished": finished[-5:],
-                "notes": notes, "sources": sources, "verified_at": now if status != "UNKNOWN" else None,
+                "notes": notes, "alerts": alerts, "sources": sources, "verified_at": now if status != "UNKNOWN" else None,
                 "rule": "coordinator at rest ≠ workers at rest; counts come only from the sources listed"}
 
     # ---- remote refresh (watchdog tick; free calls only) ---------------------------------------

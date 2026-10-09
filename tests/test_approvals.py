@@ -65,7 +65,7 @@ def test_packet_in_browser(tmp_path):
             except Exception as exc:
                 pytest.skip(f"no Chrome: {exc}")
             page = browser.new_page(viewport={"width": 1100, "height": 1800})
-            page.goto("http://127.0.0.1:8497/?access_token=tok")
+            page.goto("http://127.0.0.1:8497/?access_token=tok&view=details")        # the packet is on demand in the Owner view
             page.wait_for_function("document.querySelectorAll('#packet fieldset').length === 3", timeout=15000)
             assert "read-only" in page.inner_text("#ext_gates") and "(3)" in page.inner_text("#ext_gates")
             page.click("#ext_gates summary")                                       # external gates are collapsed by default

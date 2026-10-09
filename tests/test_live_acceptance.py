@@ -39,6 +39,17 @@ def test_live_owner_acceptance():
         page = b.new_page(viewport={"width": 1100, "height": 1600})
         page.goto(f"{URL}/?access_token={token}")
         page.wait_for_function("document.querySelector('#conn').textContent === 'live'", timeout=20000)
+        # Owner view first: three project cards from real data, each with a coordinator line and a worker line; no sideways scroll
+        page.wait_for_function("document.querySelectorAll('#o_projects .ocard').length === 3 && document.querySelector('#o_next').textContent.length > 0", timeout=20000)
+        oc = page.inner_text("#o_projects"); assert all(n in oc for n in ("caoscare", "desktop_agent", "michael_business_os")) and "coordinator:" in oc
+        for prj in st["projects"]:
+            w = prj["workers"]
+            if w["status"] == "RUNNING": assert "running now" in oc
+            for a in w.get("alerts", []):
+                if a["level"] == "amber": assert a["text"][:40] in oc
+        report["owner_view"] = {"cards": 3, "next": page.inner_text("#o_next")[:100], "height_px": page.evaluate("document.querySelector('#owner').getBoundingClientRect().bottom")}
+        page.screenshot(path=str(Path("~/.local/share/desktop-agent").expanduser() / "live-owner-view.png"), full_page=True)
+        page.click("#mode"); page.wait_for_function("document.body.dataset.mode === 'details'", timeout=5000)
         page.wait_for_function("document.querySelectorAll('#coords .row').length >= 3", timeout=20000)
         page.wait_for_function("document.querySelector('#packet').children.length > 0 || document.querySelector('#packet').textContent.length > 0", timeout=20000)
         # 1. DONE evidenced: every glance Done entry is a DONE task and shows evidence (link or verifier)
@@ -88,8 +99,9 @@ def test_live_owner_acceptance():
             assert all((x["pid"] is not None) or x["source"] == "project feed" for x in w["workers"] if x["status"] in ("RUNNING", "STALE"))
             assert f"WORKERS {w['status']}" in coords.replace("\n", " ") and w["summary"].split(" (verified")[0] in coords
         report["workers"] = {prj["name"]: (prj["workers"]["status"], prj["workers"]["active"], [x["id"] for x in prj["workers"]["workers"]]) for prj in st["projects"]}
-        # 8. reload: same counts
+        # 8. reload: same counts (the chosen view is remembered per browser)
         page.reload(); page.wait_for_function("document.querySelector('#conn').textContent === 'live'", timeout=20000)
+        page.wait_for_function("document.body.dataset.mode === 'details'", timeout=5000)
         page.wait_for_function("document.querySelector('#g_next').textContent.length > 0", timeout=20000)
         assert int(page.inner_text("#g_done_n")) == n_done and int(page.inner_text("#g_blocked_n")) == len(blocked)
         page.screenshot(path=str(Path(st and "~/.local/share/desktop-agent").expanduser() / "live-acceptance-desktop.png"), full_page=True)

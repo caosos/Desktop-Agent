@@ -93,4 +93,12 @@ def test_feed_and_open_pr_refresh(tmp_path: Path):
     assert r["mbos"] == "feed ok" and r["da:prs"] == 1 and calls == ["repos/x/y/pulls?state=open&per_page=100"]
     s = mon.snapshot(projects["mbos"], [], None)
     assert s["status"] == "STALE" and s["workers"][0]["id"] == "C-9" and any("dispatcher running" in n and "stalled 1" in n for n in s["notes"])
-    assert "project feed" in s["summary"]
+    assert "project feed" in s["summary"] and [a["level"] for a in s["alerts"]] == ["amber"] and "stalled workers: C-9" in s["alerts"][0]["text"]
+    # dispatcher stopped with approved rows queued → an amber operational alert, not a quiet IDLE
+    feed["projects"]["mbos"]["work"] = {"dispatcher_running": False, "stalled_workers": [], "approved_ready_rows_for_specialist_lanes": 1}
+    asyncio.run(mon.refresh_remote())
+    s = mon.snapshot(projects["mbos"], [], None)
+    assert s["status"] == "IDLE" and s["alerts"] == [{"level": "amber", "text": "dispatcher stopped — 1 approved row(s) queued and not being dispatched (feed 2026-10-09T18:10:48Z)"}]
+    feed["projects"]["mbos"]["work"]["approved_ready_rows_for_specialist_lanes"] = 0
+    asyncio.run(mon.refresh_remote())
+    assert mon.snapshot(projects["mbos"], [], None)["alerts"][0]["level"] == "info"

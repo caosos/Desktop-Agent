@@ -31,6 +31,23 @@ h1 { font-size:18px; margin:0; letter-spacing:.02em; }
 details summary { cursor:pointer; color:var(--muted); font-size:11px; }
 .legend { display:flex; flex-wrap:wrap; gap:4px 20px; font-size:11.5px; color:var(--muted); margin:0 0 12px; }
 .legend b { color:var(--fg); }
+/* Owner view (default) shows one screen of what matters; Details shows everything. Nothing is removed, only disclosed. */
+body[data-mode="owner"] .details-only { display:none; }
+body[data-mode="details"] .owner-only { display:none; }
+body[data-mode="owner"] #packetcard:not(.show) { display:none; }
+#owner { border-width:2px; padding:12px 14px; }
+.ocards { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(300px,100%),1fr)); gap:10px; margin-bottom:12px; }
+.ocard { border:1px solid var(--line); padding:10px 12px; min-width:0; display:flex; flex-direction:column; gap:4px; }
+.ocard h3 { margin:0; font-size:15px; display:flex; justify-content:space-between; gap:8px; align-items:center; }
+.orow { display:grid; grid-template-columns:minmax(90px,120px) 1fr; gap:8px; padding:8px 0; border-top:1px solid var(--line); align-items:start; }
+.orow > b { font-size:14px; }
+.orow.next { background:var(--soft); margin:8px -14px -12px; padding:12px 14px; border-top:none; }
+.orow.next > b { color:var(--accent); font-size:15px; }
+.spin { display:inline-block; width:11px; height:11px; border:2px solid var(--line); border-top-color:var(--accent); border-radius:50%; animation:spin 1s linear infinite; vertical-align:-1px; }
+@keyframes spin { to { transform:rotate(360deg); } }
+.amber { color:var(--warn); }
+.ok-mark { color:var(--ok); font-weight:600; }
+#mode { font-weight:600; }
 .card { background:var(--surface); border:1px solid var(--line); padding:10px 12px; min-width:0; }
 .card h2 { font-size:12px; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); margin:0 0 8px; }
 .row { display:flex; justify-content:space-between; gap:8px; padding:4px 0; border-bottom:1px solid var(--line); }
@@ -65,21 +82,35 @@ a { color:var(--accent); }
 <header>
   <h1>DESKTOP-AGENT</h1>
   <span id="conn" class="chip warn">connecting</span>
-  <span class="muted tiny">uptime <span id="uptime" class="num">–</span>s · events <span id="seq" class="num">0</span></span>
-  <span class="muted tiny" id="slots"></span>
+  <span class="muted tiny details-only">uptime <span id="uptime" class="num">–</span>s · events <span id="seq" class="num">0</span></span>
+  <span class="muted tiny details-only" id="slots"></span>
   <span style="margin-left:auto" class="ctl">
-    <button id="pair">Pair widget</button><span id="pairmsg" class="tiny mono"></span><button id="pause">Pause</button><button id="resume">Resume</button><button id="stop" class="danger">Stop all</button>
+    <button id="mode" aria-pressed="false" title="Switch between the one-screen Owner view and full Details">Details ▸</button>
+    <button id="pair" class="details-only">Pair widget</button><span id="pairmsg" class="tiny mono"></span><button id="pause" title="Stop this control plane's scheduler from starting new workers">Pause</button><button id="resume" title="Let the scheduler start workers again">Resume</button><button id="stop" class="danger" title="Kill this control plane's running workers">Stop all</button>
   </span>
 </header>
 
-<div class="stages" id="stages"></div>
-<section id="glance" class="card" aria-label="At a glance" style="margin-bottom:12px">
+<section id="owner" class="card owner-only" aria-label="Owner view" style="margin:12px 0">
+  <div class="ocards" id="o_projects"></div>
+  <div class="orow"><b>✓ Today</b><div id="o_done" class="tiny"></div></div>
+  <div class="orow"><b>Decisions</b><div><div id="o_decisions" class="tiny"></div><div class="ctl" style="margin-top:6px"><button id="o_openpacket">Open approval packet</button><span class="muted tiny">optional unless marked; nothing changes until you submit</span></div></div></div>
+  <div class="orow next"><b>NEXT</b><div id="o_next"></div></div>
+  <details class="tiny" style="margin-top:10px"><summary>What the words mean</summary>
+    <div class="muted" style="margin-top:4px">
+      <b>Project</b> = the repo and its work. <b>Coordinator</b> = the Claude session (or liaison) that steers it; <i>idle</i> means it is waiting for a message, not down. <b>Dispatcher</b> (Business OS) = the loop that launches its workers. <b>Workers</b> = jobs running right now, counted from live processes and the project's own feed.<br>
+      <b>IDLE</b> = verified that nothing is running now. <b>DOWN</b> = a coordinator session that should be reachable is not, or a dispatcher is stopped with work queued. <b>not verified</b> = no telemetry, so no claim.<br>
+      ✓ verified · <span class="spin"></span> actually running · <span class="amber">amber</span> actual blocker · NEXT one plain action. Full runbook: <code>docs/PANEL_RUNBOOK.md</code>.
+    </div></details>
+</section>
+
+<div class="stages details-only" id="stages"></div>
+<section id="glance" class="card details-only" aria-label="At a glance" style="margin-bottom:12px">
   <div class="row"><span><b>✓ Done today</b> <span class="muted tiny">verified by the control plane, with evidence</span><div id="g_done" class="tiny"></div></span><span class="chip ok" id="g_done_n">0</span></div>
   <div class="row"><span><b>▶ Working now</b><div id="g_working" class="tiny muted">nothing running</div></span><span class="chip" id="g_working_n">0</span></div>
   <div class="row"><span><b>■ Blocked</b> <span class="muted tiny">only what still needs attention</span><div id="g_blocked" class="tiny"></div></span><span class="chip bad" id="g_blocked_n">0</span></div>
   <div class="row"><span><b>→ Your one next action</b><div id="g_next" class="tiny"></div><div id="g_next_ctl" class="ctl" style="margin-top:4px"></div></span></div>
 </section>
-<div class="legend" id="legend">
+<div class="legend details-only" id="legend">
   <span><b>Submit answers</b> records your consent in the approval packet, one receipt per answer; nothing starts by itself.</span>
   <span><b>Submit goal</b> starts a <i>new</i> bounded worker task (a model runs; cost shows below).</span>
   <span><b>Transfer / Send</b> messages a project's existing coordinator through GitHub; no task is created.</span>
@@ -94,7 +125,7 @@ a { color:var(--accent); }
     <div id="ext_gates" class="tiny" style="margin-top:10px"></div>
     <div id="classifier" class="muted tiny" style="margin-top:8px"></div>
   </div>
-  <div class="card">
+  <div class="card details-only">
     <h2>Goal <span class="muted" style="text-transform:none;letter-spacing:0">· starts a new worker task</span></h2>
     <form id="goalform" class="goal">
       <select id="project"></select>
@@ -108,26 +139,26 @@ a { color:var(--accent); }
     </form>
   </div>
 
-  <div class="card"><h2>Projects <span class="muted" style="text-transform:none;letter-spacing:0">· this control plane's tasks only</span></h2><div id="projects"></div></div>
-  <div class="card"><h2>Coordinators and workers (watchdog)</h2><div class="muted tiny" style="margin-bottom:6px">COORDINATOR = the project's Claude session or liaison; WORKERS = jobs actually running now, from live processes and the project's own feed. A coordinator at rest does not mean its workers are at rest.</div><div id="coords"></div><div id="quota" class="muted tiny" style="margin-top:6px"></div></div>
-  <div class="card"><h2>Cost / usage</h2><div id="costs"></div></div>
-  <div class="card" id="blockedcard"><h2>Blocked</h2><div id="blocked" class="muted">none</div></div>
-  <div class="card"><h2>Shared inbox <span class="muted" style="text-transform:none;letter-spacing:0">· messages to existing coordinators via GitHub, no task created</span></h2>
+  <div class="card details-only"><h2>Projects <span class="muted" style="text-transform:none;letter-spacing:0">· this control plane's tasks only</span></h2><div id="projects"></div></div>
+  <div class="card details-only"><h2>Coordinators and workers (watchdog)</h2><div class="muted tiny" style="margin-bottom:6px">COORDINATOR = the project's Claude session or liaison; WORKERS = jobs actually running now, from live processes and the project's own feed. A coordinator at rest does not mean its workers are at rest.</div><div id="coords"></div><div id="quota" class="muted tiny" style="margin-top:6px"></div></div>
+  <div class="card details-only"><h2>Cost / usage</h2><div id="costs"></div></div>
+  <div class="card details-only" id="blockedcard"><h2>Blocked</h2><div id="blocked" class="muted">none</div></div>
+  <div class="card details-only"><h2>Shared inbox <span class="muted" style="text-transform:none;letter-spacing:0">· messages to existing coordinators via GitHub, no task created</span></h2>
     <form id="dirform" class="goal" style="margin-bottom:8px">
       <select id="dir_project"></select>
       <textarea id="dir_text" placeholder="Direct a coordinator: posted to the project's owner-dispatch issue, then delivered and tracked."></textarea>
       <div class="ctl"><button class="primary" type="submit">Transfer / Send</button><span id="dirmsg" class="muted tiny"></span></div>
     </form>
     <div id="intake_meta" class="muted tiny"></div><div id="intake"></div></div>
-  <div class="card"><h2>Next task</h2><div id="next" class="muted">queue empty</div></div>
+  <div class="card details-only"><h2>Next task</h2><div id="next" class="muted">queue empty</div></div>
 </div>
 
-<div class="grid" style="margin-top:12px">
+<div class="grid details-only" style="margin-top:12px">
   <div class="card"><h2>Tasks</h2><div id="tasks"></div></div>
   <div class="card"><h2>Live events</h2><div id="events"></div></div>
 </div>
 
-<div class="grid" style="margin-top:12px" id="detail" hidden>
+<div class="grid details-only" style="margin-top:12px" id="detail" hidden>
   <div class="card"><h2>Task <span id="d_id" class="mono"></span> · <span id="d_stage" class="chip"></span></h2>
     <div id="d_tests"></div>
     <h2 style="margin-top:10px">Files changed</h2><div id="d_files"></div>
@@ -157,7 +188,52 @@ async function api(path, opts={}) {
   return r.json();
 }
 
+// verified by the control plane ≠ merged: the merge state comes from the open-PR check in projects[].workers.finished
+let merged = {};
+const mergeBadge = t => { const s = merged[t] || ""; return s.includes("merged") ? '<span class="chip ok">merged</span>' : s.includes("open") ? '<span class="chip warn">PR open, not merged</span>' : '<span class="chip">verified, merge not checked</span>'; };
+let lastState = null, lastPacket = null;
+
+// ---- Owner view: one screen of what matters, from the same state the Details view shows ----
+function ocard(p, st) {
+  const c = p.coordinator || {}, w = p.workers || {};
+  const coord = c.kind === "control_plane" ? "this control plane" : c.kind === "liaison" ? "liaison on another Linux account (manual-only)"
+    : c.connected ? `session ${c.session} · ${c.session_status}` : "DOWN — no live coordinator session";
+  const alerts = (w.alerts || []).filter(a => a.level === "amber").map(a => a.text);
+  if (c.kind === "claude_peer" && !c.connected) alerts.push("coordinator session not reachable; instructions queue until one appears");
+  if (p.blocked_tasks) alerts.push(`${p.blocked_tasks} blocked control-plane task(s) — see Details → Blocked`);
+  const unacked = ((st.intake || {}).items || []).filter(i => i.project === p.name && i.flagged && (i.status === "RECEIVED" || i.status === "DELIVERED")).length;
+  if (unacked) alerts.push(`${unacked} instruction(s) delivered but not acknowledged`);
+  const running = (w.workers || []).filter(x => x.status === "RUNNING");
+  const wtext = w.status === "RUNNING" ? `<span class="spin"></span> ${running.length} running now: ${esc(running.map(x => x.id).join(", "))}`
+    : w.status === "STALE" ? `<span class="amber">▲ worker(s) alive but not progressing</span>`
+    : w.status === "WAITING" ? `waiting — scheduler paused` : w.status === "UNKNOWN" ? `workers: not verified (no telemetry)`
+    : `IDLE — nothing running now, verified ${w.verified_at ? ago(w.verified_at) + " ago" : ""}`;
+  const openPrs = (w.finished || []).filter(f => f.status.includes("open")).length;
+  const chip = alerts.length ? '<span class="chip warn">▲ attention</span>' : w.status === "RUNNING" ? '<span class="chip ok">working</span>' : '<span class="chip ok">✓ ok</span>';
+  return `<div class="ocard"><h3>${esc(p.name)} ${chip}</h3><div class="tiny muted">coordinator: ${esc(coord)}</div><div class="tiny">${wtext}</div>` +
+    (openPrs ? `<div class="tiny muted">✓ ${openPrs} finished, awaiting your merge</div>` : "") + alerts.map(a => `<div class="tiny amber">▲ ${esc(a)}</div>`).join("") + `</div>`;
+}
+function renderOwner() {
+  const st = lastState; if (!st) return;
+  $("o_projects").innerHTML = st.projects.map(p => ocard(p, st)).join("");
+  const done = (st.glance || {}).done_today || [];
+  $("o_done").innerHTML = done.slice(-3).reverse().map(d => `<span class="ok-mark">✓</span> ${esc(d.objective)} ${mergeBadge(d.task_id)}`).join("<br>") + (done.length > 3 ? `<br><span class="muted">+ ${done.length - 3} more in Details</span>` : "") || '<span class="muted">nothing verified yet today</span>';
+  const ds = (lastPacket || {}).decisions || [];
+  $("o_decisions").innerHTML = ds.slice(0, 3).map(d => `• ${esc(d.question).slice(0, 120)}${d.question.length > 120 ? "…" : ""} <span class="muted">(${esc(d.project)} · optional · asked ${ago(d.asked_at)} ago)</span>`).join("<br>") + (ds.length > 3 ? `<br><span class="muted">+ ${ds.length - 3} more in the packet</span>` : "") || '<span class="muted">none waiting</span>';
+  const n = (st.glance || {}).next_action || {};
+  const blockedAny = st.projects.some(p => p.blocked_tasks) || st.projects.some(p => ((p.workers || {}).alerts || []).some(a => a.level === "amber"));
+  $("o_next").innerHTML = n.kind === "unblock" ? `${esc(n.text)} <a href="#blockedcard" data-mode="details">open Details</a>`
+    : n.kind === "decide" ? (blockedAny ? "Look at the amber alert above." : "Nothing is blocked.") + ` An optional decision is waiting; open the approval packet when you want to answer it.`
+    : esc(n.text);
+  document.querySelectorAll('#o_next a[data-mode]').forEach(a => a.onclick = () => setMode("details"));
+}
+function setMode(m) {
+  document.body.dataset.mode = m; $("mode").textContent = m === "owner" ? "Details ▸" : "◂ Owner view"; $("mode").setAttribute("aria-pressed", String(m === "details"));
+  try { localStorage.setItem("da_mode", m); } catch (e) {}
+}
+
 function render(st) {
+  lastState = st; merged = {}; st.projects.forEach(p => ((p.workers||{}).finished||[]).forEach(f => { merged[f.id] = f.status; }));
   $("uptime").textContent = st.uptime_sec; $("seq").textContent = st.last_seq;
   const sl = st.slots;
   $("slots").textContent = `slots ${sl.slots} (cpu ${sl.cpu_slots} · mem ${sl.mem_slots} · budget ${sl.budget_slots} · ceiling ${dash(sl.ceiling)} of owner ${dash(sl.owner_ceiling)} · reason ${dash(sl.ceiling_reason)}) · running ${sl.running}` + (st.paused ? " · PAUSED" : "") + (st.hold ? " · HOLD: " + st.hold : "");
@@ -167,9 +243,6 @@ function render(st) {
   const sel = $("project"); if (!sel.options.length) st.projects.forEach(p => { const o = document.createElement("option"); o.value=o.textContent=p.name; sel.appendChild(o); });
   if (st.glance) { const g = st.glance;
     $("g_done_n").textContent = g.done_today.length;
-    // verified by the control plane ≠ merged: the merge state comes from the open-PR check in projects[].workers.finished
-    const merged = {}; st.projects.forEach(p => ((p.workers||{}).finished||[]).forEach(f => { merged[f.id] = f.status; }));
-    const mergeBadge = t => { const s = merged[t] || ""; return s.includes("merged") ? '<span class="chip ok">merged</span>' : s.includes("open") ? '<span class="chip warn">PR open, not merged</span>' : '<span class="chip">verified, merge not checked</span>'; };
     $("g_done").innerHTML = g.done_today.slice().reverse().map(d => `✓ ${esc(d.objective)} <span class="muted">· ${d.evidence.startsWith("http") ? `<a href="${esc(d.evidence)}">PR</a>` : esc(d.evidence)}</span> ${mergeBadge(d.task_id)}`).join("<br>") || '<span class="muted">none yet today</span>';
     $("g_working_n").textContent = g.working.length;
     $("g_working").innerHTML = g.working.map(w => `▶ ${esc(w.objective)} <span class="muted">· ${esc(w.stage)} · ${esc(w.last_activity)}</span>`).join("<br>") || '<span class="muted">nothing running</span>';
@@ -235,6 +308,7 @@ function render(st) {
   const classLabels = st.class_labels || {};
   $("tasks").innerHTML = st.tasks.slice().reverse().map(t => `<div class="row task ${t.task_id===selected?"sel":""}" data-t="${esc(t.task_id)}"><span class="tiny"><b>${esc(t.task_id)}</b> <span class="muted">${esc(t.status)} · ${esc(classLabels[t.model_class] || "—")} · attempt ${t.attempt}</span><br>${esc(t.objective).slice(0,90)}<br><span class="muted">${esc(t.last_activity)} · ${ago(t.last_activity_at)} ago</span></span>${stageChip(t.stage)}</div>`).join("");
   document.querySelectorAll(".task").forEach(el => el.onclick = () => showTask(el.dataset.t));
+  renderOwner();
 }
 
 async function showTask(tid) {
@@ -262,8 +336,13 @@ async function loadPacket() {
     $("ext_gates").innerHTML = pk.external_gates.length ? `<details><summary><b>Other projects' owner gates (${pk.external_gates.length}) — read-only here</b> · read from their own files; answer on their channel via a direction in the Shared inbox</summary>` + pk.external_gates.map(g => `<div class="row"><span class="tiny"><b>${esc(g.project)}</b> ${esc(g.gate)}<br><span class="muted">${esc(g.source)}${g.url ? ` · <a href="${esc(g.url)}">source</a>` : ""} · ${esc(g.answer_via)}</span></span><span class="chip warn">read-only</span></div>`).join("") + "</details>" : "";
     $("classifier").textContent = pk.classifier_note;
     if (!$("packetmsg").textContent) $("packetmsg").textContent = pk.deferred.length ? `${pk.deferred.length} deferred (hidden for a day)` : "";
+    lastPacket = pk; renderOwner();
   } catch (e) {}
 }
+$("mode").onclick = () => setMode(document.body.dataset.mode === "owner" ? "details" : "owner");
+$("o_openpacket").onclick = () => { const pc = $("packetcard"); pc.classList.toggle("show"); $("o_openpacket").textContent = pc.classList.contains("show") ? "Hide approval packet" : "Open approval packet";
+  if (pc.classList.contains("show")) { pc.scrollIntoView({behavior: "smooth", block: "start"}); const first = pc.querySelector("input"); if (first) first.focus(); } };
+{ let m = new URLSearchParams(location.search).get("view") || ""; try { m = m || localStorage.getItem("da_mode") || ""; } catch (e) {} setMode(m === "details" ? "details" : "owner"); }
 $("packet_submit").onclick = async () => {
   const answers = [...new Set([...document.querySelectorAll("#packet input[type=radio]")].map(r => r.name))].map(n => { const sel = document.querySelector(`#packet input[name="${n}"]:checked`); return sel && sel.value ? {decision_id: n, answer: sel.value} : null; }).filter(Boolean);
   if (!answers.length) { $("packetmsg").textContent = "nothing answered"; return; }

@@ -65,6 +65,24 @@ def test_owner_panel_acceptance(served):
         page = browser.new_page(viewport={"width": 1100, "height": 1600})
         page.goto(f"http://127.0.0.1:{PORT}/?access_token=tok")
         page.wait_for_function("document.querySelector('#conn') && document.querySelector('#conn').textContent === 'live'", timeout=15000)
+        page.wait_for_function("document.querySelector('#o_next').textContent.length > 0 && document.querySelectorAll('#o_projects .ocard').length === 2", timeout=15000)
+        # Owner view is the default: one screen, details folded away but still present; keyboard reaches the toggle
+        assert page.evaluate("document.body.dataset.mode") == "owner" and not page.is_visible("#glance") and not page.is_visible("#intake") and not page.is_visible("#packetcard")
+        cards = page.inner_text("#o_projects")
+        assert "alpha" in cards and "running now: t-run" in cards and "DOWN" in cards and "beta" in cards and "not verified" in cards and "blocked control-plane task" in cards
+        assert "Add the labels" in page.inner_text("#o_done") and "Approve the pilot?" in page.inner_text("#o_decisions") and "optional" in page.inner_text("#o_decisions")
+        assert "amber alert" in page.inner_text("#o_next") or "Nothing is blocked" in page.inner_text("#o_next")
+        page.focus("#mode"); page.keyboard.press("Enter")
+        page.wait_for_function("document.body.dataset.mode === 'details'", timeout=5000)
+        assert page.is_visible("#glance") and page.is_visible("#intake") and page.is_visible("#packetcard") and not page.is_visible("#owner")
+        page.keyboard.press("Shift+Tab"); page.keyboard.press("Tab"); page.keyboard.press("Enter")        # back to Owner view by keyboard
+        page.wait_for_function("document.body.dataset.mode === 'owner'", timeout=5000)
+        page.focus("#o_openpacket"); page.keyboard.press("Enter")
+        page.wait_for_function("getComputedStyle(document.querySelector('#packetcard')).display !== 'none'", timeout=5000)
+        assert page.evaluate("document.activeElement && document.activeElement.type === 'radio'")                  # focus lands in the packet
+        page.screenshot(path=str(Path(s.cfg.data_dir) / "panel-owner-view.png"), full_page=True)
+        page.click("#mode")                                                                                          # the rest checks the Details view
+        page.wait_for_function("document.body.dataset.mode === 'details'", timeout=5000)
         page.wait_for_function("document.querySelector('#g_next').textContent.length > 0", timeout=15000)
         # at a glance: done with evidence, working, blocked, one next action
         assert page.inner_text("#g_done_n") == "1" and "Add the labels" in page.inner_text("#g_done") and page.locator("#g_done a").count() == 1
@@ -113,6 +131,14 @@ def test_owner_panel_acceptance(served):
         # at least 48 px wide and at most 48 px tall: a stacked label is ~40 px wide and 100+ px tall), the packet spans the full row on wide screens
         for w, h in ((1648, 900), (1280, 900), (390, 844)):
             page.set_viewport_size({"width": w, "height": h}); page.wait_for_timeout(300)
+            # owner view: fits roughly one screen at desktop width, never scrolls sideways, fonts untouched (14 px body)
+            page.click("#mode"); page.wait_for_function("document.body.dataset.mode === 'owner'", timeout=5000); page.wait_for_timeout(200)
+            assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth + 1"), f"owner view overflow at {w}px"
+            assert page.evaluate("parseFloat(getComputedStyle(document.body).fontSize)") >= 14
+            if w >= 1280:
+                assert page.evaluate("document.querySelector('#owner').getBoundingClientRect().bottom") <= h + 120, f"owner view taller than a screen at {w}px"
+            page.screenshot(path=str(Path(s.cfg.data_dir) / f"panel-owner-{w}.png"), full_page=True)
+            page.click("#mode"); page.wait_for_function("document.body.dataset.mode === 'details'", timeout=5000); page.wait_for_timeout(200)
             assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth + 1"), f"horizontal overflow at {w}px"
             bad = page.evaluate("[...document.querySelectorAll('button')].map(b => [b.textContent.trim(), b.getBoundingClientRect().width, b.getBoundingClientRect().height]).filter(x => x[1] > 0 && (x[1] < 48 || x[2] > 48))")
             assert bad == [], f"squeezed buttons at {w}px: {bad}"

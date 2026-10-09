@@ -38,7 +38,8 @@ separate identity from CAOSCare's resident Aria; they share a name only.
 7. `docs/BLUEPRINT.md` — the single linked system map: every area, its
    implementing files, and a status label per component
 8. `docs/WIDGET_SETUP.md` — running the Aria widget in Michael's session
-9. `docs/IDEA_BOOK.md` — Michael's capture book and the short prioritized
+9. `docs/PANEL_RUNBOOK.md` — what the panel's words and controls mean
+10. `docs/IDEA_BOOK.md` — Michael's capture book and the short prioritized
    checklist (max 3), Doing, Done with evidence, Parked decisions
 
 ## Running it
@@ -51,6 +52,8 @@ separate identity from CAOSCare's resident Aria; they share a name only.
 - Tests: `.venv/bin/python -m pytest -q` (no Claude, no network).
 
 ## Operating the panel (owner)
+
+Full runbook: `docs/PANEL_RUNBOOK.md`. The panel opens in the one-screen **Owner view**; **Details ▸** shows everything.
 
 1. Read the strip at the top: **Done today** (verified, with a PR link and a
    merged / not-merged badge), **Working now**, **Blocked**, and **Your one
