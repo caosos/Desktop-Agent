@@ -90,10 +90,10 @@ def test_owner_view_states_and_evidence_on_demand(served):
             page.set_viewport_size({"width": w, "height": h}); page.wait_for_timeout(250)
             cards = page.inner_text("#o_projects")
             alpha, beta, gamma = cards.split("beta")[0], cards.split("beta")[1].split("gamma")[0], cards.split("gamma")[1]
-            assert "DOWN" in alpha and "2 running now" in alpha and "rq-050-claim" in alpha and "t-run" in alpha           # idle/absent coordinator ≠ idle workers
+            assert "DOWN" in alpha and "2 running:" in alpha and "rq-050-claim" in alpha and "t-run" in alpha           # idle/absent coordinator ≠ idle workers
             assert "awaiting your merge" in alpha and "evidence" in alpha and "delivered but not acknowledged" in alpha
             assert "dispatcher stopped — 2 approved row(s) queued" in beta and "attention" in beta
-            assert "waiting — scheduler paused" in gamma and "provider limit" in gamma
+            assert "queued work held, scheduler paused" in gamma and "provider limit" in gamma
             assert "Add the labels" in page.inner_text("#o_done") and "PR open, not merged" in page.inner_text("#o_done") and "merged" in page.inner_text("#o_done")
             assert "Optional: approve the pilot?" in page.inner_text("#o_decisions") and "amber alert" in page.inner_text("#o_next")
             wk = page.inner_text("#o_work")

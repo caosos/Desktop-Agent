@@ -41,10 +41,12 @@ def test_live_owner_acceptance():
         page.wait_for_function("document.querySelector('#conn').textContent === 'live'", timeout=20000)
         # Owner view first: three project cards from real data, each with a coordinator line and a worker line; no sideways scroll
         page.wait_for_function("document.querySelectorAll('#o_projects .ocard').length === 3 && document.querySelector('#o_next').textContent.length > 0", timeout=20000)
-        oc = page.inner_text("#o_projects"); assert all(n in oc for n in ("caoscare", "desktop_agent", "michael_business_os")) and "coordinator:" in oc
+        oc = " ".join(page.inner_text("#o_projects").split()); assert all(n in oc for n in ("caoscare", "desktop_agent", "michael_business_os")) and "COORDINATOR:" in oc and "SPECIALIST WORKERS:" in oc
         for prj in st["projects"]:
-            w = prj["workers"]
-            if w["status"] == "RUNNING": assert "running now" in oc
+            w, c = prj["workers"], prj["coordinator"]
+            if w["status"] == "RUNNING": assert f"{w['active']} running:" in oc and "ACTIVE" in oc
+            if c.get("kind") == "claude_peer" and c.get("session_status") == "busy": assert "COORDINATOR: BUSY" in oc and "ACTIVE · coordinator" in oc
+            if c.get("kind") == "claude_peer" and c.get("session_status") == "idle" and w["status"] in ("IDLE", "FINISHED"): assert "NO CURRENT ACTIVITY" in oc
             for a in w.get("alerts", []):
                 if a["level"] == "amber": assert a["text"][:40] in oc
         report["owner_view"] = {"cards": 3, "next": page.inner_text("#o_next")[:100], "height_px": page.evaluate("document.querySelector('#owner').getBoundingClientRect().bottom")}

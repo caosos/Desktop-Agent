@@ -69,7 +69,7 @@ def test_owner_panel_acceptance(served):
         # Owner view is the default: one screen, details folded away but still present; keyboard reaches the toggle
         assert page.evaluate("document.body.dataset.mode") == "owner" and not page.is_visible("#glance") and not page.is_visible("#intake") and not page.is_visible("#packetcard")
         cards = page.inner_text("#o_projects")
-        assert "alpha" in cards and "running now: t-run" in cards and "DOWN" in cards and "beta" in cards and "not verified" in cards and "blocked control-plane task" in cards
+        assert "alpha" in cards and "running: t-run" in cards and "DOWN" in cards and "beta" in cards and "not verified" in cards and "blocked control-plane task" in cards
         assert "Add the labels" in page.inner_text("#o_done") and "Approve the pilot?" in page.inner_text("#o_decisions") and "optional" in page.inner_text("#o_decisions")
         assert "amber alert" in page.inner_text("#o_next") or "Nothing is blocked" in page.inner_text("#o_next")
         page.focus("#mode"); page.keyboard.press("Enter")

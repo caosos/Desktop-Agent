@@ -106,7 +106,7 @@ def test_pilot_scope_limits_classes_and_calls_per_day(tmp_path: Path, monkeypatc
     cfg = _cfg(tmp_path, f"providers:\n  openai:\n    key_file: {kf}\n    classes: [cloud_cheap]\n    pilot_max_calls_per_day: 2\n"
                          "    models: {cloud_cheap: gpt-6-luna, cloud_strong: gpt-6.1-sol, cloud_max: gpt-6-astra}\n")
     llm = LLM(cfg)
-    monkeypatch.setattr(llm, "available", lambda b: True)                    # stand-in for an owner-admitted provider
+    monkeypatch.setattr(llm, "available", lambda b: b in ("openai_api", "claude_cli"))   # stand-in for an owner-admitted provider
     assert llm.backend_for("cloud_cheap") == "openai_api" and llm.backend_for("cloud_strong") == "claude_cli" and llm.backend_for("cloud_max") == "claude_cli"
     assert llm.model_for("cloud_strong", llm.backend_for("cloud_strong")) == cfg.models["cloud_strong"]       # strong stays on the subscription model
     llm._calls[("openai_api", time.strftime("%Y-%m-%d"))] = 2

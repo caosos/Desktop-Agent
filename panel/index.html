@@ -234,24 +234,45 @@ const mergeBadge = t => { const s = merged[t] || ""; return s.includes("PR open"
 let lastState = null, lastPacket = null;
 
 // ---- Owner view: one screen of what matters, from the same state the Details view shows ----
+// Each card answers two questions separately: is the COORDINATOR doing something now, and are SPECIALIST WORKERS
+// running now. The badge says ACTIVE when either is provably so (with its source), NO CURRENT ACTIVITY only when both
+// are verified idle, and "not verified" when the data cannot say. Zero workers is normal: bounded workers start only
+// for approved READY work and exit when done.
+function coordLine(p) {
+  const c = p.coordinator || {}; const fs = ((p.workers || {}).feed_session) || null;
+  if (c.kind === "control_plane") return {state: "this control plane", busy: null, src: "self"};
+  if (c.kind === "liaison") return {state: "manual-only (other Linux account)", busy: null, src: "liaison branch; its own feed" };
+  if (c.kind === "claude_peer" && c.connected) return {state: c.session_status === "busy" ? "BUSY" : "IDLE", busy: c.session_status === "busy",
+    detail: `Claude session ${c.session}${c.session_status === "busy" ? ", working" : ", waiting for a message"}`, src: `live session registry, checked ${c.last_check_at ? ago(c.last_check_at) + " ago" : "now"}`};
+  if (c.kind === "claude_peer") return {state: "DOWN", busy: false, detail: "no live coordinator session; instructions queue", src: "live session registry"};
+  return {state: "not verified", busy: null, src: "no coordinator integration"};
+}
 function ocard(p, st) {
   const c = p.coordinator || {}, w = p.workers || {};
-  const coord = c.kind === "control_plane" ? "this control plane" : c.kind === "liaison" ? "liaison on another Linux account (manual-only)"
-    : c.connected ? `session ${c.session} · ${c.session_status}` : "DOWN — no live coordinator session";
+  const cl = coordLine(p);
   const alerts = (w.alerts || []).filter(a => a.level === "amber").map(a => a.text);
   if (c.kind === "claude_peer" && !c.connected) alerts.push("coordinator session not reachable; instructions queue until one appears");
   if (p.blocked_tasks) alerts.push(`${p.blocked_tasks} blocked control-plane task(s) — see Details → Blocked`);
   const unacked = ((st.intake || {}).items || []).filter(i => i.project === p.name && i.flagged && (i.status === "RECEIVED" || i.status === "DELIVERED")).length;
   if (unacked) alerts.push(`${unacked} instruction(s) delivered but not acknowledged`);
   const running = (w.workers || []).filter(x => x.status === "RUNNING");
-  const wtext = w.status === "RUNNING" ? `<span class="spin"></span> ${running.length} running now: ${esc(running.map(x => x.id).join(", "))}`
-    : w.status === "STALE" ? `<span class="amber">▲ worker(s) alive but not progressing</span>`
-    : w.status === "WAITING" ? `waiting — scheduler paused` : w.status === "UNKNOWN" ? `workers: not verified (no telemetry)`
-    : `IDLE — nothing running now, verified ${w.verified_at ? ago(w.verified_at) + " ago" : ""}`;
+  const wsrc = (w.sources || []).map(s => s.replace(" (/proc)", "")).join(", ") || "no telemetry";
+  const wtext = w.status === "RUNNING" ? `<span class="spin"></span> <b>${running.length} running</b>: ${esc(running.map(x => x.id).join(", "))} <span class="muted">(${esc(wsrc)}, ${w.verified_at ? ago(w.verified_at) + " ago" : "now"})</span>`
+    : w.status === "STALE" ? `<span class="amber">▲ alive but not progressing</span>: ${esc((w.workers||[]).filter(x => x.status === "STALE").map(x => x.id).join(", "))}`
+    : w.status === "WAITING" ? `<b>0 running</b> — queued work held, scheduler paused` : w.status === "UNKNOWN" ? `<b>not verified</b> (no telemetry for this project)`
+    : `<b>0 running</b> <span class="muted">(normal: bounded workers start only for approved READY work; verified ${w.verified_at ? ago(w.verified_at) + " ago" : "now"} from ${esc(wsrc)})</span>`;
   const openPrs = (w.finished || []).filter(f => f.status.includes("open"));
-  const chip = alerts.length ? '<span class="chip warn">▲ attention</span>' : w.status === "RUNNING" ? '<span class="chip ok">working</span>' : '<span class="chip ok">✓ ok</span>';
+  const queued = (p.open_tasks || 0) > (w.active || 0);
+  const activeNow = (cl.busy === true) || w.status === "RUNNING";
+  const idleKnown = (cl.busy === false || cl.busy === null && cl.kind !== "none") && (w.status === "IDLE" || w.status === "FINISHED" || w.status === "WAITING");
+  const activity = activeNow ? `<span class="chip ok"><span class="spin"></span> ACTIVE · ${cl.busy ? "coordinator" : ""}${cl.busy && w.status === "RUNNING" ? " + " : ""}${w.status === "RUNNING" ? "workers" : ""}</span>`
+    : (cl.state === "not verified" || w.status === "UNKNOWN") ? '<span class="chip">activity not verified</span>'
+    : idleKnown ? `<span class="chip">${queued ? "NO CURRENT ACTIVITY · work queued" : "NO CURRENT ACTIVITY · waiting for instructions"}</span>` : '<span class="chip">activity not verified</span>';
+  const chip = activity + (alerts.length ? ' <span class="chip warn">▲ attention</span>' : "");
   const open = drillOpen === p.name;
-  return `<div class="ocard${open ? " open" : ""}" role="button" tabindex="0" data-p="${esc(p.name)}" aria-expanded="${open}" aria-label="Open ${esc(p.name)} details"><h3>${esc(p.name)} ${chip}</h3><div class="tiny muted">coordinator: ${esc(coord)}</div><div class="tiny">${wtext}</div>` +
+  return `<div class="ocard${open ? " open" : ""}" role="button" tabindex="0" data-p="${esc(p.name)}" aria-expanded="${open}" aria-label="Open ${esc(p.name)} details"><h3>${esc(p.name)} <span style="display:flex;gap:4px;flex-wrap:wrap;justify-content:flex-end">${chip}</span></h3>` +
+    `<div class="tiny"><span class="muted">COORDINATOR:</span> ${cl.busy ? '<span class="spin"></span> ' : ""}<b>${esc(cl.state)}</b>${cl.detail ? " · " + esc(cl.detail) : ""} <span class="muted">(${esc(cl.src)})</span></div>` +
+    `<div class="tiny"><span class="muted">SPECIALIST WORKERS:</span> ${wtext}</div>` +
     openPrs.map(f => `<div class="tiny muted">✓ ${esc(f.id).slice(0, 34)} finished, awaiting your merge · <a href="${esc(f.pr_url)}">PR</a> · ${evidenceLink(f.id)}</div>`).join("") +
     alerts.map(a => `<div class="tiny amber">▲ ${esc(a)}</div>`).join("") + `<div class="tiny muted" style="margin-top:auto">${open ? "▴ close" : "▾ click for coordinator, agents, tasks, instructions"}</div></div>`;
 }
@@ -382,8 +403,9 @@ function renderOwner() {
   const done = (st.glance || {}).done_today || [];
   $("o_done").innerHTML = done.slice(-3).reverse().map(d => `<span class="ok-mark">✓</span> ${esc(d.objective)} ${mergeBadge(d.task_id)} ${evidenceLink(d.task_id)}`).join("<br>") + (done.length > 3 ? `<br><span class="muted">+ ${done.length - 3} more in Details</span>` : "") || '<span class="muted">nothing verified yet today</span>';
   document.querySelectorAll("#owner a.evidence").forEach(a => a.onclick = ev => { ev.preventDefault(); openEvidence(a.dataset.t); });
-  const ds = (lastPacket || {}).decisions || [];
-  $("o_decisions").innerHTML = ds.slice(0, 3).map(d => `• ${esc(d.question).slice(0, 120)}${d.question.length > 120 ? "…" : ""} <span class="muted">(${esc(d.project)} · optional · asked ${ago(d.asked_at)} ago)</span>`).join("<br>") + (ds.length > 3 ? `<br><span class="muted">+ ${ds.length - 3} more in the packet</span>` : "") || '<span class="muted">none waiting</span>';
+  const ds = (lastPacket || {}).decisions || [], eg = (lastPacket || {}).external_gates || [];
+  const egText = eg.length ? ` · <span class="muted">${eg.length} read-only owner gate(s) from ${esc([...new Set(eg.map(g => g.project))].join(", "))} in the packet (answered on their own channels)</span>` : "";
+  $("o_decisions").innerHTML = (ds.slice(0, 3).map(d => `• ${esc(d.question).slice(0, 120)}${d.question.length > 120 ? "…" : ""} <span class="muted">(${esc(d.project)} · optional · asked ${ago(d.asked_at)} ago)</span>`).join("<br>") + (ds.length > 3 ? `<br><span class="muted">+ ${ds.length - 3} more in the packet</span>` : "") || '<span class="muted">no Desktop-Agent decisions waiting</span>') + egText;
   const n = (st.glance || {}).next_action || {};
   const unackedAny = ((st.intake || {}).unacknowledged || []).length;
   const blockedAny = st.projects.some(p => p.blocked_tasks) || st.projects.some(p => ((p.workers || {}).alerts || []).some(a => a.level === "amber")) || unackedAny > 0;
