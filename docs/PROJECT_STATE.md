@@ -227,3 +227,14 @@ HANDOFF CAPSULE
 - **A** owner instructions posted on #117 (issue body + 4 comments) → **B** ingested by the free poller as items `da-babe20f32b`, `da-4ab1210f2e`, `da-d6c3b60692`, `da-54f1e3dbbc`, `da-c72f74bfad` with receipts, no manual paste → delivered 01:22:25Z as one Claude Code peer message to the live CAOSCare coordinator session `caoscare-integration-b2` (relay cost recorded), tagged DELIVERED comment on the issue → **C** the coordinator acknowledged on GitHub at 01:22:42Z with `<!-- caos:coordinator -->` comments carrying the item ids → read back automatically: 3 items WORKING, 2 DONE; coordinator last-activity time shown. **F** restart: the service was restarted twice during this work; items, cursors and statuses persisted, no re-delivery, no duplicates. Panel project cards show `caoscare: coordinator connected (session caoscare-integration-b2)`, `desktop_agent: this control plane`, `michael_business_os: Disconnected / Data unavailable` (truthful: no coordinator integration configured there yet).
 - Not yet exercised live: **D** a coordinator's `DONE` link back to test results on the panel (depends on the coordinator including links; supported), **E** a coordinator `ASK-OWNER:` question answered from the panel (tested with fakes; awaits a real question).
 - Checking cost: $0 (GitHub REST). Delivery: one relay call per instruction or batch.
+
+
+## 2026-10-08 — task `write-docs-blueprint-md-the-sing-73a9d8` verified (recorded by the control plane)
+
+- **Objective:** Write docs/BLUEPRINT.md, the single linked full-system blueprint for Desktop-Agent (issue #3, Priority 4), and add it to the reading order in START_HERE.md. The blueprint must REFERENCE the canonical sources (docs/ARCHITECTURE_REVIEW_2026-10-08.md, docs/IMPLEMENTATION_PLAN.md, docs/OWNER_DIRECTIVES.
+- **Why now:** Michael asked for a single authoritative system map (issue #3, Priority 4); the project has grown across many stages and PROJECT_STATE entries, so a single linked map is needed before further Stage 2 
+- **Model class:** cloud_strong; attempt 1; adapter claude_headless
+- **Worker head:** `bc5aaf447e7b06ddc363a08f8d7d225243687c5c` on `agent/write-docs-blueprint-md-the-sing-73a9d8` from `ed0eadf83b54`
+- **Verifier (clean checkout):** `/home/caoscare-1/Desktop-Agent/.venv/bin/python -m pytest -q` exit 0
+- **Files:** START_HERE.md, docs/BLUEPRINT.md
+- **Receipts:** worker claim unverified → verifier verified; integration follows this entry.
