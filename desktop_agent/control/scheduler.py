@@ -182,6 +182,7 @@ class Scheduler:
                         self.store.set_task_status(task_id, "DONE", {"verify": _slim(result), "integration": integ})
                         self._emit(task_id, ET.TASK_DONE.value, {"head_sha": result["head_sha"], "pr_url": integ.get("pr_url")},
                                    [f"ls-remote={integ.get('remote_sha')}"])
+                        self.archive_superseded(contract)
                     else:
                         await self._block(contract, "integration failed: " + str(integ.get("error")), result=integ)
         except Exception as exc:  # keep the loop alive; the failure is recorded, not hidden
@@ -189,6 +190,19 @@ class Scheduler:
         finally:
             self._ports.discard(port)
             self._tasks.pop(task_id, None)
+
+    def archive_superseded(self, done: TaskContract) -> list[str]:
+        """Earlier BLOCKED/FAILED attempts at the same objective in the same project are history once a
+        later attempt is DONE; archive them so the blocked list shows only what still needs attention."""
+        key = done.objective.strip()[:80].lower()
+        archived = []
+        for t in self.store.list_tasks(status="BLOCKED") + self.store.list_tasks(status="FAILED"):
+            c = t["contract"]
+            if t["project"] == done.project and t["task_id"] != done.task_id and (c.get("objective") or "").strip()[:80].lower() == key:
+                self.store.set_task_status(t["task_id"], "ARCHIVED", {"reason": f"superseded by {done.task_id} (DONE)"})
+                self._emit(t["task_id"], ET.CONTROL.value, {"action": "archived", "superseded_by": done.task_id}, [done.task_id])
+                archived.append(t["task_id"])
+        return archived
 
     async def _block(self, contract: TaskContract, reason: str, result: dict | None = None) -> None:
         self.store.set_task_status(contract.task_id, "BLOCKED", {"reason": reason} | ({"detail": result} if result else {}))

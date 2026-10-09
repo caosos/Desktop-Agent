@@ -194,6 +194,19 @@ def test_block_cascades_to_dependents(world):
     assert dep["status"] == "BLOCKED" and first in dep["result"]["reason"]
 
 
+def test_done_archives_superseded_attempts(world):
+    s = _service(world, "blocked")
+    first = s.submit_goal(project="demo", text="Mark README as worked, please", source="test", task_type="docs", owned_area=["README.md"], max_attempts=1)["task_ids"][0]
+    asyncio.run(_run_until(s, first))
+    assert s.store.get_task(first)["status"] == "BLOCKED"
+    s.adapters["claude_headless"] = FakeAdapter(world["worker"], "good"); s.launcher.adapters = s.adapters
+    second = s.submit_goal(project="demo", text="Mark README as worked, please", source="test", task_type="docs", owned_area=["README.md"])["task_ids"][0]
+    row = asyncio.run(_run_until(s, second))
+    assert row["status"] == "DONE"
+    assert s.store.get_task(first)["status"] == "ARCHIVED" and second in s.store.get_task(first)["result"]["reason"]
+    assert all(t["task_id"] != first for t in s.state()["blocked"])
+
+
 def test_blocked_worker(world):
     s = _service(world, "blocked")
     tid = s.submit_goal(project="demo", text="Need owner", source="test", task_type="docs")["task_ids"][0]

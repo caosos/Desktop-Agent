@@ -238,3 +238,9 @@ HANDOFF CAPSULE
 - **Verifier (clean checkout):** `/home/caoscare-1/Desktop-Agent/.venv/bin/python -m pytest -q` exit 0
 - **Files:** START_HERE.md, docs/BLUEPRINT.md
 - **Receipts:** worker claim unverified → verifier verified; integration follows this entry.
+
+## 2026-10-09 — Blueprint merged; provider report; Anthropic prices configured; superseded attempts archived
+
+- `docs/BLUEPRINT.md` (PR #10, written by a Sol-class worker from one planned docs task, 243 lines, 52 VERIFIED-IMPLEMENTED / 12 PROPOSED / 12 HOST-UNVERIFIED markers) merged; START_HERE reading order updated by the same task.
+- `docs/PROVIDER_SETUP_REPORT.md`: official-source comparison (Anthropic pricing, rate limits/spend caps, key types and expiration, subscription-vs-API billing; OpenAI spend limits), what exists, what Michael must click, what was verified with zero paid usage, recommended first pilot with an explicit approval gate. OpenAI pricing/billing pages returned HTTP 403 to automated fetch and are marked as not fetched. Anthropic list prices entered into `config/runtime.yaml` `pricing:` (cache discounts not modelled; recorded cost is at or above true cost).
+- Aria's greeting counted every historical BLOCKED task as "to look at". Fix: when a later attempt at the same objective is DONE, earlier BLOCKED/FAILED attempts are **ARCHIVED** (reason recorded, event emitted); a coordinator/owner may also archive with a reason via `POST /v0/tasks/{id}/archive`. Today's superseded attempts archived accordingly.

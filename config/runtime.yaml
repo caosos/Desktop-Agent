@@ -90,7 +90,16 @@ llm_backend_order: [openai_api, anthropic_api, claude_cli]
 
 # USD per 1M tokens; a call on an unpriced model is recorded with tokens and an UNKNOWN cost.
 # Owner-provided figures only; nothing here is estimated by the platform.
-pricing: {}
+pricing:
+  # Anthropic published list prices, USD per 1M tokens, from
+  # https://platform.claude.com/docs/en/about-claude/pricing (read 2026-10-09). Cache reads/writes are
+  # billed at multipliers of the input price and are NOT modelled here, so a cached call is
+  # recorded at or above its true cost, never below. OpenAI prices are added only after the
+  # owner confirms them in the OpenAI Console (the public pricing page could not be fetched).
+  claude-haiku-5-5:  {in: 0.10, out: 0.50}
+  claude-sonnet-5-5: {in: 2.00, out: 10.00}
+  claude-opus-5-5:   {in: 4.00, out: 20.00}
+  claude-fable-5-1:  {in: 10.00, out: 50.00}
 
 # Owner-instruction intake: bounded free GitHub polling; tagged status comments on the issue.
 intake:

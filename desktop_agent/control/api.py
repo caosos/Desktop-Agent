@@ -12,6 +12,7 @@ from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.responses import HTMLResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
+from .events import Actor, Event, EventType as ET, Provenance
 from .service import Service, describe
 
 PANEL = Path(__file__).resolve().parents[2] / "panel" / "index.html"
@@ -226,6 +227,20 @@ def build_app(service: Service, token: str) -> FastAPI:
     async def ask(body: AskIn, request: Request, _: str = Depends(auth)):
         return service.ask_owner(question=body.question, options=body.options, why=body.why, source=source(request),
                                  recommendation=body.recommendation, task_id=body.task_id, goal_id=body.goal_id)
+
+    @app.post("/v0/tasks/{task_id}/archive")
+    async def archive_task(task_id: str, body: IntakeStatusIn, request: Request, _: str = Depends(auth)):
+        """Coordinator/owner: a BLOCKED or FAILED task that no longer needs attention (with a reason)."""
+        row = service.store.get_task(task_id)
+        if not row:
+            raise HTTPException(404, "no such task")
+        if row["status"] not in ("BLOCKED", "FAILED"):
+            raise HTTPException(400, "only BLOCKED or FAILED tasks can be archived")
+        service.store.set_task_status(task_id, "ARCHIVED", {"reason": f"{source(request)}: {body.note or 'archived'}"})
+        service.store.append_event(Event(type=ET.CONTROL.value, task_id=task_id, payload={"action": "archived", "note": body.note[:200]},
+                                         provenance=Provenance(actor=Actor.HUMAN.value if source(request) in ("panel", "widget:aria") else Actor.CONTROL.value,
+                                                               source=source(request), evidence=[body.note[:100] or "archived"])))
+        return service.store.get_task(task_id)
 
     @app.post("/v0/decisions/{decision_id}")
     async def decide(decision_id: str, body: DecisionIn, request: Request, _: str = Depends(auth)):
