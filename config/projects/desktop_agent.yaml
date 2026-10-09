@@ -51,4 +51,5 @@ intake:
   issues: [3]
   owner_logins: [caosos]
   coordinator:
-    kind: control_plane
+    kind: claude_peer
+    session_cwd_exact: /home/caoscare-1        # the Desktop-Agent coordinator Claude session (not the control plane)

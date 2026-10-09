@@ -60,6 +60,12 @@ def describe(ev: Event) -> str:
     return short.get(t, lambda: t.lower())()
 
 
+class IntakeSourceLite:
+    """Just enough of an IntakeSource for session lookup from a project's coordinator config."""
+    def __init__(self, coordinator: dict):
+        self.coordinator = coordinator
+
+
 class Service:
     def __init__(self, cfg: RuntimeConfig):
         self.cfg = cfg
@@ -77,14 +83,18 @@ class Service:
         self.aria = AriaBrain(self, self.llm)
         from .intake import Intake, IntakeSource
         from .intake_delivery import Deliverer
+        from .watchdog import Watchdog
         sources = [IntakeSource(project=p.name, repo=p.github_repo, issues=list(p.intake.get("issues") or []),
                                 owner_logins=list(p.intake.get("owner_logins") or ["caosos"]),
                                 coordinator=dict(p.intake.get("coordinator") or {"kind": "control_plane"}))
-                   for p in self.projects.values() if p.intake and p.github_repo and p.intake.get("issues")]
-        self.intake = Intake(self.store, sources, Deliverer(cfg, self.store),
+                   for p in self.projects.values() if p.intake and p.github_repo and (p.intake.get("issues") or (p.intake.get("coordinator") or {}).get("liaison"))]
+        self.deliverer = Deliverer(cfg, self.store)
+        self.intake = Intake(self.store, sources, self.deliverer,
                              poll_sec=int(cfg.intake_poll_sec), post_comments=bool(cfg.intake_post_comments),
                              ask_owner=lambda **kw: self.ask_owner(question=kw["question"], options=kw["options"], why=kw["why"],
                                                                    source=kw["source"], recommendation=None))
+        self.watchdog = Watchdog(self.store, self.intake, self.deliverer, self.scheduler)
+        self.intake.watchdog = self.watchdog
         self._subscribers: list[asyncio.Queue] = []
         self._loop: asyncio.AbstractEventLoop | None = None
         self.store.subscribe(self._fanout)
@@ -367,26 +377,37 @@ class Service:
             "budgets": self.budgets(),
             "llm": self.llm.status(),
             "intake": self.intake.summary(),
+            "quota": self.store.get_kv("quota"),
             "outcomes": [{"task_type": k[0], "model_class": k[1], **v} for k, v in metrics.outcomes(self.store).items()],
         }
 
     def coordinator_state(self, pkg) -> dict:
-        """Who coordinates this project and whether that coordinator is reachable right now.
-        Never invents a status: no configured coordinator → 'Disconnected / Data unavailable'."""
-        from .intake_delivery import find_session
+        """Who coordinates this project, whether it is reachable now, when it was last checked, woken
+        and heard from, and whether wake is VERIFIED, manual-only or unavailable. Never invents a status."""
+        from .intake_delivery import Deliverer
         ik = pkg.intake or {}
-        kind = (ik.get("coordinator") or {}).get("kind")
-        last = self.store.coordinator_activity().get(pkg.name)
+        coord = ik.get("coordinator") or {}
+        kind = coord.get("kind")
+        row = self.store.coordinator_rows().get(pkg.name) or {}
+        base = {"kind": kind, "last_activity_at": row.get("last_seen"), "last_check_at": row.get("last_check"),
+                "last_wake_at": row.get("last_wake"), "last_wake_kind": row.get("last_wake_kind"), "last_ack_at": row.get("last_ack"),
+                "external": ((row.get("check") or {}).get("state") if row.get("check") else None),
+                "probe": ((row.get("check") or {}).get("probe") if row.get("check") else None),
+                "check_error": ((row.get("check") or {}).get("error") if row.get("check") else None)}
         if kind == "control_plane":
-            return {"kind": "control_plane", "connected": True, "detail": "this control plane", "last_activity_at": last}
+            return base | {"connected": True, "detail": "this control plane", "wake": "n/a (self)"}
         if kind == "claude_peer":
-            s = find_session((ik.get("coordinator") or {}).get("session_cwd") or "")
+            s = Deliverer.session_for(IntakeSourceLite(coord))
+            verified = bool(row.get("last_wake") and row.get("last_ack") and row["last_ack"] >= row["last_wake"])
             if s:
-                return {"kind": "claude_peer", "connected": True, "detail": f"session {s['name']} ({s['status']})", "session": s["name"],
-                        "last_activity_at": last}
-            return {"kind": "claude_peer", "connected": False, "detail": "Disconnected: no live coordinator session", "last_activity_at": last}
-        return {"kind": None, "connected": False, "detail": "Disconnected / Data unavailable: no coordinator integration configured",
-                "last_activity_at": last}
+                return base | {"connected": True, "detail": f"session {s['name']} ({s['status']})", "session": s["name"], "session_status": s["status"],
+                               "wake": "VERIFIED (delivery → ACK observed)" if verified else "delivered, ACK pending" if row.get("last_wake") else "untested"}
+            return base | {"connected": False, "detail": "Disconnected: no live coordinator session; items queue until one appears",
+                           "wake": "unavailable (no session)"}
+        if kind == "liaison":
+            return base | {"connected": False, "detail": "liaison branch inbox; coordinator runs under another account, reached only by its own sync",
+                           "wake": "manual-only (coordinator syncs the liaison branch itself)"}
+        return base | {"connected": False, "detail": "Disconnected / Data unavailable: no coordinator integration configured", "wake": "unavailable"}
 
     def budgets(self) -> dict:
         """Caps, actual spend against them, and usage with no dollar figure (never estimated)."""
@@ -425,6 +446,10 @@ class Service:
                 await self.intake.poll_once()
             except Exception as exc:          # recorded, never fatal
                 self.intake.last_error = repr(exc)[:300]
+            try:
+                await self.watchdog.tick()
+            except Exception as exc:
+                self.intake.last_error = f"watchdog: {exc!r}"[:300]
             await asyncio.sleep(self.intake.poll_sec)
 
     # ---- loop -------------------------------------------------------------

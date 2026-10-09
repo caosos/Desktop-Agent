@@ -76,6 +76,7 @@ a { color:var(--accent); }
   </div>
 
   <div class="card"><h2>Projects</h2><div id="projects"></div></div>
+  <div class="card"><h2>Coordinators (watchdog)</h2><div id="coords"></div><div id="quota" class="muted tiny" style="margin-top:6px"></div></div>
   <div class="card"><h2>Workers</h2><div id="workers" class="muted">none running</div></div>
   <div class="card"><h2>Owner decisions</h2><div id="inbox" class="muted">none</div></div>
   <div class="card"><h2>Cost / usage</h2><div id="costs"></div></div>
@@ -134,6 +135,14 @@ function render(st) {
   $("stages").innerHTML = STAGES.map(s => `<span class="${lit.has(s)?"on":""} ${s==="BLOCKED"||s==="WAITING_OWNER"?"alt":""}">${s}</span>`).join("");
   const sel = $("project"); if (!sel.options.length) st.projects.forEach(p => { const o = document.createElement("option"); o.value=o.textContent=p.name; sel.appendChild(o); });
   $("projects").innerHTML = st.projects.map(p => { const c = p.coordinator || {}; return `<div class="row"><span><b>${esc(p.name)}</b> <span class="muted tiny">${esc(p.integration_branch)}</span><br><span class="muted tiny">${esc(p.last_activity)} ${p.last_activity_at? "· "+ago(p.last_activity_at):""}</span><br><span class="tiny"><span class="chip ${c.connected ? "ok" : "bad"}">${c.connected ? "coordinator connected" : "Disconnected"}</span> <span class="muted">${esc(c.detail||"")}${c.last_activity_at ? " · last seen " + esc(c.last_activity_at) : ""} · done ${p.done_tasks ?? 0} · blocked ${p.blocked_tasks ?? 0}</span></span></span>${stageChip(p.stage)}</div>`; }).join("");
+  const fmt = ts => ts ? (ago(ts) + " ago") : "—";
+  $("coords").innerHTML = st.projects.map(p => { const c = p.coordinator || {}; const ex = c.external || {}; const pr = c.probe || {};
+    const wakeCls = (c.wake||"").startsWith("VERIFIED") ? "ok" : (c.wake||"").startsWith("unavailable") ? "bad" : "warn";
+    return `<div class="row"><span class="tiny"><b>${esc(p.name)}</b> <span class="muted">${esc(c.kind||"none")} · ${esc(c.detail||"")}</span><br>
+      <span class="muted">last check ${fmt(c.last_check_at)} · last wake ${fmt(c.last_wake_at)}${c.last_wake_kind ? " ("+esc(c.last_wake_kind)+")" : ""} · last ACK ${fmt(c.last_ack_at)}</span><br>
+      <span class="muted">${ex.open_items ? "open items " + ex.open_items.length + " · ready " + (ex.ready_unblocked||[]).length + " · waiting owner " + (ex.waiting_owner||[]).length + " · " : ""}${pr.verdict ? "probe " + esc(pr.verdict) + (pr.reasons && pr.reasons.length ? ": " + esc(pr.reasons.join("; ")).slice(0,80) : "") : ""}${c.check_error ? " · check error: " + esc(c.check_error).slice(0,80) : ""}</span></span>
+      <span class="chip ${wakeCls}">${esc(c.wake||"—")}</span></div>`; }).join("");
+  if (st.quota) { const q = st.quota, w = q.windows || {}; $("quota").textContent = `subscription windows (from the last worker run ${ago(q.seen_at)} ago, not a bill): ` + Object.entries(w).map(([k,v]) => `${k} ${v.utilization!=null ? Math.round(v.utilization*100)+"%" : "—"} resets ${v.resets_at ? new Date(v.resets_at*1000).toLocaleString() : "—"}`).join(" · "); }
   const dsel = $("dir_project"); if (!dsel.options.length && st.intake) (st.intake.sources||[]).forEach(src => { const o = document.createElement("option"); o.value = src.project; o.textContent = `${src.project} → ${src.repo}#${src.issues.join(",")}`; dsel.appendChild(o); });
   $("workers").innerHTML = st.workers.length ? st.workers.map(w => `<div class="row"><span class="mono">${esc(w.worker_id)}</span><span class="tiny">${esc(w.task_id)} · ${ago(w.started_at)} · last event ${ago(w.last_event_at||w.started_at)} ago</span></div>`).join("") : '<span class="muted">none running</span>';
   $("inbox").innerHTML = st.inbox.length ? st.inbox.map(d => `<div class="row"><span>${esc(d.question)}</span><span class="ctl">${(d.options.length?d.options:["yes","no"]).map(o=>`<button data-d="${esc(d.decision_id)}" data-a="${esc(o)}">${esc(o)}</button>`).join("")}</span></div>`).join("") : '<span class="muted">none</span>';

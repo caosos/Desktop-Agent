@@ -200,6 +200,15 @@ class Launcher:
         commits = []
         if head and head != run.workspace.base_sha:
             commits = await ws.commits_since(run.workspace.path, run.workspace.base_sha)
+        rl = (final or {}).get("rate_limit")
+        if rl:
+            # Claude Code reports its subscription windows; keep the latest so the panel can show
+            # utilization and reset times and the scheduler can resume after a reset. Not a bill.
+            windows = rl.get("unifiedWindows") or {}
+            self.store.set_kv("quota", {"provider": "claude_subscription", "status": rl.get("status"), "resets_at": rl.get("resetsAt"),
+                                        "limit_type": rl.get("rateLimitType"),
+                                        "windows": {k: {"utilization": v.get("utilization"), "resets_at": v.get("resetsAt")} for k, v in windows.items()},
+                                        "seen_at": time.time(), "task_id": run.task_id})
         if final:
             # Known dollars when the executor reports them; otherwise tokens with an UNKNOWN cost
             # (subscription executors such as Codex), never an estimate.

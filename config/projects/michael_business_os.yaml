@@ -50,3 +50,16 @@ worker_allowed_tools:
   - "Bash(grep:*)"
   - "Bash(find:*)"
   - "Bash(wc:*)"
+
+# Owner-instruction intake: the established channel is the liaison branch (Aria → Agent 01), acks as files
+# on the coordinator branch. Agent 01 runs under another account; no session is reachable from here.
+intake:
+  issues: []
+  owner_logins: [caosos]
+  coordinator:
+    kind: liaison
+    liaison:
+      branch: liaison/aria-to-agent-01
+      inbox_dir: docs/messages/inbox
+      ack_branch: research/agent-01-coordinator
+      ack_dir: docs/messages/acks

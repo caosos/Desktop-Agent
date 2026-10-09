@@ -24,22 +24,31 @@ from .store import Store
 MAX_BODY = 6000
 
 
-def find_session(cwd_prefix: str) -> dict | None:
-    """Live Claude Code session whose working directory is under cwd_prefix (newest first)."""
+def find_session(cwd_prefix: str, exact: bool = False, name: str | None = None) -> dict | None:
+    """Live Claude Code session by working directory (prefix or exact) or by name (newest first)."""
     best = None
     for p in glob.glob(os.path.expanduser("~/.claude/sessions/*.json")):
         try:
             d = json.load(open(p))
         except (OSError, json.JSONDecodeError):
             continue
-        pid, cwd, name = d.get("pid"), d.get("cwd") or "", d.get("name")
-        if not (pid and name and cwd.startswith(cwd_prefix.rstrip("/"))):
+        pid, cwd, sname = d.get("pid"), d.get("cwd") or "", d.get("name")
+        if not (pid and sname):
             continue
+        if name:
+            if sname != name:
+                continue
+        elif exact:
+            if cwd.rstrip("/") != cwd_prefix.rstrip("/"):
+                continue
+        elif not cwd.startswith(cwd_prefix.rstrip("/")):
+            continue
+        name_ = sname
         if not os.path.exists(f"/proc/{pid}"):
             continue
         if d.get("kind") not in (None, "interactive") and d.get("entrypoint") == "sdk":
             continue
-        cand = {"name": name, "pid": pid, "cwd": cwd, "status": d.get("status"), "updatedAt": d.get("updatedAt"), "tmux": d.get("tmux")}
+        cand = {"name": name_, "pid": pid, "cwd": cwd, "status": d.get("status"), "updatedAt": d.get("updatedAt"), "tmux": d.get("tmux")}
         if best is None or (cand["updatedAt"] or 0) > (best["updatedAt"] or 0):
             best = cand
     return best
@@ -70,6 +79,9 @@ class Deliverer:
                                f"Status is shown on the Desktop-Agent panel."}
         if kind == "claude_peer":
             return await self._claude_peer(src, item, backfill)
+        if kind == "liaison":
+            return {"ok": True, "status": "RECEIVED", "note": "liaison inbox: no session reachable from this account; awaiting the coordinator's own sync",
+                    "evidence": [item.get("url", ""), "coordinator=liaison"]}
         return {"ok": False, "note": f"unknown coordinator kind {kind!r}", "evidence": [kind]}
 
     async def batch(self, src, items: list[dict]) -> dict:
@@ -81,13 +93,15 @@ class Deliverer:
                     "evidence": [items[0]["url"], "coordinator=control_plane", f"batch={len(items)}"],
                     "comment": f"ACK {ids} — {len(items)} owner instruction(s) received by the Desktop-Agent control plane "
                                f"(automatic intake, backfill of existing comments). Status is shown on the Desktop-Agent panel."}
+        if kind == "liaison":
+            return {"ok": True, "status": "RECEIVED", "note": "liaison inbox: awaiting the coordinator's own sync", "evidence": ["coordinator=liaison", f"batch={len(items)}"]}
         if kind == "claude_peer":
             combined = "\n\n=====\n\n".join(delivery_text({**i, "body": i["body"][:1800] + ("\n[... truncated; full text at the URL]" if len(i["body"]) > 1800 else "")}, True)
                                             for i in items)
             fake = {**items[0], "body": combined}
             res = await self._claude_peer(src, fake, backfill=True, prebuilt_text=combined)
             if res.get("ok"):
-                res["comment"] = (f"DELIVERED {ids} ({len(items)} items, backfill) to the running CAOSCare coordinator session as one "
+                res["comment"] = (f"DELIVERED {ids} ({len(items)} items, backfill) to the running {src.project} coordinator session as one "
                                   f"Claude Code peer message (automatic intake). Awaiting `ACK <item_id>` for each.")
             return res
         return {"ok": False, "note": f"unknown coordinator kind {kind!r}", "evidence": [kind]}
@@ -99,11 +113,21 @@ class Deliverer:
             return False
         return posted < self.backfill_before
 
+    @staticmethod
+    def session_for(src) -> dict | None:
+        c = src.coordinator or {}
+        if c.get("session_name"):
+            return find_session("", name=c["session_name"])
+        if c.get("session_cwd_exact"):
+            return find_session(c["session_cwd_exact"], exact=True)
+        return find_session(c["session_cwd"]) if c.get("session_cwd") else None
+
     async def _claude_peer(self, src, item: dict, backfill: bool, prebuilt_text: str | None = None) -> dict:
-        cwd_prefix = (src.coordinator or {}).get("session_cwd") or ""
-        session = find_session(cwd_prefix) if cwd_prefix else None
+        c = src.coordinator or {}
+        where = c.get("session_name") or c.get("session_cwd_exact") or c.get("session_cwd") or ""
+        session = self.session_for(src)
         if not session:
-            return {"ok": False, "note": f"no live Claude Code session under {cwd_prefix}", "evidence": [cwd_prefix]}
+            return {"ok": False, "note": f"no live Claude Code session at {where}; queued, awaiting connection", "evidence": [where]}
         text = prebuilt_text or delivery_text(item, backfill)
         prompt = ("You are a delivery relay. Use the ListAgents tool, then use the SendMessage tool to send EXACTLY the text between "
                   f"<<< and >>> (verbatim, no additions) to the agent named '{session['name']}'. Then reply with the single word SENT, "
@@ -134,6 +158,6 @@ class Deliverer:
             return {"ok": True, "status": "DELIVERED",
                     "note": f"peer message to session {session['name']} (pid {session['pid']}, cwd {session['cwd']}) at {when}; relay ${cost}",
                     "evidence": [f"session={session['name']}", f"pid={session['pid']}", f"relay_cost_usd={cost}", f"relay_session={msg.get('session_id')}"],
-                    "comment": f"DELIVERED {item['item_id']} to the running CAOSCare coordinator session `{session['name']}` at {when} "
+                    "comment": f"DELIVERED {item['item_id']} to the running {src.project} coordinator session `{session['name']}` at {when} "
                                f"as a Claude Code peer message (automatic intake{', backfill' if backfill else ''}). Awaiting `ACK {item['item_id']}`."}
         return {"ok": False, "note": f"relay reported: {result[:160]}", "evidence": [session["name"], f"relay_cost_usd={cost}"]}

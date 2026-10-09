@@ -61,6 +61,12 @@ CREATE TABLE IF NOT EXISTS coordinator_activity (
 """
 _MIGRATIONS = [
     "ALTER TABLE decisions ADD COLUMN goal_id TEXT",
+    "ALTER TABLE coordinator_activity ADD COLUMN last_check REAL",
+    "ALTER TABLE coordinator_activity ADD COLUMN last_wake REAL",
+    "ALTER TABLE coordinator_activity ADD COLUMN last_wake_kind TEXT",
+    "ALTER TABLE coordinator_activity ADD COLUMN last_ack REAL",
+    "ALTER TABLE coordinator_activity ADD COLUMN check_json TEXT",
+    "CREATE TABLE IF NOT EXISTS kv (key TEXT PRIMARY KEY, json TEXT, updated_at REAL)",
 ]
 
 
@@ -340,15 +346,52 @@ class Store:
 
     def touch_coordinator_activity(self, project: str, when: str) -> None:
         with self._lock:
+            self._ensure_coord(project)
             row = self._db.execute("SELECT last_seen FROM coordinator_activity WHERE project=?", (project,)).fetchone()
             if not row or (row["last_seen"] or "") < when:
-                self._db.execute("INSERT OR REPLACE INTO coordinator_activity VALUES (?,?,?)", (project, when, time.time()))
+                self._db.execute("UPDATE coordinator_activity SET last_seen=?, updated_at=? WHERE project=?", (when, time.time(), project))
             self._db.commit()
 
     def coordinator_activity(self) -> dict[str, str]:
         with self._lock:
             rows = self._db.execute("SELECT project, last_seen FROM coordinator_activity").fetchall()
         return {r["project"]: r["last_seen"] for r in rows}
+
+    def _ensure_coord(self, project: str) -> None:
+        self._db.execute("INSERT OR IGNORE INTO coordinator_activity(project, last_seen, updated_at) VALUES (?,?,?)", (project, None, time.time()))
+
+    def save_coordinator_check(self, project: str, entry: dict) -> None:
+        with self._lock:
+            self._ensure_coord(project)
+            self._db.execute("UPDATE coordinator_activity SET last_check=?, check_json=?, updated_at=? WHERE project=?",
+                             (entry.get("checked_at", time.time()), json.dumps(entry, default=str)[:20000], time.time(), project)); self._db.commit()
+
+    def save_coordinator_wake(self, project: str, when: float, kind: str) -> None:
+        with self._lock:
+            self._ensure_coord(project)
+            self._db.execute("UPDATE coordinator_activity SET last_wake=?, last_wake_kind=?, updated_at=? WHERE project=?", (when, kind, time.time(), project)); self._db.commit()
+
+    def save_coordinator_ack(self, project: str, when: float) -> None:
+        with self._lock:
+            self._ensure_coord(project)
+            self._db.execute("UPDATE coordinator_activity SET last_ack=?, updated_at=? WHERE project=?", (when, time.time(), project)); self._db.commit()
+
+    def coordinator_rows(self) -> dict[str, dict]:
+        with self._lock:
+            rows = self._db.execute("SELECT * FROM coordinator_activity").fetchall()
+        out = {}
+        for r in rows:
+            d = dict(r); d["check"] = json.loads(d.pop("check_json") or "null"); out[d["project"]] = d
+        return out
+
+    def set_kv(self, key: str, value: dict) -> None:
+        with self._lock:
+            self._db.execute("INSERT OR REPLACE INTO kv VALUES (?,?,?)", (key, json.dumps(value, default=str), time.time())); self._db.commit()
+
+    def get_kv(self, key: str) -> dict | None:
+        with self._lock:
+            row = self._db.execute("SELECT json FROM kv WHERE key=?", (key,)).fetchone()
+        return json.loads(row["json"]) if row else None
 
     # ---- costs / idempotency ---------------------------------------------
     def add_cost(self, task_id: str | None, worker_id: str | None, model: str | None,

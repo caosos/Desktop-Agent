@@ -66,6 +66,7 @@ class Intake:
         self.store, self.sources, self.deliver = store, sources, deliver
         self.poll_sec, self.unacked_after_sec, self.post_comments = poll_sec, unacked_after_sec, post_comments
         self.ask_owner = ask_owner                  # callback(question, options, why, source, project, url) → decision
+        self.watchdog = None                        # set by the service (liaison polling, heartbeats)
         self.last_poll_at: float | None = None
         self.last_error: str | None = None
 
@@ -77,7 +78,23 @@ class Intake:
         """Create a DRAFT item, post it to the project's intake issue as the owner's direction
         (durable, visible), mark SENT; the poller then ingests it (RECEIVED) and delivers it."""
         src = self.source_for(project)
-        if not src or not src.issues:
+        if not src:
+            raise ValueError(f"project {project!r} has no coordinator configured")
+        if (src.coordinator or {}).get("kind") == "liaison":
+            if not self.watchdog:
+                raise ValueError("liaison transport unavailable")
+            item_id = "da-" + hashlib.sha1(f"direction:{project}:{time.time_ns()}".encode()).hexdigest()[:10]
+            item = {"item_id": item_id, "project": project, "repo": src.repo, "issue": 0, "kind": "direction", "gh_id": 0, "author": source,
+                    "title": text.strip().splitlines()[0][:120], "body": text, "url": "", "posted_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                    "status": "DRAFT", "coordinator": "liaison"}
+            self.store.save_intake(item)
+            self._set(item, "DRAFT", f"direction composed via {source}", [source])
+            res = await self.watchdog.send_liaison(src, item)
+            self.store.set_intake_github(item_id, 0, res.get("url", ""), item["posted_at"])
+            item["url"] = res.get("url", "")
+            self._set(item, res["status"], res["note"], res["evidence"])
+            return self.store.get_intake(item_id)
+        if not src.issues:
             raise ValueError(f"project {project!r} has no owner-dispatch issue configured")
         issue = src.issues[0]
         item_id = "da-" + hashlib.sha1(f"direction:{project}:{time.time_ns()}".encode()).hexdigest()[:10]
@@ -111,7 +128,11 @@ class Intake:
             if not src:
                 raise ValueError("project has no coordinator configured")
             self._emit(item, ET.CONTROL.value, {"action": "owner_transfer", "note": note[:200]}, [source])
-            await self._deliver(src, item)
+            if (src.coordinator or {}).get("kind") == "liaison" and self.watchdog and item["kind"] in ("direction", "liaison"):
+                res = await self.watchdog.send_liaison(src, item)
+                self._set(item, res["status"], res["note"], res["evidence"])
+            else:
+                await self._deliver(src, item)
         elif action == "revise":
             if not note.strip():
                 raise ValueError("revise needs the revised text")
@@ -139,6 +160,13 @@ class Intake:
     async def poll_once(self) -> dict:
         found, delivered, acked = 0, 0, 0
         for src in self.sources:
+            if (src.coordinator or {}).get("kind") == "liaison" and self.watchdog:
+                try:
+                    f, a = await self.watchdog.poll_liaison(src)
+                    found += f; acked += a
+                    self.last_error = None
+                except Exception as exc:
+                    self.last_error = f"{src.repo} liaison: {exc}"[:300]
             for issue in src.issues:
                 try:
                     f, d, a = await self._poll_issue(src, issue)
@@ -184,6 +212,7 @@ class Intake:
                     if (cur in STATUSES and STATUSES.index(status) > STATUSES.index(cur)) or status == "BLOCKED" or cur not in STATUSES:
                         self._set(item, status, f"coordinator comment {c.get('html_url','')}", [c.get("html_url", ""), login])
                         self.store.set_intake_activity(item["item_id"], created)
+                        self.store.save_coordinator_ack(src.project, time.time())
                         acked += 1
                     is_coord = True
             dm = _DIRECTION_TAG_RE.search(text)
@@ -258,6 +287,8 @@ class Intake:
             return 0
         if result.get("ok"):
             self._set(item, result.get("status", "DELIVERED"), result.get("note", "delivered"), result.get("evidence", ["delivered"]))
+            if result.get("status", "DELIVERED") == "DELIVERED":
+                self.store.save_coordinator_wake(src.project, time.time(), "delivery")
             if self.post_comments and result.get("comment"):
                 try:
                     await gh_api(f"repos/{src.repo}/issues/{item['issue']}/comments", method="POST",

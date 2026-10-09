@@ -85,3 +85,7 @@ intake:
   coordinator:
     kind: claude_peer
     session_cwd: /home/caoscare-1/CAOSCARE-INTEGRATION
+    cwd: /home/caoscare-1/CAOSCARE-INTEGRATION
+    # provided by the CAOSCare coordinator (stdlib, read-only, no network, no model):
+    state_command: python3 scripts/owner_intake/coordinator_state.py
+    probe_command: python3 scripts/owner_intake/heartbeat_probe.py

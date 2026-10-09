@@ -36,6 +36,7 @@ class ClaudeHeadlessAdapter:
         self._pending_tools: dict[str, tuple[str, str]] = {}   # tool_use_id -> (name, summary)
         self._test_cmds: list[str] = []                        # the contract's acceptance commands
         self.session_id: str | None = None
+        self.last_rate_limit: dict = {}                        # Claude Code's own quota window report
 
     def _is_test(self, cmd: str) -> bool:
         return any(t and t in cmd for t in self._test_cmds) or bool(_TEST_HINT.search(cmd))
@@ -72,6 +73,9 @@ class ClaudeHeadlessAdapter:
         t = msg.get("type")
         if t == "system" and msg.get("subtype") == "init":
             self.session_id = msg.get("session_id")      # evidence for the final receipt; the router already emitted MODEL_SELECTED
+            return Parsed()
+        if t == "rate_limit_event":
+            self.last_rate_limit = msg.get("rate_limit_info") or {}
             return Parsed()
         if t == "assistant":
             return self._assistant(msg)
@@ -151,6 +155,7 @@ class ClaudeHeadlessAdapter:
             "duration_ms": msg.get("duration_ms"),
             "session_id": msg.get("session_id"),
             "provider_limited": bool(_LIMIT_RE.search(text)) and (msg.get("num_turns") or 0) <= 1,
+            "rate_limit": self.last_rate_limit or None,
         }
         return Parsed(events=[(ET.CLAIM_WRITTEN.value, {"status": final["claim_status"], "commit": final["claim_commit"],
                                                        "claim": text[:4000]})], final=final)
