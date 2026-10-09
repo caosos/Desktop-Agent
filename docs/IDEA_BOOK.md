@@ -13,6 +13,8 @@ Capturing an idea is not authorization to build it. A checklist item is checked 
 
 ## 1. Prioritized checklist — owner-approved NEXT actions only (max 3)
 
+**PAUSED_BY_OWNER 2026-10-09 (da-82e9f63bf8):** Desktop-Agent development and the background control plane are stopped; the items below wait until Michael resumes (`systemctl --user enable --now desktop-agent`).
+
 | # | Action | Project | Depends on | Done when (verifiable) |
 |---|---|---|---|---|
 | **1** | **You authorized the OpenAI pilot** (`d-e0c933ff`, answered yes with a provider-side limit). The coordinator's flip was refused by its tool classifier, so the last step is yours: in `config/runtime.yaml` set `providers.openai.enabled: true` (scope already limited to cheap control-plane calls, 200/day; rollback = same line) | Desktop-Agent | your answer ✓ | decision recorded; `providers.openai.enabled: true` committed; first call's tokens appear on the panel with a known or UNKNOWN cost, matching the Console's usage page |
