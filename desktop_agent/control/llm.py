@@ -79,6 +79,7 @@ class LLM:
         self.claude_bin = claude_bin
         self._forced = backend
         self.backend = backend or self._pick_backend()
+        self._calls: dict[tuple[str, str], int] = {}        # (backend, day) → API calls made by this process
 
     def refresh(self) -> str:
         """Re-pick the backend (a key file may have appeared since start; no restart needed)."""
@@ -111,15 +112,46 @@ class LLM:
 
     def status(self) -> dict:
         return {"backend": self.backend, "order": list(self.cfg.llm_backend_order),
-                "providers": {n: self.cfg.provider_status(n) for n in self.cfg.providers}}
+                "providers": {n: self.cfg.provider_status(n) for n in self.cfg.providers},
+                "backend_by_class": {c: self.backend_for(c) for c in ("cloud_cheap", "cloud_strong", "cloud_max")},
+                "pilot_usage": self.pilot_usage()}
+
+    # ---- pilot scope: a provider may be limited to some classes and to N calls per day ------
+    def backend_for(self, model_class: str) -> str:
+        """The backend for this call: the first available one whose provider config admits the class
+        (`classes:`) and has not used up its `pilot_max_calls_per_day`; claude_cli otherwise."""
+        self.refresh()
+        today = time.strftime("%Y-%m-%d")
+        for b in self.cfg.llm_backend_order:
+            if not self.available(b):
+                continue
+            if b == "claude_cli":
+                return b
+            pv = self.cfg.providers.get(b.replace("_api", "")) or {}
+            if pv.get("classes") and model_class not in pv["classes"]:
+                continue
+            cap = pv.get("pilot_max_calls_per_day")
+            if cap is not None and self._calls.get((b, today), 0) >= int(cap):
+                continue
+            return b
+        return "claude_cli"
+
+    def pilot_usage(self) -> dict:
+        today = time.strftime("%Y-%m-%d")
+        return {b.replace("_api", ""): {"calls_today": n, "cap": (self.cfg.providers.get(b.replace("_api", "")) or {}).get("pilot_max_calls_per_day"),
+                                        "classes": (self.cfg.providers.get(b.replace("_api", "")) or {}).get("classes")}
+                for (b, d), n in self._calls.items() if d == today}
 
     async def complete(self, prompt: str, schema: dict, model_class: str = "cloud_cheap",
                        system: str | None = None, timeout: int = 180) -> Completion:
-        self.refresh()
-        model = self.model_for(model_class)
-        if self.backend == "openai_api":
+        backend = self.backend_for(model_class)
+        model = self.model_for(model_class, backend)
+        if backend in ("openai_api", "anthropic_api"):
+            key = (backend, time.strftime("%Y-%m-%d"))
+            self._calls[key] = self._calls.get(key, 0) + 1
+        if backend == "openai_api":
             return await asyncio.to_thread(self._openai, prompt, schema, model, system, timeout)
-        if self.backend == "anthropic_api":
+        if backend == "anthropic_api":
             return await asyncio.to_thread(self._anthropic, prompt, schema, model, system, timeout)
         return await self._claude_cli(prompt, schema, model, system, timeout)
 

@@ -96,3 +96,20 @@ def test_budgets_and_unknown_usage_in_state(tmp_path: Path):
     assert b["unknown_usage"]["calls"] == 1 and b["unknown_usage"]["input_tokens"] == 2000
     assert s.state()["llm"]["backend"] in ("claude_cli", "openai_api", "anthropic_api")
     assert s.state()["costs"]["per_task"] == {"t1": 1.25}
+
+
+def test_pilot_scope_limits_classes_and_calls_per_day(tmp_path: Path, monkeypatch):
+    """When an API provider is admitted, it serves only the classes it lists and at most N calls a day from this
+    process; everything else stays on the subscription backend. The gate itself is not touched here."""
+    import time
+    kf = tmp_path / "k"; kf.write_text("sk-test"); kf.chmod(0o600)
+    cfg = _cfg(tmp_path, f"providers:\n  openai:\n    key_file: {kf}\n    classes: [cloud_cheap]\n    pilot_max_calls_per_day: 2\n"
+                         "    models: {cloud_cheap: gpt-6-luna, cloud_strong: gpt-6.1-sol, cloud_max: gpt-6-astra}\n")
+    llm = LLM(cfg)
+    monkeypatch.setattr(llm, "available", lambda b: True)                    # stand-in for an owner-admitted provider
+    assert llm.backend_for("cloud_cheap") == "openai_api" and llm.backend_for("cloud_strong") == "claude_cli" and llm.backend_for("cloud_max") == "claude_cli"
+    assert llm.model_for("cloud_strong", llm.backend_for("cloud_strong")) == cfg.models["cloud_strong"]       # strong stays on the subscription model
+    llm._calls[("openai_api", time.strftime("%Y-%m-%d"))] = 2
+    assert llm.backend_for("cloud_cheap") == "claude_cli"                                                       # cap reached → subscription fallback
+    assert llm.status()["pilot_usage"]["openai"] == {"calls_today": 2, "cap": 2, "classes": ["cloud_cheap"]}
+    assert llm.status()["backend_by_class"] == {"cloud_cheap": "claude_cli", "cloud_strong": "claude_cli", "cloud_max": "claude_cli"}
