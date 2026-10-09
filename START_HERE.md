@@ -50,6 +50,23 @@ separate identity from CAOSCare's resident Aria; they share a name only.
   `~/.config/desktop-agent/token`.
 - Tests: `.venv/bin/python -m pytest -q` (no Claude, no network).
 
+## Operating the panel (owner)
+
+1. Read the strip at the top: **Done today** (verified, with a PR link and a
+   merged / not-merged badge), **Working now**, **Blocked**, and **Your one
+   next action**.
+2. Decisions are answered in exactly one place, the **Approval packet**: pick
+   an answer per item, press **Submit answers**. Blank means unanswered and
+   never consent; "defer a day" hides an item without answering.
+3. **Submit goal** starts a new bounded worker task (a model runs, cost shows
+   on the Cost card). **Transfer / Send** messages a project's existing
+   coordinator through GitHub and creates no task.
+4. **Coordinators and workers**: COORDINATOR is the project's session;
+   WORKERS are jobs running right now from live processes and the project's
+   own feed. An idle coordinator or an IDLE project stage does not mean its
+   workers are idle.
+5. Pause / Resume / Stop all act on this control plane's scheduler only.
+
 ## First managed project
 
 `caosos/CAOSCARE.COM`, coordinator checkout `~/CAOSCARE-INTEGRATION` on

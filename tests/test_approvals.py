@@ -67,7 +67,9 @@ def test_packet_in_browser(tmp_path):
             page = browser.new_page(viewport={"width": 1100, "height": 1800})
             page.goto("http://127.0.0.1:8497/?access_token=tok")
             page.wait_for_function("document.querySelectorAll('#packet fieldset').length === 3", timeout=15000)
-            assert "read-only" in page.inner_text("#ext_gates") and "tmux self-wake" in page.inner_text("#ext_gates")
+            assert "read-only" in page.inner_text("#ext_gates") and "(3)" in page.inner_text("#ext_gates")
+            page.click("#ext_gates summary")                                       # external gates are collapsed by default
+            assert "tmux self-wake" in page.inner_text("#ext_gates")
             ids = [d["decision_id"] for d in s.store.open_decisions()]
             page.check(f"#packet input[name='{ids[0]}'][value='approve']")
             page.check(f"#packet input[name='{ids[2]}'][value='DEFER']")

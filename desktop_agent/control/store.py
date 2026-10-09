@@ -72,6 +72,7 @@ _MIGRATIONS = [
     "ALTER TABLE decisions ADD COLUMN resumes TEXT",
     "ALTER TABLE decisions ADD COLUMN recommendation TEXT",
     "ALTER TABLE decisions ADD COLUMN deferred_until REAL",
+    "ALTER TABLE decisions ADD COLUMN why TEXT",
 ]
 
 
@@ -274,6 +275,22 @@ class Store:
                 (decision_id, task_id, question, json.dumps(options), None, time.time(), None, goal_id, project, scope, resumes, recommendation),
             )
             self._db.commit()
+
+    def amend_decision(self, decision_id: str, **fields) -> dict | None:
+        """Correct the owner-facing text of an OPEN decision (question, options, recommendation, scope, resumes, why).
+        Never touches answers; the caller records the receipt and the reason."""
+        allowed = {"question", "options", "recommendation", "scope", "resumes", "why"}
+        sets, vals = [], []
+        for k, v in fields.items():
+            if k not in allowed:
+                raise ValueError(f"cannot amend {k}")
+            sets.append(("options_json" if k == "options" else k) + "=?"); vals.append(json.dumps(v) if k == "options" else v)
+        with self._lock:
+            if sets:
+                self._db.execute(f"UPDATE decisions SET {', '.join(sets)} WHERE decision_id=? AND answer IS NULL", (*vals, decision_id))
+                self._db.commit()
+            row = self._db.execute("SELECT * FROM decisions WHERE decision_id=?", (decision_id,)).fetchone()
+        return dict(row) if row else None
 
     def defer_decision(self, decision_id: str, until: float) -> dict | None:
         """Hide a decision until `until`; it stays open and unanswered (deferral is never consent)."""

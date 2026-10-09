@@ -15,9 +15,9 @@ Capturing an idea is not authorization to build it. A checklist item is checked 
 
 | # | Action | Project | Depends on | Done when (verifiable) |
 |---|---|---|---|---|
-| **1** | **Approve (or decline) the first OpenAI pilot** — inbox decision filed 2026-10-09: enable OpenAI only for the control plane's cheap calls on `gpt-6-luna` under a $10 pilot cap, after you confirm an enforced provider-side cap (you proposed $10/month) and give the separate pilot authorization | Desktop-Agent | key installed ✓ | decision recorded; `providers.openai.enabled: true` committed; first call's tokens appear on the panel with a known or UNKNOWN cost, matching the Console's usage page |
+| **1** | **Optional: the first OpenAI paid pilot** (`d-e0c933ff`, in the approval packet) — stays DISABLED unless you answer yes **and** a hard spend limit is set in the OpenAI dashboard (the platform's $10 cap is software only). Unanswered means nothing changes | Desktop-Agent | key installed ✓ | decision recorded; `providers.openai.enabled: true` committed; first call's tokens appear on the panel with a known or UNKNOWN cost, matching the Console's usage page |
 | 2 | **Optional** widget, one action: in your own desktop login run `bash <(curl -fsSL https://raw.githubusercontent.com/caosos/Desktop-Agent/main/widget/install.sh)` once, then press **Pair widget** on :8477 and type the code into the widget. The panel at :8477 is already the complete owner interface; skip this if you do not want a desktop window | Desktop-Agent | nothing (`docs/WIDGET_SETUP.md`) | a `widget paired` event on :8477 and Aria answers one question from the widget |
-| 3 | Answer the Anthropic key decision (`d-528e97b0`): yes if your Claude plan is Max or Team (API credits included), otherwise no | Desktop-Agent | nothing | decision recorded; if yes, `anthropic.key` present and `--check-providers` shows it |
+| 3 | Optional: the Anthropic API key decision (`d-528e97b0`, in the approval packet). Not required: subscription workers keep running; API usage is metered separately and no included credits are assumed | Desktop-Agent | nothing | decision recorded; if yes, `anthropic.key` present and `--check-providers` shows it |
 
 Sorted by utility and finishability: #1 is one answer that unlocks metered costs; #2 is the Stage 1 acceptance observation; #3 is a yes/no.
 

@@ -311,7 +311,7 @@ class Service:
             items.append({"decision_id": d["decision_id"], "project": d.get("project") or "desktop_agent", "question": d["question"],
                           "options": (d["options"] or ["yes", "no"]), "recommendation": d.get("recommendation"),
                           "scope": d.get("scope") or "exactly what the question says; nothing else is authorised by answering",
-                          "why": (self._why_for(d["decision_id"]) or ""), "resumes": d.get("resumes") or "the item that asked",
+                          "why": (d.get("why") or self._why_for(d["decision_id"]) or ""), "resumes": d.get("resumes") or "the item that asked",
                           "asked_at": d["asked_at"], "answerable_here": True})
         external = []
         rows = self.store.coordinator_rows()

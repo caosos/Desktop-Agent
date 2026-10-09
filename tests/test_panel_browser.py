@@ -70,7 +70,12 @@ def test_owner_panel_acceptance(served):
         assert page.inner_text("#g_done_n") == "1" and "Add the labels" in page.inner_text("#g_done") and page.locator("#g_done a").count() == 1
         assert page.inner_text("#g_working_n") == "1" and "Fix the parser" in page.inner_text("#g_working")
         assert page.inner_text("#g_blocked_n") == "1" and "credential missing" in page.inner_text("#g_blocked")
-        assert "Approve the pilot?" in page.inner_text("#g_next")
+        assert "Approve the pilot?" in page.inner_text("#g_next") and "approval packet" in page.inner_text("#g_next")
+        assert page.locator("#g_next_ctl button").count() == 0 and page.locator("#g_next_ctl a[href='#packetcard']").count() == 1   # one place to answer
+        assert "NaN" not in page.inner_text("body") and "UNKNOWN $" in page.inner_text("#costs")
+        assert "Submit goal" in page.inner_text("#legend") and "Transfer / Send" in page.inner_text("#legend")
+        assert "PR open, not merged" in page.inner_text("#g_done") or "merge not checked" in page.inner_text("#g_done")
+        assert "control-plane stage" in page.inner_text("#projects") and "workers now: UNKNOWN" in page.inner_text("#projects")
         # coordinators: alpha disconnected (no session at /nowhere), beta no integration → truthful labels
         coords = page.inner_text("#coords")
         assert "Disconnected" in coords and "Data unavailable" in coords and "VERIFIED" not in coords
@@ -90,8 +95,10 @@ def test_owner_panel_acceptance(served):
         page.wait_for_function("document.querySelector('#intake').textContent.includes('DEFERRED')", timeout=15000)
         assert s.store.get_intake("da-aaaaaaaaaa")["status"] == "DEFERRED"
         assert any(r["result_label"] == "verified" and "DEFERRED" in r["claim"] for r in s.store.receipts("instruction", "da-aaaaaaaaaa"))
-        # answer the one next action from the glance strip; the decision is recorded with the panel as source
-        page.click("#g_next_ctl button[data-a='approve']")
+        # answer the one next action in the approval packet (the single place to answer); recorded with the panel as source
+        page.wait_for_function("document.querySelectorAll('#packet fieldset').length === 1", timeout=15000)
+        did = s.store.open_decisions()[0]["decision_id"]
+        page.check(f"#packet input[name='{did}'][value='approve']"); page.click("#packet_submit")
         page.wait_for_function("document.querySelector('#g_next').textContent.includes('blocked') || document.querySelector('#g_next').textContent.includes('Nothing')", timeout=15000)
         assert s.store.open_decisions() == []
         ev = [e for e in s.store.events() if e.type == ET.OWNER_DECISION_RECORDED.value][-1]
@@ -102,7 +109,15 @@ def test_owner_panel_acceptance(served):
         # reload keeps the same picture (state is server truth, not page memory)
         page.reload(); page.wait_for_function("document.querySelector('#g_next').textContent.length > 0", timeout=15000)
         assert page.inner_text("#g_done_n") == "1" and page.inner_text("#g_blocked_n") == "1" and "DEFERRED" in page.inner_text("#intake")
-        # phone width: long urls, ids and chips wrap inside their rows; the page never scrolls sideways
-        page.set_viewport_size({"width": 400, "height": 900}); page.wait_for_timeout(300)
-        assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth + 1"), "horizontal overflow at 400px"
+        # desktop 1648, laptop 1280, phone 390: no sideways scroll, no letter-stacked controls (every visible button
+        # at least 48 px wide and at most 48 px tall: a stacked label is ~40 px wide and 100+ px tall), the packet spans the full row on wide screens
+        for w, h in ((1648, 900), (1280, 900), (390, 844)):
+            page.set_viewport_size({"width": w, "height": h}); page.wait_for_timeout(300)
+            assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth + 1"), f"horizontal overflow at {w}px"
+            bad = page.evaluate("[...document.querySelectorAll('button')].map(b => [b.textContent.trim(), b.getBoundingClientRect().width, b.getBoundingClientRect().height]).filter(x => x[1] > 0 && (x[1] < 48 || x[2] > 48))")
+            assert bad == [], f"squeezed buttons at {w}px: {bad}"
+            if w >= 1280:
+                assert page.evaluate("document.querySelector('#packetcard').getBoundingClientRect().width > document.querySelector('.wrap').getBoundingClientRect().width * 0.95")
+                assert page.evaluate("document.querySelector('.wrap').getBoundingClientRect().width") >= min(w - 32, 1500)
+            page.screenshot(path=str(Path(s.cfg.data_dir) / f"panel-acceptance-{w}.png"), full_page=True)
         browser.close()

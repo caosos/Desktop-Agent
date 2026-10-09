@@ -54,7 +54,7 @@ def test_live_owner_acceptance():
         report["blocked"] = [t["task_id"] for t in blocked]
         # 4. Shared Inbox: chips equal recorded statuses; no posted/sent shown as delivered; no delivered shown as done
         inbox_txt = page.inner_text("#intake")
-        for i in ik["items"][-30:]:
+        for i in ik["items"][-8:]:                     # the card shows the latest 8 until "show all" is pressed
             assert i["status"] in inbox_txt
         by_status = {}
         for i in ik["items"]: by_status.setdefault(i["status"], 0); by_status[i["status"]] += 1
@@ -64,7 +64,10 @@ def test_live_owner_acceptance():
         assert len(page.locator("#packet fieldset").all()) == len(pk["decisions"]) == len(st["inbox"])
         assert all(not g["answerable_here"] for g in pk["external_gates"]); report["open_decisions"] = len(pk["decisions"]); report["external_gates"] = len(pk["external_gates"])
         # 6. one next action, consistent with the state
-        nxt = page.inner_text("#g_next"); assert nxt.strip() and nxt.strip() == st["glance"]["next_action"]["text"].strip(); report["next_action"] = nxt[:100]
+        nxt = page.inner_text("#g_next"); assert nxt.strip() and nxt.strip().startswith(st["glance"]["next_action"]["text"].strip()); report["next_action"] = nxt[:100]
+        if st["glance"]["next_action"]["kind"] == "decide":           # decisions are answered only in the packet
+            assert page.locator("#g_next_ctl button").count() == 0 and page.locator("#g_next_ctl a[href='#packetcard']").count() == 1
+        assert "NaN" not in page.inner_text("body")
         # 7. coordinators: an idle coordinator is still connected; MBOS never claimed wakeable
         coords = page.inner_text("#coords")
         for prj in st["projects"]:

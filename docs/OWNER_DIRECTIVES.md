@@ -161,3 +161,9 @@ Two owner commands, one through issue #3 (`da-06c4cca249`, delivered to the coor
 3. Preserve the working dashboard, subscriptions and the **disabled** OpenAI paid-pilot gate; the key, routing dry run, dashboard and approval packet are complete and are not to be rebuilt.
 4. Keep the Idea Book, priority checklist and approval packet synchronized with verified results.
 5. Close with commit/test/runtime receipts and ACK/WORKING/DONE on #3; then take the next genuinely valuable approved task or report idle accurately. "BUILD. Finish usable functionality and report actual blockers, not hypothetical ones."
+
+---
+
+## 2026-10-09 (evening) — Owner UX bug report (issue #3, `da-d49974e6c0`)
+
+Michael, from real screenshots of :8477 at ~1648 px: the page is a narrow strip, decision buttons render one letter per line, the same two decisions appear in three cards, Cost shows NaN, IDLE/archived wording is confusing, "Done" must not imply merged, the Anthropic key and OpenAI pilot must read as optional with their consequences visible, and Goal / Transfer / Submit answers need a compact legend. "Prioritize a usable interface over adding additional content." He likes the short status headings with ✓ icons. Resolution recorded in `docs/PROJECT_STATE.md` same date.

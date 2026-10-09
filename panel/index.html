@@ -11,7 +11,7 @@
 :root[data-theme="dark"] { --bg:#12171b; --surface:#1a2127; --fg:#e4e9ec; --muted:#98a4ad; --line:#2b353d; --accent:#55c4ce; --soft:#163338; --warn:#e3b35a; --warnsoft:#3a2e14; --bad:#f08a8a; --badsoft:#3a1c1c; --ok:#7ad39a; --oksoft:#16301f; color-scheme:dark; }
 * { box-sizing:border-box; }
 body { margin:0; background:var(--bg); color:var(--fg); font:14px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; padding-inline:16px; padding-block:12px 32px; }
-.wrap { max-width:1200px; margin:0 auto; }
+.wrap { max-width:1560px; margin:0 auto; }
 header { display:flex; flex-wrap:wrap; gap:8px 20px; align-items:baseline; border-bottom:1px solid var(--line); padding-bottom:8px; }
 h1 { font-size:18px; margin:0; letter-spacing:.02em; }
 .mono { font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; font-size:12px; }
@@ -20,7 +20,17 @@ h1 { font-size:18px; margin:0; letter-spacing:.02em; }
 .stages span { font-family:ui-monospace,monospace; font-size:11px; padding:4px 8px; border:1px solid var(--line); background:var(--surface); color:var(--muted); }
 .stages span.on { background:var(--accent); color:#fff; border-color:var(--accent); }
 .stages span.alt { border-style:dashed; }
-.grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(300px,1fr)); gap:12px; }
+.grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(340px,100%),1fr)); gap:12px; }
+.span { grid-column:1 / -1; }                      /* the approval packet always takes the full row */
+.pk { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(380px,100%),1fr)); gap:10px; }
+.pk fieldset { border:1px solid var(--line); padding:8px 10px; margin:0; min-width:0; }
+.pk legend { font-size:11px; color:var(--muted); padding:0 4px; }
+.pk .q { font-size:14px; margin:2px 0 4px; }
+.pk label { display:inline-flex; align-items:center; gap:4px; padding:4px 8px; border:1px solid var(--line); border-radius:3px; cursor:pointer; flex:0 0 auto; max-width:100%; }
+.pk label:has(input:checked) { border-color:var(--accent); background:var(--soft); }
+details summary { cursor:pointer; color:var(--muted); font-size:11px; }
+.legend { display:flex; flex-wrap:wrap; gap:4px 20px; font-size:11.5px; color:var(--muted); margin:0 0 12px; }
+.legend b { color:var(--fg); }
 .card { background:var(--surface); border:1px solid var(--line); padding:10px 12px; min-width:0; }
 .card h2 { font-size:12px; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); margin:0 0 8px; }
 .row { display:flex; justify-content:space-between; gap:8px; padding:4px 0; border-bottom:1px solid var(--line); }
@@ -29,7 +39,7 @@ h1 { font-size:18px; margin:0; letter-spacing:.02em; }
 .chip { font-family:ui-monospace,monospace; font-size:11px; padding:2px 6px; border-radius:3px; background:var(--soft); color:var(--accent); flex-shrink:0; max-width:50%; height:fit-content; }
 .chip.bad { background:var(--badsoft); color:var(--bad); } .chip.ok { background:var(--oksoft); color:var(--ok); } .chip.warn { background:var(--warnsoft); color:var(--warn); }
 .num { font-variant-numeric:tabular-nums; }
-button { font:inherit; padding:6px 12px; border:1px solid var(--line); background:var(--surface); color:var(--fg); cursor:pointer; }
+button { font:inherit; padding:6px 12px; border:1px solid var(--line); background:var(--surface); color:var(--fg); cursor:pointer; flex:0 0 auto; max-width:100%; }   /* never squeezed into a letter column */
 button.primary { background:var(--accent); color:#fff; border-color:var(--accent); }
 button.danger { color:var(--bad); }
 input, textarea, select { font:inherit; width:100%; padding:6px 8px; border:1px solid var(--line); background:var(--bg); color:var(--fg); }
@@ -39,6 +49,7 @@ textarea { min-height:64px; resize:vertical; }
 pre { font-size:11.5px; line-height:1.4; background:var(--bg); border:1px solid var(--line); padding:8px; overflow:auto; max-height:360px; margin:0; white-space:pre-wrap; word-break:break-word; }
 #events { max-height:260px; overflow:auto; }
 .ev { display:grid; grid-template-columns:52px 1fr; gap:8px; padding:2px 0; font-size:12.5px; }
+.ev > * { min-width:0; overflow-wrap:anywhere; }
 a { color:var(--accent); }
 .ctl { display:flex; flex-wrap:wrap; gap:6px; align-items:center; }
 .tiny { font-size:11px; }
@@ -68,10 +79,23 @@ a { color:var(--accent); }
   <div class="row"><span><b>■ Blocked</b> <span class="muted tiny">only what still needs attention</span><div id="g_blocked" class="tiny"></div></span><span class="chip bad" id="g_blocked_n">0</span></div>
   <div class="row"><span><b>→ Your one next action</b><div id="g_next" class="tiny"></div><div id="g_next_ctl" class="ctl" style="margin-top:4px"></div></span></div>
 </section>
+<div class="legend" id="legend">
+  <span><b>Submit answers</b> records your consent in the approval packet, one receipt per answer; nothing starts by itself.</span>
+  <span><b>Submit goal</b> starts a <i>new</i> bounded worker task (a model runs; cost shows below).</span>
+  <span><b>Transfer / Send</b> messages a project's existing coordinator through GitHub; no task is created.</span>
+  <span><b>IDLE</b> means this control plane has no task there; the project's own workers are listed under Coordinators → WORKERS.</span>
+</div>
 
 <div class="grid">
+  <div class="card span" id="packetcard"><h2>Approval packet — the only place decisions are answered</h2>
+    <div class="muted tiny" style="margin-bottom:6px">Pick an answer per item, then <b>Submit answers</b>. Each answer becomes its own receipt. Left blank = unanswered (never consent). Defer hides an item for a day and changes nothing. Items are optional unless they say otherwise.</div>
+    <form id="packet" class="pk"></form>
+    <div class="ctl" style="margin-top:8px"><button class="primary" id="packet_submit" type="button">Submit answers</button><span id="packetmsg" class="muted tiny"></span></div>
+    <div id="ext_gates" class="tiny" style="margin-top:10px"></div>
+    <div id="classifier" class="muted tiny" style="margin-top:8px"></div>
+  </div>
   <div class="card">
-    <h2>Goal</h2>
+    <h2>Goal <span class="muted" style="text-transform:none;letter-spacing:0">· starts a new worker task</span></h2>
     <form id="goalform" class="goal">
       <select id="project"></select>
       <textarea id="text" placeholder="What should be done? One bounded task."></textarea>
@@ -84,20 +108,11 @@ a { color:var(--accent); }
     </form>
   </div>
 
-  <div class="card"><h2>Projects</h2><div id="projects"></div></div>
-  <div class="card"><h2>Coordinators (watchdog)</h2><div id="coords"></div><div id="quota" class="muted tiny" style="margin-top:6px"></div></div>
-  <div class="card"><h2>Workers</h2><div id="workers" class="muted">none running</div></div>
-  <div class="card" id="packetcard"><h2>Approval packet — answer everything at once</h2>
-    <div class="muted tiny" style="margin-bottom:6px">Each answer becomes its own receipt. Blank = not answered (never consent). Defer hides an item for a day and changes nothing.</div>
-    <form id="packet"></form>
-    <div class="ctl" style="margin-top:8px"><button class="primary" id="packet_submit" type="button">Submit answers</button><span id="packetmsg" class="muted tiny"></span></div>
-    <div id="ext_gates" class="tiny" style="margin-top:10px"></div>
-    <div id="classifier" class="muted tiny" style="margin-top:8px"></div>
-  </div>
-  <div class="card"><h2>Owner decisions</h2><div id="inbox" class="muted">none</div></div>
+  <div class="card"><h2>Projects <span class="muted" style="text-transform:none;letter-spacing:0">· this control plane's tasks only</span></h2><div id="projects"></div></div>
+  <div class="card"><h2>Coordinators and workers (watchdog)</h2><div class="muted tiny" style="margin-bottom:6px">COORDINATOR = the project's Claude session or liaison; WORKERS = jobs actually running now, from live processes and the project's own feed. A coordinator at rest does not mean its workers are at rest.</div><div id="coords"></div><div id="quota" class="muted tiny" style="margin-top:6px"></div></div>
   <div class="card"><h2>Cost / usage</h2><div id="costs"></div></div>
-  <div class="card"><h2>Blocked</h2><div id="blocked" class="muted">none</div></div>
-  <div class="card"><h2>Shared inbox (owner ⇄ coordinators via GitHub)</h2>
+  <div class="card" id="blockedcard"><h2>Blocked</h2><div id="blocked" class="muted">none</div></div>
+  <div class="card"><h2>Shared inbox <span class="muted" style="text-transform:none;letter-spacing:0">· messages to existing coordinators via GitHub, no task created</span></h2>
     <form id="dirform" class="goal" style="margin-bottom:8px">
       <select id="dir_project"></select>
       <textarea id="dir_text" placeholder="Direct a coordinator: posted to the project's owner-dispatch issue, then delivered and tracked."></textarea>
@@ -152,16 +167,21 @@ function render(st) {
   const sel = $("project"); if (!sel.options.length) st.projects.forEach(p => { const o = document.createElement("option"); o.value=o.textContent=p.name; sel.appendChild(o); });
   if (st.glance) { const g = st.glance;
     $("g_done_n").textContent = g.done_today.length;
-    $("g_done").innerHTML = g.done_today.slice().reverse().map(d => `✓ ${esc(d.objective)} <span class="muted">· ${d.evidence.startsWith("http") ? `<a href="${esc(d.evidence)}">PR</a>` : esc(d.evidence)}</span>`).join("<br>") || '<span class="muted">none yet today</span>';
+    // verified by the control plane ≠ merged: the merge state comes from the open-PR check in projects[].workers.finished
+    const merged = {}; st.projects.forEach(p => ((p.workers||{}).finished||[]).forEach(f => { merged[f.id] = f.status; }));
+    const mergeBadge = t => { const s = merged[t] || ""; return s.includes("merged") ? '<span class="chip ok">merged</span>' : s.includes("open") ? '<span class="chip warn">PR open, not merged</span>' : '<span class="chip">verified, merge not checked</span>'; };
+    $("g_done").innerHTML = g.done_today.slice().reverse().map(d => `✓ ${esc(d.objective)} <span class="muted">· ${d.evidence.startsWith("http") ? `<a href="${esc(d.evidence)}">PR</a>` : esc(d.evidence)}</span> ${mergeBadge(d.task_id)}`).join("<br>") || '<span class="muted">none yet today</span>';
     $("g_working_n").textContent = g.working.length;
     $("g_working").innerHTML = g.working.map(w => `▶ ${esc(w.objective)} <span class="muted">· ${esc(w.stage)} · ${esc(w.last_activity)}</span>`).join("<br>") || '<span class="muted">nothing running</span>';
     $("g_blocked_n").textContent = g.blocked.length;
     $("g_blocked").innerHTML = g.blocked.map(b => `■ ${esc(b.task_id)} <span class="muted">· ${esc(b.reason)}</span>`).join("<br>") || '<span class="muted">none</span>';
-    const n = g.next_action; $("g_next").textContent = n.text;
-    $("g_next_ctl").innerHTML = n.kind === "decide" ? n.options.map(o => `<button class="primary" data-d="${esc(n.decision_id)}" data-a="${esc(o)}">${esc(o)}</button>`).join("") + `<button data-d="${esc(n.decision_id)}" data-a="__defer">Later</button>` : "";
-    document.querySelectorAll("#g_next_ctl button").forEach(b => b.onclick = async () => { if (b.dataset.a === "__defer") { $("g_next").textContent = "Deferred for this visit."; return; } await api("/v0/decisions/"+b.dataset.d, {method:"POST", body: JSON.stringify({answer:b.dataset.a})}); refresh(); });
+    // the next action never carries its own answer controls: the approval packet is the single place to answer
+    const n = g.next_action; $("g_next").textContent = n.kind === "decide" ? n.text + " — optional; answer it in the approval packet." : n.text;
+    $("g_next_ctl").innerHTML = n.kind === "decide" ? `<a href="#packetcard" data-d="${esc(n.decision_id)}">↓ open the approval packet</a>` : n.kind === "unblock" ? `<a href="#blockedcard">↓ see blocked</a>` : "";
   }
-  $("projects").innerHTML = st.projects.map(p => { const c = p.coordinator || {}; return `<div class="row"><span><b>${esc(p.name)}</b> <span class="muted tiny">${esc(p.integration_branch)}</span><br><span class="muted tiny">${esc(p.last_activity)} ${p.last_activity_at? "· "+ago(p.last_activity_at):""}</span><br><span class="tiny"><span class="chip ${c.connected ? "ok" : "bad"}">${c.connected ? "coordinator connected" : "Disconnected"}</span> <span class="muted">${esc(c.detail||"")}${c.last_activity_at ? " · last seen " + esc(c.last_activity_at) : ""} · done ${p.done_tasks ?? 0} · blocked ${p.blocked_tasks ?? 0}</span></span></span>${stageChip(p.stage)}</div>`; }).join("");
+  $("projects").innerHTML = st.projects.map(p => { const c = p.coordinator || {}; const w = p.workers || {}; const act = String(p.last_activity||"");
+    const actNote = act.includes("archived") ? " (a superseded task attempt was archived; the project itself is not archived)" : "";
+    return `<div class="row"><span><b>${esc(p.name)}</b> <span class="muted tiny">${esc(p.integration_branch)}</span><br><span class="muted tiny">last control-plane task event: ${esc(act)||"none"} ${p.last_activity_at? "· "+ago(p.last_activity_at)+" ago":""}${esc(actNote)}</span><br><span class="tiny"><span class="chip ${c.connected ? "ok" : "bad"}">${c.connected ? "coordinator connected" : "Disconnected"}</span> <span class="muted">${esc(c.detail||"")} · workers now: <b>${esc(w.status||"UNKNOWN")}${w.active ? " " + w.active : ""}</b> · done ${p.done_tasks ?? 0} · blocked ${p.blocked_tasks ?? 0}</span></span></span><span class="tiny" style="text-align:right">${stageChip(p.stage)}<br><span class="muted">control-plane stage</span></span></div>`; }).join("");
   const fmt = ts => ts ? (ago(ts) + " ago") : "—";
   $("coords").innerHTML = st.projects.map(p => { const c = p.coordinator || {}; const ex = c.external || {}; const pr = c.probe || {};
     const wakeCls = (c.wake||"").startsWith("VERIFIED") ? "ok" : (c.wake||"").startsWith("unavailable") ? "bad" : "warn";
@@ -178,21 +198,22 @@ function render(st) {
       <span class="chip ${wakeCls}">${esc(c.wake||"—")}</span></div>`; }).join("");
   if (st.quota) { const q = st.quota, w = q.windows || {}; $("quota").textContent = `subscription windows (from the last worker run ${ago(q.seen_at)} ago, not a bill): ` + Object.entries(w).map(([k,v]) => `${k} ${v.utilization!=null ? Math.round(v.utilization*100)+"%" : "—"} resets ${v.resets_at ? new Date(v.resets_at*1000).toLocaleString() : "—"}`).join(" · "); }
   const dsel = $("dir_project"); if (!dsel.options.length && st.intake) (st.intake.sources||[]).forEach(src => { const o = document.createElement("option"); o.value = src.project; o.textContent = `${src.project} → ${src.repo}#${src.issues.join(",")}`; dsel.appendChild(o); });
-  $("workers").innerHTML = st.workers.length ? st.workers.map(w => `<div class="row"><span class="mono">${esc(w.worker_id)}</span><span class="tiny">${esc(w.task_id)} · ${ago(w.started_at)} · last event ${ago(w.last_event_at||w.started_at)} ago</span></div>`).join("") : '<span class="muted">none running</span>';
-  $("inbox").innerHTML = st.inbox.length ? st.inbox.map(d => `<div class="row"><span>${esc(d.question)}</span><span class="ctl">${(d.options.length?d.options:["yes","no"]).map(o=>`<button data-d="${esc(d.decision_id)}" data-a="${esc(o)}">${esc(o)}</button>`).join("")}</span></div>`).join("") : '<span class="muted">none</span>';
   const fb = st.feedback || {};
-  const usd = v => "$" + v.toFixed(2);
-  const feedbackRows = [
-    ["verified tasks", dash(fb.verified_tasks)],
-    ["verified per $", dash(fb.verified_per_dollar)],
-    ["verified per hour", dash(fb.verified_per_hour)],
-    ["conflict rate", dash(fb.conflict_rate)],
-    ["retry rate", dash(fb.retry_rate)],
-    ["known spend (window)", dash(fb.known_usd, usd)],
-    ["unknown-cost tasks", dash(fb.unknown_cost_tasks, a => a.length)]
-  ];
-  $("costs").innerHTML = `<div class="row"><span>today</span><span class="num">$${st.costs.today_usd.toFixed(2)}</span></div><div class="row"><span>last hour</span><span class="num">$${st.costs.last_hour_usd.toFixed(2)}</span></div><div class="row"><span>total</span><span class="num">$${st.costs.total_usd.toFixed(2)}</span></div>` + + (st.budgets ? `<div class="row"><span class="muted">hour cap</span><span class="num">$${st.budgets.spent_last_hour_usd.toFixed(2)} / $${st.budgets.hourly_cap_usd.toFixed(2)}</span></div><div class="row"><span class="muted">day cap</span><span class="num">$${st.budgets.spent_today_usd.toFixed(2)} / $${st.budgets.daily_cap_usd.toFixed(2)}</span></div><div class="row"><span class="muted">per-task default</span><span class="num">$${st.budgets.per_task_default_usd.toFixed(2)}</span></div><div class="row"><span class="muted">unknown-cost usage</span><span class="num tiny">${st.budgets.unknown_usage.calls} calls · ${st.budgets.unknown_usage.input_tokens + st.budgets.unknown_usage.output_tokens} tokens</span></div><div class="row"><span class="muted">model backend</span><span class="tiny">${esc((st.llm||{}).backend||"—")}</span></div>` : "");
-    feedbackRows.map(([k, v]) => `<div class="row"><span>${k}</span><span class="num">${v}</span></div>`).join("");
+  // money(): a finite number renders as dollars, anything else as UNKNOWN (never "$0", never NaN)
+  const money = v => (typeof v === "number" && Number.isFinite(v)) ? "$" + v.toFixed(2) : "UNKNOWN";
+  const num = v => (typeof v === "number" && Number.isFinite(v)) ? String(v) : "UNKNOWN";
+  const prov = (st.llm||{}).providers || {}; const metered = Object.values(prov).filter(p => p.enabled && p.key_present).map(p => p.provider);
+  const unk = (st.budgets||{}).unknown_usage || st.costs.unknown_usage || {};
+  const row = (k, v, cls="num") => `<div class="row"><span>${k}</span><span class="${cls}">${v}</span></div>`;
+  $("costs").innerHTML =
+    `<div class="muted tiny" style="margin-bottom:4px">Known $ = token-equivalent at list prices as reported by the Claude CLI on your subscription (not an invoice). Metered API invoices: ${metered.length ? esc(metered.join(", ")) + " enabled" : "none possible — OpenAI DISABLED, no Anthropic key"}.</div>` +
+    row("today (token-equivalent)", money(st.costs.today_usd)) + row("last hour", money(st.costs.last_hour_usd)) + row("total since start", money(st.costs.total_usd)) +
+    row("metered API spend", metered.length ? money(st.costs.today_usd) : "$0.00 (no metered provider enabled)") +
+    row("usage with no $ figure", `${num(unk.calls)} calls · ${num((unk.input_tokens||0) + (unk.output_tokens||0))} tokens · UNKNOWN $`, "num tiny") +
+    (st.budgets ? row('<span class="muted">hour cap</span>', `${money(st.budgets.spent_last_hour_usd)} / ${money(st.budgets.hourly_cap_usd)}`) + row('<span class="muted">day cap</span>', `${money(st.budgets.spent_today_usd)} / ${money(st.budgets.daily_cap_usd)}`) + row('<span class="muted">per-task default</span>', money(st.budgets.per_task_default_usd)) : "") +
+    row('<span class="muted">model backend</span>', esc((st.llm||{}).backend||"—"), "tiny") +
+    row("verified tasks (24 h)", num(fb.verified_tasks)) + row("verified per known $", num(fb.verified_per_dollar)) + row("verified per hour", num(fb.verified_per_hour)) +
+    row("conflict rate", num(fb.conflict_rate)) + row("retry rate", num(fb.retry_rate)) + row("unknown-cost tasks", num((fb.unknown_cost_tasks||[]).length));
   $("blocked").innerHTML = st.blocked.length ? st.blocked.map(t => `<div class="row task" data-t="${esc(t.task_id)}"><span class="tiny">${esc(t.task_id)}<br><span class="muted">${esc((t.result||{}).reason||t.last_activity)}</span></span>${stageChip(t.stage)}</div>`).join("") : '<span class="muted">none</span>';
   if (st.intake) {
     const ik = st.intake, ca = ik.coordinator_activity || {};
@@ -201,8 +222,10 @@ function render(st) {
       (Object.keys(ca).length ? " · coordinator activity: " + Object.entries(ca).map(([p,t]) => `${p} ${esc(t)}`).join(", ") : "");
     const cls = s => s==="DONE" ? "ok" : (s==="BLOCKED" ? "bad" : (s==="RECEIVED" || s==="POSTED" ? "warn" : ""));
     const act = (i, a, label, cls="") => `<button class="tiny ${cls}" data-i="${esc(i.item_id)}" data-a="${a}">${label}</button>`;
-    $("intake").innerHTML = (ik.items || []).slice().reverse().map(i => `<div class="row"><span class="tiny"><a href="${esc(i.url)}">${esc(i.repo)}#${i.issue}</a> <span class="muted">${esc(i.kind)} by ${esc(i.author)} · ${esc((i.posted_at||"").replace("T"," "))}</span><br>${esc((i.title||"").slice(0,90))}<br><span class="muted">${esc((i.note||"").slice(0,110))}${i.flagged && (i.status==="RECEIVED"||i.status==="DELIVERED") ? " · UNACKNOWLEDGED" : ""}</span><br><span class="ctl">${["DENIED","DEFERRED","DONE"].includes(i.status) ? "" : act(i,"transfer","Transfer / resend") + act(i,"discuss","Discuss") + act(i,"defer","Defer") + act(i,"deny","Deny","danger")}</span></span><span class="chip ${cls(i.status)}">${esc(i.status)}</span></div>`).join("") || '<span class="muted">no instructions seen</span>';
-    document.querySelectorAll("#intake button").forEach(b => b.onclick = async () => {
+    const allItems = (ik.items || []).slice().reverse(); const shown = window.showAllIntake ? allItems : allItems.slice(0, 8);
+    $("intake").innerHTML = (allItems.length > 8 ? `<button class="tiny" id="intake_more" style="margin:4px 0">${window.showAllIntake ? "show latest 8" : `show all ${allItems.length}`}</button>` : "") + shown.map(i => `<div class="row"><span class="tiny"><a href="${esc(i.url)}">${esc(i.repo)}#${i.issue}</a> <span class="muted">${esc(i.kind)} by ${esc(i.author)} · ${esc((i.posted_at||"").replace("T"," "))}</span><br>${esc((i.title||"").slice(0,90))}<br><span class="muted">${esc((i.note||"").slice(0,110))}${i.flagged && (i.status==="RECEIVED"||i.status==="DELIVERED") ? " · UNACKNOWLEDGED" : ""}</span><br><span class="ctl">${["DENIED","DEFERRED","DONE"].includes(i.status) ? "" : act(i,"transfer","Transfer / resend") + act(i,"discuss","Discuss") + act(i,"defer","Defer") + act(i,"deny","Deny","danger")}</span></span><span class="chip ${cls(i.status)}">${esc(i.status)}</span></div>`).join("") || '<span class="muted">no instructions seen</span>';
+    if ($("intake_more")) $("intake_more").onclick = () => { window.showAllIntake = !window.showAllIntake; refresh(); };
+    document.querySelectorAll("#intake button[data-a]").forEach(b => b.onclick = async () => {
       if (b.dataset.a === "discuss") { $("text").value = `Explain inbox item ${b.dataset.i} and what you recommend.`; $("text").focus(); return; }
       const note = (b.dataset.a === "deny" || b.dataset.a === "defer") ? (window.prompt ? (prompt("Note (optional):") || "") : "") : "";
       await api(`/v0/intake/${b.dataset.i}/action`, {method:"POST", body: JSON.stringify({action: b.dataset.a, note})}); refresh();
@@ -212,7 +235,6 @@ function render(st) {
   const classLabels = st.class_labels || {};
   $("tasks").innerHTML = st.tasks.slice().reverse().map(t => `<div class="row task ${t.task_id===selected?"sel":""}" data-t="${esc(t.task_id)}"><span class="tiny"><b>${esc(t.task_id)}</b> <span class="muted">${esc(t.status)} · ${esc(classLabels[t.model_class] || "—")} · attempt ${t.attempt}</span><br>${esc(t.objective).slice(0,90)}<br><span class="muted">${esc(t.last_activity)} · ${ago(t.last_activity_at)} ago</span></span>${stageChip(t.stage)}</div>`).join("");
   document.querySelectorAll(".task").forEach(el => el.onclick = () => showTask(el.dataset.t));
-  document.querySelectorAll("#inbox button").forEach(b => b.onclick = async () => { await api("/v0/decisions/"+b.dataset.d, {method:"POST", body: JSON.stringify({answer:b.dataset.a})}); refresh(); });
 }
 
 async function showTask(tid) {
@@ -230,11 +252,14 @@ async function showTask(tid) {
 async function loadPacket() {
   try {
     const pk = await api("/v0/approvals");
-    $("packet").innerHTML = pk.decisions.map((d, i) => `<fieldset style="border:1px solid var(--line);padding:8px;margin:0 0 8px"><legend class="tiny"><b>${i+1}. ${esc(d.project)}</b>${d.recommendation ? ` · recommended: <b>${esc(d.recommendation)}</b>` : ""}</legend>
-      <div>${esc(d.question)}</div>
-      <div class="muted tiny">why: ${esc(d.why||"")}</div><div class="muted tiny">scope: ${esc(d.scope)}</div><div class="muted tiny">resumes: ${esc(d.resumes)}</div>
-      <div class="ctl" style="margin-top:4px">${d.options.map(o => `<label class="tiny"><input type="radio" name="${esc(d.decision_id)}" value="${esc(o)}"> ${esc(o)}</label>`).join("")}<label class="tiny"><input type="radio" name="${esc(d.decision_id)}" value="DEFER"> defer</label><label class="tiny"><input type="radio" name="${esc(d.decision_id)}" value="" checked> leave</label></div></fieldset>`).join("") || '<span class="muted">no open decisions for this platform</span>';
-    $("ext_gates").innerHTML = pk.external_gates.length ? `<b>Other projects' owner gates</b> <span class="muted">(read from their own files; answer on their channel via a direction)</span><br>` + pk.external_gates.map(g => `<div class="row"><span class="tiny"><b>${esc(g.project)}</b> ${esc(g.gate)}<br><span class="muted">${esc(g.source)}${g.url ? ` · <a href="${esc(g.url)}">source</a>` : ""} · ${esc(g.answer_via)}</span></span><span class="chip warn">read-only</span></div>`).join("") : "";
+    // grouped by project; brief question + default + consequence up front, details on demand; one fieldset per decision (keyboard: tab to the radios, arrows to choose)
+    const sorted = pk.decisions.slice().sort((a, b) => a.project.localeCompare(b.project) || a.asked_at - b.asked_at);
+    $("packet").innerHTML = sorted.map((d, i) => `<fieldset aria-label="${esc(d.question).slice(0,80)}"><legend><b>${esc(d.project)}</b> · ${i+1} of ${sorted.length} · asked ${ago(d.asked_at)} ago</legend>
+      <div class="q">${esc(d.question)}</div>
+      <div class="muted tiny">If you do nothing: stays unanswered, nothing changes. ${d.recommendation ? `Recommended: <b>${esc(d.recommendation)}</b>.` : "No recommendation; your call."}</div>
+      <details><summary>why · scope · what resumes</summary><div class="muted tiny">why: ${esc(d.why||"")}</div><div class="muted tiny">scope: ${esc(d.scope)}</div><div class="muted tiny">resumes: ${esc(d.resumes)}</div></details>
+      <div class="ctl" style="margin-top:6px">${d.options.map(o => `<label class="tiny"><input type="radio" name="${esc(d.decision_id)}" value="${esc(o)}"> ${esc(o)}</label>`).join("")}<label class="tiny"><input type="radio" name="${esc(d.decision_id)}" value="DEFER"> defer a day</label><label class="tiny"><input type="radio" name="${esc(d.decision_id)}" value="" checked> leave</label></div></fieldset>`).join("") || '<span class="muted">no open decisions for this platform</span>';
+    $("ext_gates").innerHTML = pk.external_gates.length ? `<details><summary><b>Other projects' owner gates (${pk.external_gates.length}) — read-only here</b> · read from their own files; answer on their channel via a direction in the Shared inbox</summary>` + pk.external_gates.map(g => `<div class="row"><span class="tiny"><b>${esc(g.project)}</b> ${esc(g.gate)}<br><span class="muted">${esc(g.source)}${g.url ? ` · <a href="${esc(g.url)}">source</a>` : ""} · ${esc(g.answer_via)}</span></span><span class="chip warn">read-only</span></div>`).join("") + "</details>" : "";
     $("classifier").textContent = pk.classifier_note;
     if (!$("packetmsg").textContent) $("packetmsg").textContent = pk.deferred.length ? `${pk.deferred.length} deferred (hidden for a day)` : "";
   } catch (e) {}
