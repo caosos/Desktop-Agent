@@ -15,7 +15,7 @@ Capturing an idea is not authorization to build it. A checklist item is checked 
 
 | # | Action | Project | Depends on | Done when (verifiable) |
 |---|---|---|---|---|
-| **1** | **Approve (or decline) the first OpenAI pilot** — inbox decision filed 2026-10-09: enable OpenAI only for the control plane's cheap calls on `gpt-6-luna` under a $10 pilot cap, after you set an enforced hard spend limit in the OpenAI Platform | Desktop-Agent | key installed ✓ | decision recorded; `providers.openai.enabled: true` committed; first call's tokens appear on the panel with a known or UNKNOWN cost, matching the Console's usage page |
+| **1** | **Approve (or decline) the first OpenAI pilot** — inbox decision filed 2026-10-09: enable OpenAI only for the control plane's cheap calls on `gpt-6-luna` under a $10 pilot cap, after you confirm an enforced provider-side cap (you proposed $10/month) and give the separate pilot authorization | Desktop-Agent | key installed ✓ | decision recorded; `providers.openai.enabled: true` committed; first call's tokens appear on the panel with a known or UNKNOWN cost, matching the Console's usage page |
 | 2 | Open the Aria widget in your own desktop session and give Aria one real task | Desktop-Agent | nothing (`docs/WIDGET_SETUP.md`) | the task appears on :8477 with a verified receipt and you opened no terminal |
 | 3 | Answer the Anthropic key decision (`d-528e97b0`): yes if your Claude plan is Max or Team (API credits included), otherwise no | Desktop-Agent | nothing | decision recorded; if yes, `anthropic.key` present and `--check-providers` shows it |
 

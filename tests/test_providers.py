@@ -69,6 +69,21 @@ def test_openai_http_error_surfaces(tmp_path: Path, monkeypatch):
         cfg.providers["openai"]["key_file"] = str(tmp_path / "missing"); list_openai_models(cfg)
 
 
+def test_pilot_dry_run_is_offline_and_truthful(tmp_path: Path, monkeypatch):
+    from desktop_agent.control.llm import pilot_dry_run
+    kf = tmp_path / "openai.key"; kf.write_text("sk-test")
+    cfg = _cfg(tmp_path, f"providers:\n  openai:\n    key_file: {kf}\n    enabled: false\n    models: {{cloud_cheap: gpt-6-luna, cloud_strong: gpt-6.1-sol, cloud_max: gpt-6-astra}}\n"
+                         "llm_backend_order: [openai_api, claude_cli]\npricing:\n  gpt-6-luna: {in: 1, out: 2}\n")
+    def boom(*a, **k): raise AssertionError("network call attempted")
+    monkeypatch.setattr(llm_mod, "_post_json", boom); monkeypatch.setattr(llm_mod.urllib.request, "urlopen", boom)
+    d = pilot_dry_run(cfg)
+    assert d["enabled"] is False and d["backend_today"] == "claude_cli" and d["backend_if_enabled"] == "openai_api"
+    assert d["routing_if_enabled"]["cloud_cheap"] == {"model": "gpt-6-luna", "price_known": True, "cost_accounting": "USD from pricing table"}
+    assert d["routing_if_enabled"]["cloud_strong"]["price_known"] is False and "UNKNOWN" in d["routing_if_enabled"]["cloud_strong"]["cost_accounting"]
+    assert d["network_calls_made_by_this_check"] == 0 and "enabled: false" in d["rollback"]["step"]
+    assert cfg.providers["openai"]["enabled"] is False          # the dry run must not flip the real gate
+
+
 def test_budgets_and_unknown_usage_in_state(tmp_path: Path):
     repo = tmp_path / "alpha"; repo.mkdir(); (repo / "S").write_text("s"); (repo / "A").write_text("a")
     y = tmp_path / "a.yaml"; y.write_text(f"name: alpha\nrepo_path: {repo}\nremote_url: x\nintegration_branch: main\nstart_here: S\nagents_file: A\n")

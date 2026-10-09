@@ -18,9 +18,16 @@ def main() -> None:
     ap.add_argument("--port", type=int, default=None)
     ap.add_argument("--check-providers", action="store_true",
                     help="report provider configuration and list OpenAI model ids (free call); no completions")
+    ap.add_argument("--pilot-dry-run", action="store_true",
+                    help="offline: show what the OpenAI pilot would route, cost-account and log, and how to roll back; no network at all")
     args = ap.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     cfg = RuntimeConfig.load(args.config)
+    if args.pilot_dry_run:
+        import json as _json
+        from .control.llm import pilot_dry_run
+        print(_json.dumps(pilot_dry_run(cfg), indent=2))
+        return
     if args.check_providers:
         import json as _json
         from .control.llm import LLM, LLMError, list_openai_models
