@@ -46,6 +46,11 @@ class ChatIn(BaseModel):
     reset: bool = False
 
 
+class IntakeStatusIn(BaseModel):
+    status: str
+    note: str = Field(default="", max_length=1000)
+
+
 class AskIn(BaseModel):
     question: str = Field(min_length=5, max_length=1000)
     options: list[str] = []
@@ -161,6 +166,24 @@ def build_app(service: Service, token: str) -> FastAPI:
         if not view:
             raise HTTPException(404, "no such task")
         return view
+
+    @app.get("/v0/intake")
+    async def intake(_: str = Depends(auth)):
+        return service.intake.summary()
+
+    @app.post("/v0/intake/poll")
+    async def intake_poll(_: str = Depends(auth)):
+        return await service.intake.poll_once()
+
+    @app.post("/v0/intake/{item_id}/status")
+    async def intake_status(item_id: str, body: IntakeStatusIn, request: Request, _: str = Depends(auth)):
+        item = service.store.get_intake(item_id)
+        if not item:
+            raise HTTPException(404, "no such instruction")
+        if body.status not in ("ACKNOWLEDGED", "WORKING", "BLOCKED", "DONE"):
+            raise HTTPException(400, "status must be ACKNOWLEDGED|WORKING|BLOCKED|DONE")
+        service.intake._set(item, body.status, f"{source(request)}: {body.note}", [source(request), body.note[:100]])
+        return service.store.get_intake(item_id)
 
     @app.post("/v0/aria/chat")
     async def aria_chat(body: ChatIn, _: str = Depends(auth)):

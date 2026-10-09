@@ -35,6 +35,7 @@ class ProjectPackage:
     min_model_class: str | None = None   # e.g. a repo whose CLAUDE.md context exceeds the cheap class
     state_entry_by: str = "worker"       # "worker": workers append to current_state (owned area includes it);
                                          # "control": the control plane appends one entry at integration
+    intake: dict | None = None           # owner-instruction intake: {issues: [..], owner_logins: [..], coordinator: {kind, session_cwd}}
     source_file: Path | None = None
 
     @classmethod
@@ -65,6 +66,7 @@ class ProjectPackage:
             github_repo=raw.get("github_repo"),
             min_model_class=raw.get("min_model_class"),
             state_entry_by=raw.get("state_entry_by", "worker"),
+            intake=raw.get("intake"),
             source_file=path,
         )
 

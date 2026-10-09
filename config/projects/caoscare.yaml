@@ -75,3 +75,13 @@ worker_allowed_tools:
   - "Bash(cd:*)"
   - "Bash(python3:*)"
   - "Bash(/home/caoscare-1/CAOSCARE.COM/backend/.venv/bin/python3:*)"
+
+# Owner-instruction intake (Michael, 2026-10-08): free GitHub checks; delivery to the running CAOSCare
+# coordinator session (Claude Code, cwd ~/CAOSCARE-INTEGRATION) as a peer message; ACK/WORKING/BLOCKED/DONE
+# read back from issue comments carrying the item id.
+intake:
+  issues: [117]
+  owner_logins: [caosos]
+  coordinator:
+    kind: claude_peer
+    session_cwd: /home/caoscare-1/CAOSCARE-INTEGRATION

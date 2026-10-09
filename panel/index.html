@@ -80,6 +80,7 @@ a { color:var(--accent); }
   <div class="card"><h2>Owner decisions</h2><div id="inbox" class="muted">none</div></div>
   <div class="card"><h2>Cost / usage</h2><div id="costs"></div></div>
   <div class="card"><h2>Blocked</h2><div id="blocked" class="muted">none</div></div>
+  <div class="card"><h2>Owner instructions (GitHub → coordinators)</h2><div id="intake_meta" class="muted tiny"></div><div id="intake"></div></div>
   <div class="card"><h2>Next task</h2><div id="next" class="muted">queue empty</div></div>
 </div>
 
@@ -143,6 +144,14 @@ function render(st) {
   $("costs").innerHTML = `<div class="row"><span>today</span><span class="num">$${st.costs.today_usd.toFixed(2)}</span></div><div class="row"><span>last hour</span><span class="num">$${st.costs.last_hour_usd.toFixed(2)}</span></div><div class="row"><span>total</span><span class="num">$${st.costs.total_usd.toFixed(2)}</span></div>` + + (st.budgets ? `<div class="row"><span class="muted">hour cap</span><span class="num">$${st.budgets.spent_last_hour_usd.toFixed(2)} / $${st.budgets.hourly_cap_usd.toFixed(2)}</span></div><div class="row"><span class="muted">day cap</span><span class="num">$${st.budgets.spent_today_usd.toFixed(2)} / $${st.budgets.daily_cap_usd.toFixed(2)}</span></div><div class="row"><span class="muted">per-task default</span><span class="num">$${st.budgets.per_task_default_usd.toFixed(2)}</span></div><div class="row"><span class="muted">unknown-cost usage</span><span class="num tiny">${st.budgets.unknown_usage.calls} calls · ${st.budgets.unknown_usage.input_tokens + st.budgets.unknown_usage.output_tokens} tokens</span></div><div class="row"><span class="muted">model backend</span><span class="tiny">${esc((st.llm||{}).backend||"—")}</span></div>` : "");
     feedbackRows.map(([k, v]) => `<div class="row"><span>${k}</span><span class="num">${v}</span></div>`).join("");
   $("blocked").innerHTML = st.blocked.length ? st.blocked.map(t => `<div class="row task" data-t="${esc(t.task_id)}"><span class="tiny">${esc(t.task_id)}<br><span class="muted">${esc((t.result||{}).reason||t.last_activity)}</span></span>${stageChip(t.stage)}</div>`).join("") : '<span class="muted">none</span>';
+  if (st.intake) {
+    const ik = st.intake, ca = ik.coordinator_activity || {};
+    $("intake_meta").textContent = `checked ${ik.last_poll_at ? ago(ik.last_poll_at) + " ago" : "never"} · every ${ik.poll_sec}s (free) · ` +
+      Object.entries(ik.counts).filter(([k,v]) => v).map(([k,v]) => `${k} ${v}`).join(" · ") + (ik.last_error ? ` · ERROR ${ik.last_error}` : "") +
+      (Object.keys(ca).length ? " · coordinator activity: " + Object.entries(ca).map(([p,t]) => `${p} ${esc(t)}`).join(", ") : "");
+    const cls = s => s==="DONE" ? "ok" : (s==="BLOCKED" ? "bad" : (s==="RECEIVED" || s==="POSTED" ? "warn" : ""));
+    $("intake").innerHTML = (ik.items || []).slice().reverse().map(i => `<div class="row"><span class="tiny"><a href="${esc(i.url)}">${esc(i.repo)}#${i.issue}</a> <span class="muted">${esc(i.kind)} by ${esc(i.author)} · posted ${esc((i.posted_at||"").replace("T"," ").replace("Z","Z"))}</span><br>${esc((i.title||"").slice(0,90))}<br><span class="muted">${esc((i.note||"").slice(0,110))}${i.flagged && (i.status==="RECEIVED"||i.status==="DELIVERED") ? " · UNACKNOWLEDGED" : ""}</span></span><span class="chip ${cls(i.status)}">${esc(i.status)}</span></div>`).join("") || '<span class="muted">no instructions seen</span>';
+  }
   $("next").innerHTML = st.next ? `<b>${esc(st.next.task_id)}</b><br><span class="muted tiny">${esc(st.next.objective)}</span>` + (st.hold ? `<br><span class="chip warn">held: ${esc(st.hold)}</span>` : "") : '<span class="muted">queue empty</span>';
   const classLabels = st.class_labels || {};
   $("tasks").innerHTML = st.tasks.slice().reverse().map(t => `<div class="row task ${t.task_id===selected?"sel":""}" data-t="${esc(t.task_id)}"><span class="tiny"><b>${esc(t.task_id)}</b> <span class="muted">${esc(t.status)} · ${esc(classLabels[t.model_class] || "—")} · attempt ${t.attempt}</span><br>${esc(t.objective).slice(0,90)}<br><span class="muted">${esc(t.last_activity)} · ${ago(t.last_activity_at)} ago</span></span>${stageChip(t.stage)}</div>`).join("");

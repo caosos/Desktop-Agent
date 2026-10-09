@@ -45,3 +45,10 @@ worker_allowed_tools:
   - "Bash(wc:*)"
   - "Bash(/home/caoscare-1/Desktop-Agent/.venv/bin/python:*)"
   - "Bash(python3:*)"
+
+# Owner-instruction intake: issue #3 is the owner intake issue for this project; the control plane is the coordinator.
+intake:
+  issues: [3]
+  owner_logins: [caosos]
+  coordinator:
+    kind: control_plane

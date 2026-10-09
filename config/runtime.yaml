@@ -91,3 +91,8 @@ llm_backend_order: [openai_api, anthropic_api, claude_cli]
 # USD per 1M tokens; a call on an unpriced model is recorded with tokens and an UNKNOWN cost.
 # Owner-provided figures only; nothing here is estimated by the platform.
 pricing: {}
+
+# Owner-instruction intake: bounded free GitHub polling; tagged status comments on the issue.
+intake:
+  poll_sec: 120
+  post_comments: true

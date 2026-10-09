@@ -75,6 +75,14 @@ class Service:
         self.planner = Planner(self.llm, self.projects)
         from .aria import AriaBrain                  # local import: aria depends on the service surface
         self.aria = AriaBrain(self, self.llm)
+        from .intake import Intake, IntakeSource
+        from .intake_delivery import Deliverer
+        sources = [IntakeSource(project=p.name, repo=p.github_repo, issues=list(p.intake.get("issues") or []),
+                                owner_logins=list(p.intake.get("owner_logins") or ["caosos"]),
+                                coordinator=dict(p.intake.get("coordinator") or {"kind": "control_plane"}))
+                   for p in self.projects.values() if p.intake and p.github_repo and p.intake.get("issues")]
+        self.intake = Intake(self.store, sources, Deliverer(cfg, self.store),
+                             poll_sec=int(cfg.intake_poll_sec), post_comments=bool(cfg.intake_post_comments))
         self._subscribers: list[asyncio.Queue] = []
         self._loop: asyncio.AbstractEventLoop | None = None
         self.store.subscribe(self._fanout)
@@ -355,6 +363,7 @@ class Service:
             "feedback": metrics.feedback(self.store),
             "budgets": self.budgets(),
             "llm": self.llm.status(),
+            "intake": self.intake.summary(),
             "outcomes": [{"task_type": k[0], "model_class": k[1], **v} for k, v in metrics.outcomes(self.store).items()],
         }
 
@@ -389,8 +398,18 @@ class Service:
                 view["diff_error"] = str(exc)
         return view
 
+    async def _intake_forever(self) -> None:
+        while True:
+            try:
+                await self.intake.poll_once()
+            except Exception as exc:          # recorded, never fatal
+                self.intake.last_error = repr(exc)[:300]
+            await asyncio.sleep(self.intake.poll_sec)
+
     # ---- loop -------------------------------------------------------------
     async def run_forever(self) -> None:
+        if self.intake.sources:
+            asyncio.create_task(self._intake_forever())
         while True:
             try:
                 await self.scheduler.tick()
