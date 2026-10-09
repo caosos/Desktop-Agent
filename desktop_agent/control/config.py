@@ -132,7 +132,7 @@ class RuntimeConfig:
                              for x in raw.get("projects", [])]
         for name, pv in (raw.get("providers") or {}).items():
             cur = cfg.providers.setdefault(name, {"key_file": None, "env": None, "models": {}})
-            for k in ("key_file", "env", "enabled"):
+            for k in ("key_file", "env", "enabled", "classes", "pilot_max_calls_per_day"):   # scope fields travel with the gate
                 if pv.get(k) is not None:
                     cur[k] = pv[k]
             if pv.get("models"):
