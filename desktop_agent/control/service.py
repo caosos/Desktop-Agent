@@ -283,11 +283,13 @@ class Service:
         return {"paused": self.scheduler.paused, "running": list(self.launcher.running)}
 
     def ask_owner(self, *, question: str, options: list[str], why: str, source: str,
-                  recommendation: str | None = None, task_id: str | None = None, goal_id: str | None = None) -> dict:
+                  recommendation: str | None = None, task_id: str | None = None, goal_id: str | None = None,
+                  project: str | None = None, scope: str | None = None, resumes: str | None = None) -> dict:
         """File a genuine owner decision into the inbox (directive 2026-10-08 point 9)."""
         did = f"d-{uuid.uuid4().hex[:8]}"
         q = question if not recommendation else f"{question} (recommended: {recommendation})"
-        self.store.save_decision(did, task_id, q, list(options), goal_id=goal_id)
+        self.store.save_decision(did, task_id, q, list(options), goal_id=goal_id, project=project or "desktop_agent",
+                                 scope=scope, resumes=resumes, recommendation=recommendation)
         self.store.append_event(Event(type=ET.OWNER_DECISION_REQUESTED.value, task_id=task_id,
                                       payload={"decision_id": did, "goal_id": goal_id, "question": q, "options": options, "why": why},
                                       provenance=Provenance(actor=Actor.CONTROL.value, source=source, evidence=[why[:200]])))
@@ -295,6 +297,64 @@ class Service:
                       actor=Actor.CONTROL.value, source=source, result_label=VERIFIED, evidence=[why[:200]],
                       correlation_id=goal_id, task_id=task_id, after_state={"options": options, "recommendation": recommendation})
         return {"decision_id": did, "question": q, "options": options}
+
+    # ---- consolidated approval packet ----------------------------------------------------
+    def approval_packet(self) -> dict:
+        """Every open owner gate at once: this platform's decisions (answerable here, one receipt each),
+        plus other projects' gates read truthfully from their own files (answerable only on their channels)."""
+        items = []
+        for d in self.store.open_decisions():
+            items.append({"decision_id": d["decision_id"], "project": d.get("project") or "desktop_agent", "question": d["question"],
+                          "options": (d["options"] or ["yes", "no"]), "recommendation": d.get("recommendation"),
+                          "scope": d.get("scope") or "exactly what the question says; nothing else is authorised by answering",
+                          "why": (self._why_for(d["decision_id"]) or ""), "resumes": d.get("resumes") or "the item that asked",
+                          "asked_at": d["asked_at"], "answerable_here": True})
+        external = []
+        rows = self.store.coordinator_rows()
+        caos = ((rows.get("caoscare") or {}).get("check") or {}).get("state") or {}
+        for g in caos.get("waiting_owner") or []:
+            external.append({"project": "caoscare", "gate": g, "source": "CAOSCare coordinator state script (waiting_owner)",
+                             "answer_via": "a direction to CAOSCare from the Shared Inbox (posted on #117)", "answerable_here": False})
+        for g in (self.store.get_kv("gates:michael_business_os") or {}).get("gates") or []:
+            external.append({"project": "michael_business_os", **g, "answerable_here": False,
+                             "answer_via": "a liaison message from the Shared Inbox (Agent 01 reads it at its own sync)"})
+        deferred = [d["decision_id"] for d in self.store.open_decisions(include_deferred=True) if d.get("deferred_until") and d["deferred_until"] > time.time()]
+        return {"generated_at": time.time(), "decisions": items, "external_gates": external, "deferred": deferred,
+                "rules": ["each answer is recorded as its own receipt", "an item left blank is not consent", "DEFER hides the item for a day and changes nothing",
+                          "external gates are shown as read from the other project's own files and are answered on that project's channel"],
+                "classifier_note": ("Some actions (for example a Business OS self-wake through tmux, 'W-4') are refused by the Claude Code auto-mode safety classifier. "
+                                    "That is a tool and security boundary, not an owner yes/no: a chat approval cannot change it, and no shell bypass or "
+                                    "self-edited permission policy will be proposed. Such a step is an operator action you take yourself, with a check and a rollback.")}
+
+    def _why_for(self, decision_id: str) -> str | None:
+        for e in reversed(self.store.events(limit=5000)):
+            if e.type == ET.OWNER_DECISION_REQUESTED.value and e.payload.get("decision_id") == decision_id:
+                return e.payload.get("why")
+        return None
+
+    async def submit_packet(self, answers: list[dict], source: str) -> dict:
+        """Answer several decisions at once; one durable receipt per answered item; DEFER hides without
+        consenting; anything not listed is untouched."""
+        recorded, deferred, errors = [], [], []
+        for a in answers:
+            did, ans = str(a.get("decision_id", "")), str(a.get("answer", "")).strip()
+            if not did or not ans:
+                continue
+            if ans.upper() == "DEFER":
+                row = self.store.defer_decision(did, time.time() + 86400)
+                if row:
+                    self.store.append_event(Event(type=ET.CONTROL.value, task_id=row.get("task_id"), payload={"action": "decision_deferred", "decision_id": did, "until_sec": 86400},
+                                                  provenance=Provenance(actor=Actor.HUMAN.value, source=source, evidence=[did])))
+                    deferred.append(did)
+                continue
+            try:
+                await self.answer_decision(did, ans, source)
+                write_receipt(self.store, subject_type="decision", subject_id=did, claim=f"owner answered: {ans[:160]}", actor=Actor.HUMAN.value,
+                              source=source, result_label=VERIFIED, evidence=[f"packet answer by {source}", did], after_state={"answer": ans})
+                recorded.append(did)
+            except KeyError:
+                errors.append({"decision_id": did, "error": "no such decision"})
+        return {"recorded": recorded, "deferred": deferred, "errors": errors, "remaining": [d["decision_id"] for d in self.store.open_decisions()]}
 
     async def answer_decision(self, decision_id: str, answer: str, source: str) -> dict:
         row = self.store.answer_decision(decision_id, answer)

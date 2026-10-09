@@ -47,6 +47,15 @@ class ChatIn(BaseModel):
     reset: bool = False
 
 
+class AnswerIn(BaseModel):
+    decision_id: str
+    answer: str = Field(min_length=1, max_length=2000)
+
+
+class PacketIn(BaseModel):
+    answers: list[AnswerIn] = Field(max_length=50)
+
+
 class PairIn(BaseModel):
     code: str = Field(min_length=6, max_length=6)
 
@@ -238,6 +247,14 @@ def build_app(service: Service, token: str) -> FastAPI:
         service.store.append_event(Event(type=ET.CONTROL.value, task_id=None, payload={"action": "widget_paired", "client": request.client.host if request.client else None},
                                          provenance=Provenance(actor=Actor.HUMAN.value, source="widget", evidence=["pairing code consumed"])))
         return {"url": f"http://{service.cfg.api_host}:{service.cfg.api_port}", "token": token}
+
+    @app.get("/v0/approvals")
+    async def approvals(_: str = Depends(auth)):
+        return service.approval_packet()
+
+    @app.post("/v0/approvals/submit")
+    async def approvals_submit(body: PacketIn, request: Request, _: str = Depends(auth)):
+        return await service.submit_packet([a.model_dump() for a in body.answers], source(request))
 
     @app.get("/v0/aria/greeting")
     async def aria_greeting(_: str = Depends(auth)):

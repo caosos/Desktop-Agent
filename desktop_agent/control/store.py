@@ -67,6 +67,11 @@ _MIGRATIONS = [
     "ALTER TABLE coordinator_activity ADD COLUMN last_ack REAL",
     "ALTER TABLE coordinator_activity ADD COLUMN check_json TEXT",
     "CREATE TABLE IF NOT EXISTS kv (key TEXT PRIMARY KEY, json TEXT, updated_at REAL)",
+    "ALTER TABLE decisions ADD COLUMN project TEXT",
+    "ALTER TABLE decisions ADD COLUMN scope TEXT",
+    "ALTER TABLE decisions ADD COLUMN resumes TEXT",
+    "ALTER TABLE decisions ADD COLUMN recommendation TEXT",
+    "ALTER TABLE decisions ADD COLUMN deferred_until REAL",
 ]
 
 
@@ -260,14 +265,23 @@ class Store:
 
     # ---- decisions --------------------------------------------------------
     def save_decision(self, decision_id: str, task_id: str | None, question: str, options: list[str],
-                      goal_id: str | None = None) -> None:
+                      goal_id: str | None = None, project: str | None = None, scope: str | None = None,
+                      resumes: str | None = None, recommendation: str | None = None) -> None:
         with self._lock:
             self._db.execute(
-                "INSERT OR REPLACE INTO decisions(decision_id, task_id, question, options_json, answer, asked_at, answered_at, goal_id)"
-                " VALUES (?,?,?,?,?,?,?,?)",
-                (decision_id, task_id, question, json.dumps(options), None, time.time(), None, goal_id),
+                "INSERT OR REPLACE INTO decisions(decision_id, task_id, question, options_json, answer, asked_at, answered_at, goal_id,"
+                " project, scope, resumes, recommendation) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                (decision_id, task_id, question, json.dumps(options), None, time.time(), None, goal_id, project, scope, resumes, recommendation),
             )
             self._db.commit()
+
+    def defer_decision(self, decision_id: str, until: float) -> dict | None:
+        """Hide a decision until `until`; it stays open and unanswered (deferral is never consent)."""
+        with self._lock:
+            self._db.execute("UPDATE decisions SET deferred_until=? WHERE decision_id=? AND answer IS NULL", (until, decision_id))
+            self._db.commit()
+            row = self._db.execute("SELECT * FROM decisions WHERE decision_id=?", (decision_id,)).fetchone()
+        return dict(row) if row else None
 
     def answer_decision(self, decision_id: str, answer: str) -> dict | None:
         with self._lock:
@@ -277,9 +291,12 @@ class Store:
             row = self._db.execute("SELECT * FROM decisions WHERE decision_id=?", (decision_id,)).fetchone()
         return dict(row) if row else None
 
-    def open_decisions(self) -> list[dict]:
+    def open_decisions(self, include_deferred: bool = False) -> list[dict]:
+        q = "SELECT * FROM decisions WHERE answer IS NULL"
+        if not include_deferred:
+            q += " AND (deferred_until IS NULL OR deferred_until < ?)"
         with self._lock:
-            rows = self._db.execute("SELECT * FROM decisions WHERE answer IS NULL ORDER BY asked_at").fetchall()
+            rows = self._db.execute(q + " ORDER BY asked_at", () if include_deferred else (time.time(),)).fetchall()
         out = []
         for r in rows:
             d = dict(r)

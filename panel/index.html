@@ -86,6 +86,13 @@ a { color:var(--accent); }
   <div class="card"><h2>Projects</h2><div id="projects"></div></div>
   <div class="card"><h2>Coordinators (watchdog)</h2><div id="coords"></div><div id="quota" class="muted tiny" style="margin-top:6px"></div></div>
   <div class="card"><h2>Workers</h2><div id="workers" class="muted">none running</div></div>
+  <div class="card" id="packetcard"><h2>Approval packet — answer everything at once</h2>
+    <div class="muted tiny" style="margin-bottom:6px">Each answer becomes its own receipt. Blank = not answered (never consent). Defer hides an item for a day and changes nothing.</div>
+    <form id="packet"></form>
+    <div class="ctl" style="margin-top:8px"><button class="primary" id="packet_submit" type="button">Submit answers</button><span id="packetmsg" class="muted tiny"></span></div>
+    <div id="ext_gates" class="tiny" style="margin-top:10px"></div>
+    <div id="classifier" class="muted tiny" style="margin-top:8px"></div>
+  </div>
   <div class="card"><h2>Owner decisions</h2><div id="inbox" class="muted">none</div></div>
   <div class="card"><h2>Cost / usage</h2><div id="costs"></div></div>
   <div class="card"><h2>Blocked</h2><div id="blocked" class="muted">none</div></div>
@@ -212,6 +219,26 @@ async function showTask(tid) {
   render(await api("/v0/state"));
 }
 
+async function loadPacket() {
+  try {
+    const pk = await api("/v0/approvals");
+    $("packet").innerHTML = pk.decisions.map((d, i) => `<fieldset style="border:1px solid var(--line);padding:8px;margin:0 0 8px"><legend class="tiny"><b>${i+1}. ${esc(d.project)}</b>${d.recommendation ? ` · recommended: <b>${esc(d.recommendation)}</b>` : ""}</legend>
+      <div>${esc(d.question)}</div>
+      <div class="muted tiny">why: ${esc(d.why||"")}</div><div class="muted tiny">scope: ${esc(d.scope)}</div><div class="muted tiny">resumes: ${esc(d.resumes)}</div>
+      <div class="ctl" style="margin-top:4px">${d.options.map(o => `<label class="tiny"><input type="radio" name="${esc(d.decision_id)}" value="${esc(o)}"> ${esc(o)}</label>`).join("")}<label class="tiny"><input type="radio" name="${esc(d.decision_id)}" value="DEFER"> defer</label><label class="tiny"><input type="radio" name="${esc(d.decision_id)}" value="" checked> leave</label></div></fieldset>`).join("") || '<span class="muted">no open decisions for this platform</span>';
+    $("ext_gates").innerHTML = pk.external_gates.length ? `<b>Other projects' owner gates</b> <span class="muted">(read from their own files; answer on their channel via a direction)</span><br>` + pk.external_gates.map(g => `<div class="row"><span class="tiny"><b>${esc(g.project)}</b> ${esc(g.gate)}<br><span class="muted">${esc(g.source)}${g.url ? ` · <a href="${esc(g.url)}">source</a>` : ""} · ${esc(g.answer_via)}</span></span><span class="chip warn">read-only</span></div>`).join("") : "";
+    $("classifier").textContent = pk.classifier_note;
+    if (!$("packetmsg").textContent) $("packetmsg").textContent = pk.deferred.length ? `${pk.deferred.length} deferred (hidden for a day)` : "";
+  } catch (e) {}
+}
+$("packet_submit").onclick = async () => {
+  const answers = [...new Set([...document.querySelectorAll("#packet input[type=radio]")].map(r => r.name))].map(n => { const sel = document.querySelector(`#packet input[name="${n}"]:checked`); return sel && sel.value ? {decision_id: n, answer: sel.value} : null; }).filter(Boolean);
+  if (!answers.length) { $("packetmsg").textContent = "nothing answered"; return; }
+  $("packetmsg").textContent = "recording…";
+  const r = await api("/v0/approvals/submit", {method:"POST", body: JSON.stringify({answers})});
+  $("packetmsg").textContent = `${r.recorded.length} recorded (one receipt each), ${r.deferred.length} deferred, ${r.remaining.length} still open` + (r.errors.length ? `, ${r.errors.length} errors` : "");
+  loadPacket(); refresh();
+};
 async function refresh() { try { render(await api("/v0/state")); } catch(e) {} }
 
 function connect() {
@@ -252,7 +279,7 @@ if (!token) {
   const t = window.prompt("Desktop-Agent API token (from ~/.config/desktop-agent/token):");
   if (t) { token = t.trim(); try { localStorage.setItem("da_token", token); } catch(e) {} }
 }
-refresh(); connect(); setInterval(refresh, 15000);
+refresh(); loadPacket(); connect(); setInterval(refresh, 15000); setInterval(loadPacket, 60000);
 </script>
 </body>
 </html>

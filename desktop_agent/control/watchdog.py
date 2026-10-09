@@ -132,12 +132,37 @@ class Watchdog:
                 self.intake._set(item, "RECEIVED", f"liaison message on {branch}: {f['path']}; awaiting the coordinator's own sync (no live session reachable)",
                                  [f.get("html_url", ""), f"sha={f.get('sha','')[:12]}"])
                 found += 1
+            if f["name"] in acks and f["name"] not in (self.store.get_kv("gates:" + src.project) or {}).get("scanned", []):
+                await self._scan_ack_for_gates(src, ack_branch, ack_dir, f["name"])
             if f["name"] in acks and item["status"] not in ("ACKNOWLEDGED", "WORKING", "DONE", "BLOCKED"):
                 self.intake._set(item, "ACKNOWLEDGED", f"ack file {ack_dir}/{f['name']} on {ack_branch}", [f"{ack_branch}:{ack_dir}/{f['name']}"])
                 self.store.set_intake_activity(item_id, time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()))
                 self.store.save_coordinator_ack(src.project, time.time())
                 acked += 1
         return found, acked
+
+    async def _scan_ack_for_gates(self, src: IntakeSource, ack_branch: str, ack_dir: str, name: str) -> None:
+        """Owner gates the coordinator wrote into its ack file (lines under an 'Owner decision(s)' heading or a
+        'Next single owner decision' bullet) are quoted, with their source, for the approval packet."""
+        kv = self.store.get_kv("gates:" + src.project) or {"gates": [], "scanned": []}
+        try:
+            content = await gh_api(f"repos/{src.repo}/contents/{ack_dir}/{name}?ref={ack_branch}")
+            body = base64.b64decode(content.get("content") or "").decode(errors="replace") if content.get("encoding") == "base64" else ""
+        except Exception:
+            return
+        url = content.get("html_url", "")
+        lines = body.splitlines()
+        for i, line in enumerate(lines):
+            low = line.lower()
+            if re.match(r"^#+\s*owner decision", low):
+                for nxt in lines[i + 1:i + 6]:
+                    if nxt.strip() and not nxt.startswith("#"):
+                        kv["gates"].append({"gate": nxt.strip()[:300], "source": f"{ack_dir}/{name}", "url": url}); break
+            elif "next single owner decision" in low or low.lstrip("-* ").startswith("owner decisions that only unlock"):
+                kv["gates"].append({"gate": line.strip().lstrip("-* ")[:300], "source": f"{ack_dir}/{name}", "url": url})
+        kv["scanned"].append(name)
+        kv["gates"] = kv["gates"][-12:]
+        self.store.set_kv("gates:" + src.project, kv)
 
     async def send_liaison(self, src: IntakeSource, item: dict) -> dict:
         """Transfer/Send for a liaison project: write one inbox message on the liaison branch (Aria's protocol)."""
