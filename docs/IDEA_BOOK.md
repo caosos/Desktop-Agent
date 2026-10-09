@@ -15,11 +15,11 @@ Capturing an idea is not authorization to build it. A checklist item is checked 
 
 | # | Action | Project | Depends on | Done when (verifiable) |
 |---|---|---|---|---|
-| **1** | **Install the OpenAI key** with the one-line command as `michaelos`, then "done" on inbox `d-58f742d0` | Desktop-Agent | nothing | `--check-providers` reports `key_present: true`; panel shows the key file mode 0600; usable model ids listed (free call) |
+| **1** | **Approve (or decline) the first OpenAI pilot** — inbox decision filed 2026-10-09: enable OpenAI only for the control plane's cheap calls on `gpt-6-luna` under a $10 pilot cap, after you set an enforced hard spend limit in the OpenAI Platform | Desktop-Agent | key installed ✓ | decision recorded; `providers.openai.enabled: true` committed; first call's tokens appear on the panel with a known or UNKNOWN cost, matching the Console's usage page |
 | 2 | Open the Aria widget in your own desktop session and give Aria one real task | Desktop-Agent | nothing (`docs/WIDGET_SETUP.md`) | the task appears on :8477 with a verified receipt and you opened no terminal |
 | 3 | Answer the Anthropic key decision (`d-528e97b0`): yes if your Claude plan is Max or Team (API credits included), otherwise no | Desktop-Agent | nothing | decision recorded; if yes, `anthropic.key` present and `--check-providers` shows it |
 
-Sorted by utility and finishability: #1 unlocks exact metered costs and the first paid-pilot approval question; #2 is the Stage 1 acceptance observation; #3 is a yes/no.
+Sorted by utility and finishability: #1 is one answer that unlocks metered costs; #2 is the Stage 1 acceptance observation; #3 is a yes/no.
 
 ## 2. Doing (limit 2)
 
@@ -31,6 +31,7 @@ Sorted by utility and finishability: #1 unlocks exact metered costs and the firs
 
 | Date | Result | Evidence |
 |---|---|---|
+| 2026-10-09 | **OpenAI key installed by Michael** at `~/.config/desktop-agent/openai.key` (mode 0600); verified from the control-plane account with the free provider check: key present, 133 model ids; no paid call; provider stays disabled until the pilot is approved | `--check-providers` run 2026-10-09; decision `d-58f742d0` answered "done" with that evidence; `config/runtime.yaml` |
 | 2026-10-09 | Owner instructions on GitHub now reach the running coordinators automatically and their acknowledgments show on :8477; CAOSCare and Desktop-Agent paths verified end to end, Business OS monitored via its liaison branch | `docs/PROJECT_STATE.md` 2026-10-09 entries; issue #3 and CAOSCARE.COM #117 comments |
 | 2026-10-09 | Coordinator watchdog: cheap checks, one bounded wake only on a WAKE probe, quota windows shown, auto-resume after a reset | same; 68 tests |
 | 2026-10-09 | System blueprint written by the platform itself and merged | `docs/BLUEPRINT.md` (PR #10) |

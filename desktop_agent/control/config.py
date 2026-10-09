@@ -132,7 +132,7 @@ class RuntimeConfig:
                              for x in raw.get("projects", [])]
         for name, pv in (raw.get("providers") or {}).items():
             cur = cfg.providers.setdefault(name, {"key_file": None, "env": None, "models": {}})
-            for k in ("key_file", "env"):
+            for k in ("key_file", "env", "enabled"):
                 if pv.get(k) is not None:
                     cur[k] = pv[k]
             if pv.get("models"):
@@ -172,6 +172,7 @@ class RuntimeConfig:
         return {"provider": name, "key_present": self.provider_key(name) is not None,
                 "key_file": str(kf) if kf else None, "key_file_mode": mode,
                 "models": dict(pv.get("models") or {}),
+                "enabled": bool(pv.get("enabled", True)),     # owner approval gate: a present key alone never enables paid calls
                 "configured": all((pv.get("models") or {}).get(c) for c in ("cloud_cheap", "cloud_strong", "cloud_max"))}
 
     def price(self, model: str, input_tokens: int, output_tokens: int) -> float | None:

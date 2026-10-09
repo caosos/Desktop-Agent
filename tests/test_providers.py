@@ -31,6 +31,10 @@ def test_key_from_file_and_status(tmp_path: Path, monkeypatch):
     assert st["key_present"] and st["key_file_mode"] == "0o600"
     assert LLM(cfg).backend == "openai_api"
     assert cfg.price("m-luna", 1_000_000, 100_000) == 0.5 + 0.2 and cfg.price("unpriced", 10, 10) is None
+    # the owner gate: a present, configured key with enabled: false must not be selected
+    cfg2 = _cfg(tmp_path, f"providers:\n  openai:\n    key_file: {kf}\n    enabled: false\n    models: {{cloud_cheap: m-luna, cloud_strong: m-sol, cloud_max: m-astra}}\n"
+                          "llm_backend_order: [openai_api, claude_cli]\n")
+    assert cfg2.provider_status("openai")["enabled"] is False and LLM(cfg2).backend == "claude_cli"
 
 
 def test_openai_backend_parses_and_prices(tmp_path: Path, monkeypatch):

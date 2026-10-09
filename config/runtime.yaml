@@ -73,10 +73,15 @@ providers:
   openai:
     key_file: ~/.config/desktop-agent/openai.key
     env: OPENAI_API_KEY
+    # Key installed by Michael 2026-10-09 (mode 0600, 133 model ids listed by the free /v1/models call).
+    # Class map proposed from OpenAI's own tier names (newest in each tier); prices NOT known on this
+    # host, so calls would be recorded as UNKNOWN cost until `pricing:` carries owner-confirmed figures.
+    # enabled stays false until Michael approves the pilot (inbox decision); the key alone enables nothing.
+    enabled: false
     models:
-      cloud_cheap: null
-      cloud_strong: null
-      cloud_max: null
+      cloud_cheap: gpt-6-luna
+      cloud_strong: gpt-6.1-sol
+      cloud_max: gpt-6-astra
   anthropic:
     key_file: ~/.config/desktop-agent/anthropic.key
     env: ANTHROPIC_API_KEY

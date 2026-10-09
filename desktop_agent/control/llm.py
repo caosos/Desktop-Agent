@@ -90,7 +90,8 @@ class LLM:
         if backend == "claude_cli":
             return True
         name = backend.replace("_api", "")
-        return self.cfg.provider_key(name) is not None and self.cfg.provider_status(name)["configured"]
+        st = self.cfg.provider_status(name)
+        return st["key_present"] and st["configured"] and st["enabled"]
 
     def _pick_backend(self) -> str:
         for b in self.cfg.llm_backend_order:
