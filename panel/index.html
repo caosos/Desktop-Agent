@@ -43,6 +43,8 @@ a { color:var(--accent); }
 .tiny { font-size:11px; }
 .task { cursor:pointer; }
 .task.sel { outline:2px solid var(--accent); }
+#glance { border-width:2px; }
+#glance b { font-size:15px; }
 @media (max-width:560px) { .goal .opts { grid-template-columns:1fr; } }
 </style>
 </head>
@@ -59,6 +61,12 @@ a { color:var(--accent); }
 </header>
 
 <div class="stages" id="stages"></div>
+<section id="glance" class="card" aria-label="At a glance" style="margin-bottom:12px">
+  <div class="row"><span><b>✓ Done today</b> <span class="muted tiny">verified by the control plane, with evidence</span><div id="g_done" class="tiny"></div></span><span class="chip ok" id="g_done_n">0</span></div>
+  <div class="row"><span><b>▶ Working now</b><div id="g_working" class="tiny muted">nothing running</div></span><span class="chip" id="g_working_n">0</span></div>
+  <div class="row"><span><b>■ Blocked</b> <span class="muted tiny">only what still needs attention</span><div id="g_blocked" class="tiny"></div></span><span class="chip bad" id="g_blocked_n">0</span></div>
+  <div class="row"><span><b>→ Your one next action</b><div id="g_next" class="tiny"></div><div id="g_next_ctl" class="ctl" style="margin-top:4px"></div></span></div>
+</section>
 
 <div class="grid">
   <div class="card">
@@ -134,6 +142,17 @@ function render(st) {
   const lit = new Set(active.length ? active : (st.next ? ["PLANNING"] : []));
   $("stages").innerHTML = STAGES.map(s => `<span class="${lit.has(s)?"on":""} ${s==="BLOCKED"||s==="WAITING_OWNER"?"alt":""}">${s}</span>`).join("");
   const sel = $("project"); if (!sel.options.length) st.projects.forEach(p => { const o = document.createElement("option"); o.value=o.textContent=p.name; sel.appendChild(o); });
+  if (st.glance) { const g = st.glance;
+    $("g_done_n").textContent = g.done_today.length;
+    $("g_done").innerHTML = g.done_today.slice().reverse().map(d => `✓ ${esc(d.objective)} <span class="muted">· ${d.evidence.startsWith("http") ? `<a href="${esc(d.evidence)}">PR</a>` : esc(d.evidence)}</span>`).join("<br>") || '<span class="muted">none yet today</span>';
+    $("g_working_n").textContent = g.working.length;
+    $("g_working").innerHTML = g.working.map(w => `▶ ${esc(w.objective)} <span class="muted">· ${esc(w.stage)} · ${esc(w.last_activity)}</span>`).join("<br>") || '<span class="muted">nothing running</span>';
+    $("g_blocked_n").textContent = g.blocked.length;
+    $("g_blocked").innerHTML = g.blocked.map(b => `■ ${esc(b.task_id)} <span class="muted">· ${esc(b.reason)}</span>`).join("<br>") || '<span class="muted">none</span>';
+    const n = g.next_action; $("g_next").textContent = n.text;
+    $("g_next_ctl").innerHTML = n.kind === "decide" ? n.options.map(o => `<button class="primary" data-d="${esc(n.decision_id)}" data-a="${esc(o)}">${esc(o)}</button>`).join("") + `<button data-d="${esc(n.decision_id)}" data-a="__defer">Later</button>` : "";
+    document.querySelectorAll("#g_next_ctl button").forEach(b => b.onclick = async () => { if (b.dataset.a === "__defer") { $("g_next").textContent = "Deferred for this visit."; return; } await api("/v0/decisions/"+b.dataset.d, {method:"POST", body: JSON.stringify({answer:b.dataset.a})}); refresh(); });
+  }
   $("projects").innerHTML = st.projects.map(p => { const c = p.coordinator || {}; return `<div class="row"><span><b>${esc(p.name)}</b> <span class="muted tiny">${esc(p.integration_branch)}</span><br><span class="muted tiny">${esc(p.last_activity)} ${p.last_activity_at? "· "+ago(p.last_activity_at):""}</span><br><span class="tiny"><span class="chip ${c.connected ? "ok" : "bad"}">${c.connected ? "coordinator connected" : "Disconnected"}</span> <span class="muted">${esc(c.detail||"")}${c.last_activity_at ? " · last seen " + esc(c.last_activity_at) : ""} · done ${p.done_tasks ?? 0} · blocked ${p.blocked_tasks ?? 0}</span></span></span>${stageChip(p.stage)}</div>`; }).join("");
   const fmt = ts => ts ? (ago(ts) + " ago") : "—";
   $("coords").innerHTML = st.projects.map(p => { const c = p.coordinator || {}; const ex = c.external || {}; const pr = c.probe || {};

@@ -353,6 +353,21 @@ class Service:
                    for tid, r in self.launcher.running.items()]
         slots = self.scheduler.slots()
         hold = self.scheduler.hold_reason if self.scheduler.paused else None
+        inbox = self.store.open_decisions()
+        running = [t for t in tasks if t["status"] == "RUNNING"]
+        done_day = [t for t in tasks if t["status"] == "DONE" and time.time() - t["updated_at"] < 86400]
+        blocked_list = [t for t in tasks if t["status"] == "BLOCKED"]
+        if inbox:
+            next_action = {"kind": "decide", "text": inbox[0]["question"], "decision_id": inbox[0]["decision_id"], "options": inbox[0]["options"] or ["yes", "no"]}
+        elif blocked_list:
+            next_action = {"kind": "unblock", "text": f"Look at blocked task {blocked_list[0]['task_id']}: {(blocked_list[0].get('result') or {}).get('reason', '')[:120]}", "task_id": blocked_list[0]["task_id"]}
+        else:
+            next_action = {"kind": "none", "text": "Nothing needs you right now." + (" Workers are running." if running else " Give Aria a task when you have one.")}
+        glance = {"done_today": [{"task_id": t["task_id"], "objective": (t.get("objective") or "")[:90],
+                                  "evidence": ((t.get("result") or {}).get("integration") or {}).get("pr_url") or "verified by the control plane"} for t in done_day[-8:]],
+                  "working": [{"task_id": t["task_id"], "stage": t["stage"], "objective": (t.get("objective") or "")[:90], "last_activity": t["last_activity"]} for t in running],
+                  "blocked": [{"task_id": t["task_id"], "reason": (t.get("result") or {}).get("reason", "")[:140]} for t in blocked_list[:5]],
+                  "next_action": next_action}
         if any(t["status"] == "READY" for t in tasks) and slots["free"] == 0 and not self.scheduler.paused:
             if not slots["daily_cap_ok"]:
                 hold = "daily budget cap reached"
@@ -369,8 +384,8 @@ class Service:
         return {
             "ts": time.time(), "uptime_sec": round(time.time() - self.started_at), "paused": self.scheduler.paused,
             "projects": projects, "tasks": tasks[-50:], "workers": workers,
-            "inbox": self.store.open_decisions(), "costs": self.store.cost_summary(),
-            "blocked": [t for t in tasks if t["status"] == "BLOCKED"][-20:],
+            "inbox": inbox, "costs": self.store.cost_summary(),
+            "blocked": blocked_list[-20:], "glance": glance,
             "next": next((t for t in tasks if t["status"] == "READY"), None),
             "slots": slots, "hold": hold, "class_labels": dict(self.cfg.class_labels), "last_seq": self.store.last_seq(),
             "feedback": metrics.feedback(self.store),
