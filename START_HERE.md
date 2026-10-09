@@ -38,6 +38,8 @@ separate identity from CAOSCare's resident Aria; they share a name only.
 7. `docs/BLUEPRINT.md` — the single linked system map: every area, its
    implementing files, and a status label per component
 8. `docs/WIDGET_SETUP.md` — running the Aria widget in Michael's session
+9. `docs/IDEA_BOOK.md` — Michael's capture book and the short prioritized
+   checklist (max 3), Doing, Done with evidence, Parked decisions
 
 ## Running it
 
