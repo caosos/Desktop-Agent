@@ -508,9 +508,22 @@ class Service:
             return None
         view = self.task_view(row)
         evs = self.store.events(task_id)
-        view["events"] = [{"seq": e.seq, "ts": e.ts, "type": e.type, "text": describe(e), "actor": e.provenance.actor} for e in evs[-200:]]
+        view["events"] = [{"seq": e.seq, "ts": e.ts, "type": e.type, "text": describe(e), "actor": e.provenance.actor,
+                           "source": e.provenance.source, "evidence": list(e.provenance.evidence or [])[:3]} for e in evs[-200:]]
         view["contract"] = row["contract"]
         view["receipts"] = self.store.receipts("task", task_id)
+        # evidence trace: when each stage was first reached, and what the task cost (known dollars only; None = unknown)
+        timeline, seen = [], set()
+        for i, e in enumerate(evs):
+            if i and e.type == evs[i - 1].type:
+                continue                                   # the stage can only move when a new kind of event appears
+            st = derive_stage(evs[:i + 1]).value
+            if st not in seen:
+                seen.add(st); timeline.append({"stage": st, "ts": e.ts, "seq": e.seq})
+        view["stage_timeline"] = timeline
+        view["cost_usd"] = self.store.cost_summary()["per_task"].get(task_id)
+        view["tool_calls"] = sum(1 for e in evs if e.type == ET.TOOL_CALLED.value)
+        view["files_changed_events"] = sum(1 for e in evs if e.type == ET.FILE_CHANGED.value)
         wsdir = self.cfg.workspaces_dir / task_id / "repo"
         base = next((e.payload.get("base_sha") for e in evs if e.type == ET.WORKER_STARTED.value), None)
         if wsdir.exists() and base:

@@ -160,6 +160,11 @@ a { color:var(--accent); }
 
 <div class="grid details-only" style="margin-top:12px" id="detail" hidden>
   <div class="card"><h2>Task <span id="d_id" class="mono"></span> · <span id="d_stage" class="chip"></span></h2>
+    <div id="d_summary" class="tiny muted" style="margin-bottom:6px"></div>
+    <h2>Evidence trace <span class="muted" style="text-transform:none;letter-spacing:0">· every step with who did it and what proves it</span></h2>
+    <div id="d_timeline" class="tiny" style="margin-bottom:6px"></div>
+    <details><summary>all events (<span id="d_nev">0</span>)</summary><div id="d_trace" style="max-height:320px;overflow:auto"></div></details>
+    <h2 style="margin-top:10px">Tests</h2>
     <div id="d_tests"></div>
     <h2 style="margin-top:10px">Files changed</h2><div id="d_files"></div>
     <h2 style="margin-top:10px">Receipts</h2><div id="d_receipts"></div>
@@ -190,7 +195,7 @@ async function api(path, opts={}) {
 
 // verified by the control plane ≠ merged: the merge state comes from the open-PR check in projects[].workers.finished
 let merged = {};
-const mergeBadge = t => { const s = merged[t] || ""; return s.includes("merged") ? '<span class="chip ok">merged</span>' : s.includes("open") ? '<span class="chip warn">PR open, not merged</span>' : '<span class="chip">verified, merge not checked</span>'; };
+const mergeBadge = t => { const s = merged[t] || ""; return s.includes("PR open") ? '<span class="chip warn">PR open, not merged</span>' : s.includes("merged or closed") ? '<span class="chip ok">merged</span>' : '<span class="chip">verified, merge not checked</span>'; };
 let lastState = null, lastPacket = null;
 
 // ---- Owner view: one screen of what matters, from the same state the Details view shows ----
@@ -208,16 +213,21 @@ function ocard(p, st) {
     : w.status === "STALE" ? `<span class="amber">▲ worker(s) alive but not progressing</span>`
     : w.status === "WAITING" ? `waiting — scheduler paused` : w.status === "UNKNOWN" ? `workers: not verified (no telemetry)`
     : `IDLE — nothing running now, verified ${w.verified_at ? ago(w.verified_at) + " ago" : ""}`;
-  const openPrs = (w.finished || []).filter(f => f.status.includes("open")).length;
+  const openPrs = (w.finished || []).filter(f => f.status.includes("open"));
   const chip = alerts.length ? '<span class="chip warn">▲ attention</span>' : w.status === "RUNNING" ? '<span class="chip ok">working</span>' : '<span class="chip ok">✓ ok</span>';
   return `<div class="ocard"><h3>${esc(p.name)} ${chip}</h3><div class="tiny muted">coordinator: ${esc(coord)}</div><div class="tiny">${wtext}</div>` +
-    (openPrs ? `<div class="tiny muted">✓ ${openPrs} finished, awaiting your merge</div>` : "") + alerts.map(a => `<div class="tiny amber">▲ ${esc(a)}</div>`).join("") + `</div>`;
+    openPrs.map(f => `<div class="tiny muted">✓ ${esc(f.id).slice(0, 34)} finished, awaiting your merge · <a href="${esc(f.pr_url)}">PR</a> · ${evidenceLink(f.id)}</div>`).join("") +
+    alerts.map(a => `<div class="tiny amber">▲ ${esc(a)}</div>`).join("") + `</div>`;
 }
+// evidence on demand: opens the Details view on the task's trace (events, receipts, tests, files, diff)
+const evidenceLink = tid => `<a href="#detail" class="evidence" data-t="${esc(tid)}">evidence</a>`;
+function openEvidence(tid) { setMode("details"); showTask(tid).then(() => $("detail").scrollIntoView({behavior: "smooth", block: "start"})); }
 function renderOwner() {
   const st = lastState; if (!st) return;
   $("o_projects").innerHTML = st.projects.map(p => ocard(p, st)).join("");
   const done = (st.glance || {}).done_today || [];
-  $("o_done").innerHTML = done.slice(-3).reverse().map(d => `<span class="ok-mark">✓</span> ${esc(d.objective)} ${mergeBadge(d.task_id)}`).join("<br>") + (done.length > 3 ? `<br><span class="muted">+ ${done.length - 3} more in Details</span>` : "") || '<span class="muted">nothing verified yet today</span>';
+  $("o_done").innerHTML = done.slice(-3).reverse().map(d => `<span class="ok-mark">✓</span> ${esc(d.objective)} ${mergeBadge(d.task_id)} ${evidenceLink(d.task_id)}`).join("<br>") + (done.length > 3 ? `<br><span class="muted">+ ${done.length - 3} more in Details</span>` : "") || '<span class="muted">nothing verified yet today</span>';
+  document.querySelectorAll("#owner a.evidence").forEach(a => a.onclick = ev => { ev.preventDefault(); openEvidence(a.dataset.t); });
   const ds = (lastPacket || {}).decisions || [];
   $("o_decisions").innerHTML = ds.slice(0, 3).map(d => `• ${esc(d.question).slice(0, 120)}${d.question.length > 120 ? "…" : ""} <span class="muted">(${esc(d.project)} · optional · asked ${ago(d.asked_at)} ago)</span>`).join("<br>") + (ds.length > 3 ? `<br><span class="muted">+ ${ds.length - 3} more in the packet</span>` : "") || '<span class="muted">none waiting</span>';
   const n = (st.glance || {}).next_action || {};
@@ -314,6 +324,12 @@ function render(st) {
 async function showTask(tid) {
   selected = tid; const d = await api("/v0/tasks/"+tid);
   $("detail").hidden = false; $("d_id").textContent = tid; $("d_stage").textContent = d.stage;
+  const money = v => (typeof v === "number" && Number.isFinite(v)) ? "$" + v.toFixed(2) : "UNKNOWN";
+  $("d_summary").textContent = `${d.status} · model class ${d.model_class || "—"} · attempt ${d.attempt} · cost ${money(d.cost_usd)} (known $ only) · ${d.tool_calls ?? 0} tool calls · ${d.files_changed_events ?? 0} file changes · ${(d.receipts||[]).length} receipts`;
+  const tl = d.stage_timeline || [];
+  $("d_timeline").innerHTML = tl.map((s, i) => `<span class="chip ${s.stage==="DONE"?"ok":s.stage==="BLOCKED"?"bad":""}">${esc(s.stage)}</span> <span class="muted">${new Date(s.ts*1000).toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"})}${i < tl.length-1 ? " → " : ""}</span>`).join(" ") || '<span class="muted">no events</span>';
+  $("d_nev").textContent = (d.events||[]).length;
+  $("d_trace").innerHTML = (d.events||[]).map(e => `<div class="ev"><span class="mono muted">${new Date(e.ts*1000).toLocaleTimeString([], {hour:"2-digit",minute:"2-digit",second:"2-digit"})}</span><span><span class="chip">${esc(e.type)}</span> <span class="muted">${esc(e.actor)}/${esc(e.source||"")}</span> ${esc(e.text)}${(e.evidence||[]).length ? ` <span class="muted">· ${esc(e.evidence.join(", ")).slice(0,100)}</span>` : ""}</span></div>`).join("");
   const v = (d.result && d.result.verify) || (d.result && d.result.detail) || {};
   const tests = (v.tests||[]);
   $("d_tests").innerHTML = tests.length ? tests.map(t => `<div class="row"><span class="mono">${esc(t.command)}</span><span class="chip ${t.exit_code===0?"ok":"bad"}">exit ${t.exit_code}</span></div><pre>${esc(t.tail)}</pre>`).join("") : `<span class="muted">${v.reasons? esc(v.reasons.join("; ")) : "no verifier run yet"}</span>`;

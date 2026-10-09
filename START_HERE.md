@@ -39,7 +39,8 @@ separate identity from CAOSCare's resident Aria; they share a name only.
    implementing files, and a status label per component
 8. `docs/WIDGET_SETUP.md` — running the Aria widget in Michael's session
 9. `docs/PANEL_RUNBOOK.md` — what the panel's words and controls mean
-10. `docs/IDEA_BOOK.md` — Michael's capture book and the short prioritized
+10. `docs/BENCHMARK_2026-10-09.md` — audit against OpenHands / CrewAI / LangSmith / Codex / n8n, ranked gaps
+11. `docs/IDEA_BOOK.md` — Michael's capture book and the short prioritized
    checklist (max 3), Doing, Done with evidence, Parked decisions
 
 ## Running it
