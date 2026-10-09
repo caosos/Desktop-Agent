@@ -51,6 +51,19 @@ def test_confirm_then_submit_goal_plans(tmp_path):
     assert s.store.events()[0].provenance.source == "aria"
 
 
+def test_greeting_from_live_state_without_model(tmp_path):
+    s = _service(tmp_path)
+    s.aria.llm = FakeLLM([])                     # any model call would pop from an empty list and fail
+    s.ask_owner(question="Install the key?", options=["done", "cancel"], why="w", source="test")
+    g = s.aria.greeting()
+    assert g["greeting"].startswith("Hello Michael.") and "1 decision waiting" in g["greeting"]
+    assert g["first_decision"]["question"].startswith("Install the key?") and g["counts"]["decisions"] == 1
+    assert "Known spend today $0.00" in g["greeting"]
+    with TestClient(build_app(s, "tok")) as c:
+        r = c.get("/v0/aria/greeting", headers={"Authorization": "Bearer tok"})
+        assert r.status_code == 200 and r.json()["counts"]["decisions"] == 1
+
+
 def test_widget_uses_server_side_aria_and_api_route(tmp_path):
     s = _service(tmp_path)
     s.aria.llm = FakeLLM([{"reply": "Paused.", "action": {"name": "control", "args": {"action": "pause"}}},

@@ -75,6 +75,7 @@ class AriaWindow(Gtk.ApplicationWindow):
         self.reply = Gtk.Label(label="What would you like me to work on?", xalign=0, wrap=True, wrap_mode=2)
         self.reply.add_css_class("reply"); self.reply.set_size_request(-1, 48)
         root.append(self.reply)
+        threading.Thread(target=self._greet, daemon=True).start()
 
         row = Gtk.Box(spacing=6)
         self.entry = Gtk.Entry(hexpand=True, placeholder_text="Talk to Aria or type a command…")
@@ -196,6 +197,14 @@ class AriaWindow(Gtk.ApplicationWindow):
     def _clear(box: Gtk.Box) -> None:
         while (c := box.get_first_child()) is not None:
             box.remove(c)
+
+    def _greet(self) -> None:
+        """Aria opens the session from live state (no model call) and offers the first decision."""
+        try:
+            g = self.client.greeting()
+        except ApiError:
+            return
+        GLib.idle_add(self.reply.set_text, g.get("greeting", "")[:400])
 
     # ---- actions ----------------------------------------------------------
     def _on_submit(self, *_):

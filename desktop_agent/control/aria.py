@@ -121,3 +121,35 @@ class AriaBrain:
 
     def reset(self) -> None:
         self.history.clear()
+
+    def greeting(self) -> dict:
+        """Opening line from live state, no model call: decisions waiting, what is running, what finished,
+        spend, anything unacknowledged. Offers to walk through decisions one at a time."""
+        st = self.service.state()
+        running = [t for t in st["tasks"] if t["status"] == "RUNNING"]
+        done_today = [t for t in st["tasks"] if t["status"] == "DONE" and time.time() - t["updated_at"] < 86400]
+        blocked = st["blocked"]
+        inbox = st["inbox"]
+        ik = st.get("intake") or {}
+        parts = ["Hello Michael."]
+        if inbox:
+            parts.append(f"I see {len(inbox)} decision{'s' if len(inbox) != 1 else ''} waiting. Want to go through them together?")
+        else:
+            parts.append("No decisions are waiting for you.")
+        if running:
+            parts.append(f"{len(running)} worker{'s are' if len(running) != 1 else ' is'} running: " +
+                         "; ".join(f"{t['project']} {t['stage'].lower()} ({t['objective'][:60]})" for t in running[:2]) + ".")
+        if done_today:
+            parts.append(f"{len(done_today)} task{'s' if len(done_today) != 1 else ''} finished and verified in the last day.")
+        if blocked:
+            parts.append(f"{len(blocked)} blocked item{'s' if len(blocked) != 1 else ''} to look at.")
+        if ik.get("unacknowledged"):
+            parts.append(f"{len(ik['unacknowledged'])} instruction{'s' if len(ik['unacknowledged']) != 1 else ''} to coordinators still unacknowledged.")
+        b = st["budgets"]
+        parts.append(f"Known spend today ${b['spent_today_usd']:.2f} of the ${b['daily_cap_usd']:.0f} cap"
+                     + (f", plus {b['unknown_usage']['calls_today']} subscription calls with no dollar figure" if b["unknown_usage"]["calls_today"] else "") + ".")
+        first = inbox[0] if inbox else None
+        return {"greeting": " ".join(parts),
+                "first_decision": ({"decision_id": first["decision_id"], "question": first["question"], "options": first["options"] or ["yes", "no"]}
+                                   if first else None),
+                "counts": {"decisions": len(inbox), "running": len(running), "done_today": len(done_today), "blocked": len(blocked)}}

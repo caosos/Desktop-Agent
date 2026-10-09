@@ -212,6 +212,10 @@ def build_app(service: Service, token: str) -> FastAPI:
         service.intake._set(item, body.status, f"{source(request)}: {body.note}", [source(request), body.note[:100]])
         return service.store.get_intake(item_id)
 
+    @app.get("/v0/aria/greeting")
+    async def aria_greeting(_: str = Depends(auth)):
+        return service.aria.greeting()
+
     @app.post("/v0/aria/chat")
     async def aria_chat(body: ChatIn, _: str = Depends(auth)):
         if body.reset:

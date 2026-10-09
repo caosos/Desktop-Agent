@@ -129,6 +129,9 @@ class Client:
     def receipts(self, task_id: str) -> list[dict]:
         return self._req("GET", f"/v0/receipts?task_id={task_id}")["receipts"]
 
+    def greeting(self) -> dict:
+        return self._req("GET", "/v0/aria/greeting")
+
     def chat(self, text: str, reset: bool = False) -> dict:
         """Server-side Aria: the control plane runs the conversational layer and its actions."""
         return self._req("POST", "/v0/aria/chat", {"text": text, "reset": reset})
