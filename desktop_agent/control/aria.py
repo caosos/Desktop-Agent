@@ -53,8 +53,11 @@ class AriaBrain:
         try:
             if name == "get_state":
                 st = s.state()
-                return {k: st[k] for k in ("projects", "workers", "inbox", "blocked", "next", "costs", "paused", "hold", "feedback")} | \
-                       {"tasks": [{k: t[k] for k in ("task_id", "status", "stage", "objective", "last_activity", "model_class")} for t in st["tasks"][-10:]]}
+                ik = st.get("intake") or {}
+                return {k: st[k] for k in ("projects", "workers", "inbox", "blocked", "next", "costs", "paused", "hold", "feedback", "budgets")} | \
+                       {"tasks": [{k: t[k] for k in ("task_id", "status", "stage", "objective", "last_activity", "model_class")} for t in st["tasks"][-10:]],
+                        "shared_inbox": {"counts": ik.get("counts"), "unacknowledged": ik.get("unacknowledged"), "coordinator_activity": ik.get("coordinator_activity"),
+                                         "items": [{k: i.get(k) for k in ("item_id", "project", "kind", "title", "status", "posted_at", "url")} for i in (ik.get("items") or [])[-12:]]}}
             if name == "list_projects":
                 return {"projects": [p.summary() for p in s.projects.values()]}
             if name == "explain_task":

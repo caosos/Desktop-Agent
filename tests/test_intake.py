@@ -74,6 +74,45 @@ def test_ingest_deliver_ack_and_replay(tmp_path: Path):
     assert s["counts"]["DONE"] == 1 and s["counts"]["DELIVERED"] == 1
 
 
+def test_direction_roundtrip_actions_and_coordinator_question(tmp_path: Path):
+    """Owner direction from the panel → posted → ingested without duplication → delivered; deny/defer; ASK-OWNER → decision."""
+    store = Store(tmp_path); gh = FakeGH(); delivered = []; asked = []
+    posted_comments = []
+    async def gh_with_post(path, timeout=60, method="GET", fields=None):
+        if method == "POST":
+            cid = 500 + len(posted_comments)
+            c = comment(cid, "caosos", fields["body"], f"2026-10-09T03:0{len(posted_comments)}:00Z")
+            posted_comments.append(c)
+            if "da:direction" in fields["body"]:
+                gh.comments.append(c)            # the direction now exists on GitHub like any owner comment
+            return c
+        return await gh(path, timeout, method, fields)
+    async def deliver(src, item):
+        delivered.append(item["item_id"]); return {"ok": True, "status": "DELIVERED", "note": "peer", "evidence": ["s"]}
+    intake_mod.gh_api = gh_with_post
+    src = IntakeSource(project="caoscare", repo="x/y", issues=[117], coordinator={"kind": "claude_peer", "session_cwd": "/nowhere"})
+    it = Intake(store, [src], deliver, poll_sec=1, ask_owner=lambda **kw: asked.append(kw))
+    asyncio.run(it.poll_once())                                  # backlog: the issue body
+    d = asyncio.run(it.send_direction("caoscare", "Please correlate the 8 ft wake tests.", "panel"))
+    assert d["status"] == "SENT" and d["kind"] == "direction" and "da:direction" in posted_comments[0]["body"]
+    r = asyncio.run(it.poll_once())
+    d2 = store.get_intake(d["item_id"])
+    assert r["found"] == 1 and d2["status"] == "DELIVERED" and d2["gh_id"] == 500 and delivered[-1] == d["item_id"]
+    assert len([i for i in store.list_intake() if i["kind"] in ("direction", "comment")]) == 1, "no duplicate item for the posted direction"
+    # owner actions
+    denied = asyncio.run(it.owner_action(d["item_id"], "deny", "changed my mind", "panel"))
+    assert denied["status"] == "DENIED"
+    iid = item_id_for("x/y", 117, "issue", 9001)
+    assert asyncio.run(it.owner_action(iid, "defer", "", "panel"))["status"] == "DEFERRED"
+    before = len(delivered); asyncio.run(it.owner_action(iid, "transfer", "", "panel")); assert len(delivered) == before + 1
+    # coordinator question → owner inbox
+    gh.comments.append(comment(7, "caosos", "<!-- caos:coordinator -->\nWORKING " + iid + "\nASK-OWNER: May I close the kitchen test task?", "2026-10-09T04:00:00Z"))
+    asyncio.run(it.poll_once())
+    assert asked and asked[0]["question"].startswith("May I close") and asked[0]["source"] == "coordinator:caoscare"
+    assert store.get_intake(iid)["status"] == "WORKING"
+    assert it.summary()["sources"][0]["project"] == "caoscare"
+
+
 def test_backlog_is_delivered_as_one_batch(tmp_path: Path):
     store = Store(tmp_path); gh = FakeGH(); batches = []
     gh.comments += [comment(1, "caosos", "## update one", "2026-10-09T01:00:00Z"), comment(2, "caosos", "## update two", "2026-10-09T01:01:00Z")]

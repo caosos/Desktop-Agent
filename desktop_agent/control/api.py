@@ -51,6 +51,16 @@ class IntakeStatusIn(BaseModel):
     note: str = Field(default="", max_length=1000)
 
 
+class IntakeActionIn(BaseModel):
+    action: str
+    note: str = Field(default="", max_length=4000)
+
+
+class DirectionIn(BaseModel):
+    project: str
+    text: str = Field(min_length=3, max_length=6000)
+
+
 class AskIn(BaseModel):
     question: str = Field(min_length=5, max_length=1000)
     options: list[str] = []
@@ -174,6 +184,23 @@ def build_app(service: Service, token: str) -> FastAPI:
     @app.post("/v0/intake/poll")
     async def intake_poll(_: str = Depends(auth)):
         return await service.intake.poll_once()
+
+    @app.post("/v0/directions", status_code=201)
+    async def direction(body: DirectionIn, request: Request, _: str = Depends(auth)):
+        """Owner → coordinator: posted to the project's intake issue, then ingested and delivered."""
+        try:
+            return await service.intake.send_direction(body.project, body.text, source(request))
+        except ValueError as exc:
+            raise HTTPException(400, str(exc))
+
+    @app.post("/v0/intake/{item_id}/action")
+    async def intake_action(item_id: str, body: IntakeActionIn, request: Request, _: str = Depends(auth)):
+        try:
+            return await service.intake.owner_action(item_id, body.action, body.note, source(request))
+        except KeyError:
+            raise HTTPException(404, "no such instruction")
+        except ValueError as exc:
+            raise HTTPException(400, str(exc))
 
     @app.post("/v0/intake/{item_id}/status")
     async def intake_status(item_id: str, body: IntakeStatusIn, request: Request, _: str = Depends(auth)):

@@ -82,7 +82,9 @@ class Service:
                                 coordinator=dict(p.intake.get("coordinator") or {"kind": "control_plane"}))
                    for p in self.projects.values() if p.intake and p.github_repo and p.intake.get("issues")]
         self.intake = Intake(self.store, sources, Deliverer(cfg, self.store),
-                             poll_sec=int(cfg.intake_poll_sec), post_comments=bool(cfg.intake_post_comments))
+                             poll_sec=int(cfg.intake_poll_sec), post_comments=bool(cfg.intake_post_comments),
+                             ask_owner=lambda **kw: self.ask_owner(question=kw["question"], options=kw["options"], why=kw["why"],
+                                                                   source=kw["source"], recommendation=None))
         self._subscribers: list[asyncio.Queue] = []
         self._loop: asyncio.AbstractEventLoop | None = None
         self.store.subscribe(self._fanout)
@@ -332,6 +334,7 @@ class Service:
             else:
                 stage = "IDLE"                         # nothing active; history stays in the task list
             projects.append({"name": name, "integration_branch": pkg.integration_branch, "stage": stage,
+                             "coordinator": self.coordinator_state(pkg),
                              "open_tasks": len(active), "blocked_tasks": sum(1 for t in ptasks if t["status"] == "BLOCKED"),
                              "done_tasks": sum(1 for t in ptasks if t["status"] == "DONE"),
                              "last_activity": newest["last_activity"] if newest else "",
@@ -366,6 +369,24 @@ class Service:
             "intake": self.intake.summary(),
             "outcomes": [{"task_type": k[0], "model_class": k[1], **v} for k, v in metrics.outcomes(self.store).items()],
         }
+
+    def coordinator_state(self, pkg) -> dict:
+        """Who coordinates this project and whether that coordinator is reachable right now.
+        Never invents a status: no configured coordinator → 'Disconnected / Data unavailable'."""
+        from .intake_delivery import find_session
+        ik = pkg.intake or {}
+        kind = (ik.get("coordinator") or {}).get("kind")
+        last = self.store.coordinator_activity().get(pkg.name)
+        if kind == "control_plane":
+            return {"kind": "control_plane", "connected": True, "detail": "this control plane", "last_activity_at": last}
+        if kind == "claude_peer":
+            s = find_session((ik.get("coordinator") or {}).get("session_cwd") or "")
+            if s:
+                return {"kind": "claude_peer", "connected": True, "detail": f"session {s['name']} ({s['status']})", "session": s["name"],
+                        "last_activity_at": last}
+            return {"kind": "claude_peer", "connected": False, "detail": "Disconnected: no live coordinator session", "last_activity_at": last}
+        return {"kind": None, "connected": False, "detail": "Disconnected / Data unavailable: no coordinator integration configured",
+                "last_activity_at": last}
 
     def budgets(self) -> dict:
         """Caps, actual spend against them, and usage with no dollar figure (never estimated)."""

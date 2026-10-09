@@ -298,6 +298,15 @@ class Store:
             self._db.execute("UPDATE intake_items SET status=?, note=?, updated_at=? WHERE item_id=?", (status, note[:500], time.time(), item_id))
             self._db.commit()
 
+    def set_intake_github(self, item_id: str, gh_id: int, url: str, posted_at: str) -> None:
+        with self._lock:
+            self._db.execute("UPDATE intake_items SET gh_id=?, url=?, posted_at=? WHERE item_id=?", (gh_id, url, posted_at, item_id)); self._db.commit()
+
+    def update_intake_body(self, item_id: str, body: str) -> None:
+        with self._lock:
+            self._db.execute("UPDATE intake_items SET body=?, title=?, updated_at=? WHERE item_id=?",
+                             (body, body.strip().splitlines()[0][:120] if body.strip() else "", time.time(), item_id)); self._db.commit()
+
     def set_intake_activity(self, item_id: str, when: str) -> None:
         with self._lock:
             self._db.execute("UPDATE intake_items SET last_activity_at=? WHERE item_id=?", (when, item_id))

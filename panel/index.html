@@ -80,7 +80,13 @@ a { color:var(--accent); }
   <div class="card"><h2>Owner decisions</h2><div id="inbox" class="muted">none</div></div>
   <div class="card"><h2>Cost / usage</h2><div id="costs"></div></div>
   <div class="card"><h2>Blocked</h2><div id="blocked" class="muted">none</div></div>
-  <div class="card"><h2>Owner instructions (GitHub → coordinators)</h2><div id="intake_meta" class="muted tiny"></div><div id="intake"></div></div>
+  <div class="card"><h2>Shared inbox (owner ⇄ coordinators via GitHub)</h2>
+    <form id="dirform" class="goal" style="margin-bottom:8px">
+      <select id="dir_project"></select>
+      <textarea id="dir_text" placeholder="Direct a coordinator: posted to the project's owner-dispatch issue, then delivered and tracked."></textarea>
+      <div class="ctl"><button class="primary" type="submit">Transfer / Send</button><span id="dirmsg" class="muted tiny"></span></div>
+    </form>
+    <div id="intake_meta" class="muted tiny"></div><div id="intake"></div></div>
   <div class="card"><h2>Next task</h2><div id="next" class="muted">queue empty</div></div>
 </div>
 
@@ -127,7 +133,8 @@ function render(st) {
   const lit = new Set(active.length ? active : (st.next ? ["PLANNING"] : []));
   $("stages").innerHTML = STAGES.map(s => `<span class="${lit.has(s)?"on":""} ${s==="BLOCKED"||s==="WAITING_OWNER"?"alt":""}">${s}</span>`).join("");
   const sel = $("project"); if (!sel.options.length) st.projects.forEach(p => { const o = document.createElement("option"); o.value=o.textContent=p.name; sel.appendChild(o); });
-  $("projects").innerHTML = st.projects.map(p => `<div class="row"><span><b>${esc(p.name)}</b> <span class="muted tiny">${esc(p.integration_branch)}</span><br><span class="muted tiny">${esc(p.last_activity)} ${p.last_activity_at? "· "+ago(p.last_activity_at):""}</span></span>${stageChip(p.stage)}</div>`).join("");
+  $("projects").innerHTML = st.projects.map(p => { const c = p.coordinator || {}; return `<div class="row"><span><b>${esc(p.name)}</b> <span class="muted tiny">${esc(p.integration_branch)}</span><br><span class="muted tiny">${esc(p.last_activity)} ${p.last_activity_at? "· "+ago(p.last_activity_at):""}</span><br><span class="tiny"><span class="chip ${c.connected ? "ok" : "bad"}">${c.connected ? "coordinator connected" : "Disconnected"}</span> <span class="muted">${esc(c.detail||"")}${c.last_activity_at ? " · last seen " + esc(c.last_activity_at) : ""} · done ${p.done_tasks ?? 0} · blocked ${p.blocked_tasks ?? 0}</span></span></span>${stageChip(p.stage)}</div>`; }).join("");
+  const dsel = $("dir_project"); if (!dsel.options.length && st.intake) (st.intake.sources||[]).forEach(src => { const o = document.createElement("option"); o.value = src.project; o.textContent = `${src.project} → ${src.repo}#${src.issues.join(",")}`; dsel.appendChild(o); });
   $("workers").innerHTML = st.workers.length ? st.workers.map(w => `<div class="row"><span class="mono">${esc(w.worker_id)}</span><span class="tiny">${esc(w.task_id)} · ${ago(w.started_at)} · last event ${ago(w.last_event_at||w.started_at)} ago</span></div>`).join("") : '<span class="muted">none running</span>';
   $("inbox").innerHTML = st.inbox.length ? st.inbox.map(d => `<div class="row"><span>${esc(d.question)}</span><span class="ctl">${(d.options.length?d.options:["yes","no"]).map(o=>`<button data-d="${esc(d.decision_id)}" data-a="${esc(o)}">${esc(o)}</button>`).join("")}</span></div>`).join("") : '<span class="muted">none</span>';
   const fb = st.feedback || {};
@@ -150,7 +157,13 @@ function render(st) {
       Object.entries(ik.counts).filter(([k,v]) => v).map(([k,v]) => `${k} ${v}`).join(" · ") + (ik.last_error ? ` · ERROR ${ik.last_error}` : "") +
       (Object.keys(ca).length ? " · coordinator activity: " + Object.entries(ca).map(([p,t]) => `${p} ${esc(t)}`).join(", ") : "");
     const cls = s => s==="DONE" ? "ok" : (s==="BLOCKED" ? "bad" : (s==="RECEIVED" || s==="POSTED" ? "warn" : ""));
-    $("intake").innerHTML = (ik.items || []).slice().reverse().map(i => `<div class="row"><span class="tiny"><a href="${esc(i.url)}">${esc(i.repo)}#${i.issue}</a> <span class="muted">${esc(i.kind)} by ${esc(i.author)} · posted ${esc((i.posted_at||"").replace("T"," ").replace("Z","Z"))}</span><br>${esc((i.title||"").slice(0,90))}<br><span class="muted">${esc((i.note||"").slice(0,110))}${i.flagged && (i.status==="RECEIVED"||i.status==="DELIVERED") ? " · UNACKNOWLEDGED" : ""}</span></span><span class="chip ${cls(i.status)}">${esc(i.status)}</span></div>`).join("") || '<span class="muted">no instructions seen</span>';
+    const act = (i, a, label, cls="") => `<button class="tiny ${cls}" data-i="${esc(i.item_id)}" data-a="${a}">${label}</button>`;
+    $("intake").innerHTML = (ik.items || []).slice().reverse().map(i => `<div class="row"><span class="tiny"><a href="${esc(i.url)}">${esc(i.repo)}#${i.issue}</a> <span class="muted">${esc(i.kind)} by ${esc(i.author)} · ${esc((i.posted_at||"").replace("T"," "))}</span><br>${esc((i.title||"").slice(0,90))}<br><span class="muted">${esc((i.note||"").slice(0,110))}${i.flagged && (i.status==="RECEIVED"||i.status==="DELIVERED") ? " · UNACKNOWLEDGED" : ""}</span><br><span class="ctl">${["DENIED","DEFERRED","DONE"].includes(i.status) ? "" : act(i,"transfer","Transfer / resend") + act(i,"discuss","Discuss") + act(i,"defer","Defer") + act(i,"deny","Deny","danger")}</span></span><span class="chip ${cls(i.status)}">${esc(i.status)}</span></div>`).join("") || '<span class="muted">no instructions seen</span>';
+    document.querySelectorAll("#intake button").forEach(b => b.onclick = async () => {
+      if (b.dataset.a === "discuss") { $("text").value = `Explain inbox item ${b.dataset.i} and what you recommend.`; $("text").focus(); return; }
+      const note = (b.dataset.a === "deny" || b.dataset.a === "defer") ? (window.prompt ? (prompt("Note (optional):") || "") : "") : "";
+      await api(`/v0/intake/${b.dataset.i}/action`, {method:"POST", body: JSON.stringify({action: b.dataset.a, note})}); refresh();
+    });
   }
   $("next").innerHTML = st.next ? `<b>${esc(st.next.task_id)}</b><br><span class="muted tiny">${esc(st.next.objective)}</span>` + (st.hold ? `<br><span class="chip warn">held: ${esc(st.hold)}</span>` : "") : '<span class="muted">queue empty</span>';
   const classLabels = st.class_labels || {};
@@ -195,6 +208,12 @@ $("goalform").onsubmit = async e => {
   try { const r = await api("/v0/goals", {method:"POST", body: JSON.stringify(body), headers: Object.assign(H(), {"Idempotency-Key": crypto.randomUUID()})});
     $("goalmsg").textContent = r.task_ids ? "task " + r.task_ids.join(", ") + " created" : JSON.stringify(r); $("text").value = ""; refresh(); }
   catch (err) { $("goalmsg").textContent = "failed: " + err; }
+};
+$("dirform").onsubmit = async e => {
+  e.preventDefault(); const project = $("dir_project").value, text = $("dir_text").value.trim(); if (!text) return;
+  $("dirmsg").textContent = "posting to GitHub…";
+  try { const r = await api("/v0/directions", {method:"POST", body: JSON.stringify({project, text})}); $("dirmsg").textContent = `${r.status} · ${r.item_id}`; $("dir_text").value = ""; refresh(); }
+  catch (err) { $("dirmsg").textContent = "failed: " + err; }
 };
 $("pause").onclick = () => api("/v0/control", {method:"POST", body: JSON.stringify({action:"pause"})}).then(refresh);
 $("resume").onclick = () => api("/v0/control", {method:"POST", body: JSON.stringify({action:"resume"})}).then(refresh);
