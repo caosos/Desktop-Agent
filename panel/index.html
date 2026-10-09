@@ -25,7 +25,8 @@ h1 { font-size:18px; margin:0; letter-spacing:.02em; }
 .card h2 { font-size:12px; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); margin:0 0 8px; }
 .row { display:flex; justify-content:space-between; gap:8px; padding:4px 0; border-bottom:1px solid var(--line); }
 .row:last-child { border-bottom:none; }
-.chip { font-family:ui-monospace,monospace; font-size:11px; padding:2px 6px; border-radius:3px; background:var(--soft); color:var(--accent); white-space:nowrap; }
+.row > * { min-width:0; overflow-wrap:anywhere; }   /* long URLs and ids wrap inside the row instead of widening the page */
+.chip { font-family:ui-monospace,monospace; font-size:11px; padding:2px 6px; border-radius:3px; background:var(--soft); color:var(--accent); flex-shrink:0; max-width:50%; height:fit-content; }
 .chip.bad { background:var(--badsoft); color:var(--bad); } .chip.ok { background:var(--oksoft); color:var(--ok); } .chip.warn { background:var(--warnsoft); color:var(--warn); }
 .num { font-variant-numeric:tabular-nums; }
 button { font:inherit; padding:6px 12px; border:1px solid var(--line); background:var(--surface); color:var(--fg); cursor:pointer; }

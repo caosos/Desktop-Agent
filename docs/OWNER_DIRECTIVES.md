@@ -149,3 +149,15 @@ Michael, after reporting the Codex coordinator agent shut down and after the mer
 - **d-a039320e** CAOSCare `PROJECT_STATE.md` authorship → **control plane writes it** (Michael, panel). Applied: `state_entry_by: control` in `config/projects/caoscare.yaml`; Desktop-Agent workers on CAOSCare no longer edit that file; the control plane appends one entry per verified task after verification. CAOSCare's own AGENTS.md rule for human/agent sessions is unchanged.
 - Open: **d-528e97b0** Anthropic API key; **d-58f742d0** OpenAI key transfer (needs the one-line install as `michaelos`).
 - **OpenAI API setup directive** (same evening): recorded in `docs/PROJECT_STATE.md`; the key could not be read from `/home/michaelos`, everything else was built and verified without paid calls.
+
+---
+
+## 2026-10-09 (afternoon) — "Make Mission Control usable as the daily supervisor" and "FINISH THE USABLE DESKTOP ASSISTANT"
+
+Two owner commands, one through issue #3 (`da-06c4cca249`, delivered to the coordinator by the intake) and one directly to the coordinator session, with the same substance:
+
+1. Test the real Mission Control at :8477 as an owner would: DONE evidenced, WORKING genuinely active, BLOCKED truly owner-gated, Shared Inbox delivery and acknowledgments, decisions and receipts, across all three projects; through reloads, idle coordinators, failed-delivery states and narrow screens. Fix genuine problems only, with small tests. No stale completed-gate warnings; no loop spending subscription turns when nothing is unblocked.
+2. Prepare the desktop widget's remaining one-time setup as **one exact owner action**, and make clear the widget is **not** needed for :8477.
+3. Preserve the working dashboard, subscriptions and the **disabled** OpenAI paid-pilot gate; the key, routing dry run, dashboard and approval packet are complete and are not to be rebuilt.
+4. Keep the Idea Book, priority checklist and approval packet synchronized with verified results.
+5. Close with commit/test/runtime receipts and ACK/WORKING/DONE on #3; then take the next genuinely valuable approved task or report idle accurately. "BUILD. Finish usable functionality and report actual blockers, not hypothetical ones."

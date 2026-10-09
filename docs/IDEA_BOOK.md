@@ -16,7 +16,7 @@ Capturing an idea is not authorization to build it. A checklist item is checked 
 | # | Action | Project | Depends on | Done when (verifiable) |
 |---|---|---|---|---|
 | **1** | **Approve (or decline) the first OpenAI pilot** — inbox decision filed 2026-10-09: enable OpenAI only for the control plane's cheap calls on `gpt-6-luna` under a $10 pilot cap, after you confirm an enforced provider-side cap (you proposed $10/month) and give the separate pilot authorization | Desktop-Agent | key installed ✓ | decision recorded; `providers.openai.enabled: true` committed; first call's tokens appear on the panel with a known or UNKNOWN cost, matching the Console's usage page |
-| 2 | Open the Aria widget in your own desktop session and give Aria one real task | Desktop-Agent | nothing (`docs/WIDGET_SETUP.md`) | the task appears on :8477 with a verified receipt and you opened no terminal |
+| 2 | **Optional** widget, one action: in your own desktop login run `bash <(curl -fsSL https://raw.githubusercontent.com/caosos/Desktop-Agent/main/widget/install.sh)` once, then press **Pair widget** on :8477 and type the code into the widget. The panel at :8477 is already the complete owner interface; skip this if you do not want a desktop window | Desktop-Agent | nothing (`docs/WIDGET_SETUP.md`) | a `widget paired` event on :8477 and Aria answers one question from the widget |
 | 3 | Answer the Anthropic key decision (`d-528e97b0`): yes if your Claude plan is Max or Team (API credits included), otherwise no | Desktop-Agent | nothing | decision recorded; if yes, `anthropic.key` present and `--check-providers` shows it |
 
 Sorted by utility and finishability: #1 is one answer that unlocks metered costs; #2 is the Stage 1 acceptance observation; #3 is a yes/no.
@@ -25,12 +25,14 @@ Sorted by utility and finishability: #1 is one answer that unlocks metered costs
 
 | What | Who | Since | Evidence so far |
 |---|---|---|---|
-| Michael Business OS liaison round trip: message `ARIA-20261008-2209-desktop-agent-central-monitor-now-reads` awaiting Agent 01's ack file | watchdog (free poll) | 2026-10-09 03:10Z | item `da-9284d4f259` SENT; 8/8 earlier messages ACKNOWLEDGED |
+| Michael Business OS liaison round trip: message `ARIA-20261008-2209-desktop-agent-central-monitor-now-reads` awaiting Agent 01's ack file | watchdog (free poll) | 2026-10-09 03:10Z | item `da-9284d4f259` SENT; 11/12 liaison messages ACKNOWLEDGED |
+| PR #11 (widget-is-optional wording in `docs/WIDGET_SETUP.md` and README, written by a Luna-class worker, verified) waits for a merge click: the coordinator's merge was refused by the Claude Code auto-mode classifier ("Merge Without Review") | Michael | 2026-10-09 18:10Z | https://github.com/caosos/Desktop-Agent/pull/11 |
 
 ## 3. Done (plain language, with evidence)
 
 | Date | Result | Evidence |
 |---|---|---|
+| 2026-10-09 | **First-time-owner acceptance passed on the live :8477 with real data from all three projects** (8 done with evidence links, blocked list empty, 2 open decisions in one packet, 11 read-only external gates, Shared Inbox statuses equal to the records, idle CAOSCare coordinator still shown by session name, reload keeps the picture, 400 px wide without sideways scroll). One defect found and fixed: long urls and chips widened the page on a phone. A failed delivery is shown as RECEIVED + "delivery failed" + UNACKNOWLEDGED, never DELIVERED | `tests/test_live_acceptance.py` (`DA_LIVE=1`), `tests/test_panel_browser.py`; screenshots in `~/.local/share/desktop-agent/live-acceptance-*.png`; commit on `main` 2026-10-09 |
 | 2026-10-09 | **OpenAI key installed by Michael** at `~/.config/desktop-agent/openai.key` (mode 0600); verified from the control-plane account with the free provider check: key present, 133 model ids; no paid call; provider stays disabled until the pilot is approved | `--check-providers` run 2026-10-09; decision `d-58f742d0` answered "done" with that evidence; `config/runtime.yaml` |
 | 2026-10-09 | Owner instructions on GitHub now reach the running coordinators automatically and their acknowledgments show on :8477; CAOSCare and Desktop-Agent paths verified end to end, Business OS monitored via its liaison branch | `docs/PROJECT_STATE.md` 2026-10-09 entries; issue #3 and CAOSCARE.COM #117 comments |
 | 2026-10-09 | Coordinator watchdog: cheap checks, one bounded wake only on a WAKE probe, quota windows shown, auto-resume after a reset | same; 68 tests |

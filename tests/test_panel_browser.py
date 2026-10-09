@@ -33,6 +33,12 @@ def _seed(tmp_path: Path) -> Service:
     s.ask_owner(question="Approve the pilot?", options=["approve", "not yet"], why="w", source="test", recommendation="approve")
     st.save_intake({"item_id": "da-aaaaaaaaaa", "project": "alpha", "repo": "x/alpha", "issue": 1, "kind": "comment", "gh_id": 1, "author": "caosos",
                     "title": "Owner note about labels", "body": "b", "url": "https://example.test/i/1", "posted_at": "2026-10-09T00:00:00Z", "status": "DELIVERED", "coordinator": "claude_peer"})
+    # a delivery that failed: stays RECEIVED with the failure note, flagged as unacknowledged; never shown DELIVERED
+    st.save_intake({"item_id": "da-bbbbbbbbbb", "project": "alpha", "repo": "x/alpha", "issue": 1, "kind": "comment", "gh_id": 2, "author": "caosos",
+                    "title": "Owner note the coordinator never got", "body": "b", "url": "https://example.test/i/2/very/long/url/that/must/wrap/inside/the/row/" + "x" * 80,
+                    "posted_at": "2026-10-09T00:00:00Z", "status": "RECEIVED", "coordinator": "claude_peer"})
+    st.set_intake_status("da-bbbbbbbbbb", "RECEIVED", "delivery failed: no live session for alpha (cwd /nowhere)")
+    st.flag_intake("da-bbbbbbbbbb")
     return s
 
 
@@ -70,8 +76,12 @@ def test_owner_panel_acceptance(served):
         assert "Disconnected" in coords and "Data unavailable" in coords and "VERIFIED" not in coords
         # shared inbox shows the delivered item with Defer; Defer records a receipt
         assert "Owner note about labels" in page.inner_text("#intake") and "DELIVERED" in page.inner_text("#intake")
+        # a failed delivery is shown as RECEIVED with its failure note and UNACKNOWLEDGED, never as DELIVERED
+        failed_row = page.locator("#intake .row", has_text="never got")
+        assert failed_row.count() == 1 and "RECEIVED" in failed_row.inner_text() and "delivery failed" in failed_row.inner_text()
+        assert "UNACKNOWLEDGED" in failed_row.inner_text() and "DELIVERED" not in failed_row.inner_text().replace("UNACKNOWLEDGED", "")
         page.once("dialog", lambda d: d.accept("later"))
-        page.click("#intake button[data-a='defer']")
+        page.click("#intake .row:has-text('about labels') button[data-a='defer']")
         page.wait_for_function("document.querySelector('#intake').textContent.includes('DEFERRED')", timeout=15000)
         assert s.store.get_intake("da-aaaaaaaaaa")["status"] == "DEFERRED"
         assert any(r["result_label"] == "verified" and "DEFERRED" in r["claim"] for r in s.store.receipts("instruction", "da-aaaaaaaaaa"))
@@ -84,4 +94,10 @@ def test_owner_panel_acceptance(served):
         # next action now points at the blocked task (no decisions left)
         assert "blocked task t-blk" in page.inner_text("#g_next")
         page.screenshot(path=str(Path(s.cfg.data_dir) / "panel-acceptance.png"), full_page=True)
+        # reload keeps the same picture (state is server truth, not page memory)
+        page.reload(); page.wait_for_function("document.querySelector('#g_next').textContent.length > 0", timeout=15000)
+        assert page.inner_text("#g_done_n") == "1" and page.inner_text("#g_blocked_n") == "1" and "DEFERRED" in page.inner_text("#intake")
+        # phone width: long urls, ids and chips wrap inside their rows; the page never scrolls sideways
+        page.set_viewport_size({"width": 400, "height": 900}); page.wait_for_timeout(300)
+        assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth + 1"), "horizontal overflow at 400px"
         browser.close()
