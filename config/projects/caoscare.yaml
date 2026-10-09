@@ -42,6 +42,10 @@ runtime_ro_paths:
 # class cannot hold that context ("Prompt is too long", seen 2026-10-08).
 min_model_class: cloud_strong
 
+# Michael, 2026-10-08 (inbox decision d-a039320e): the control plane writes the PROJECT_STATE entry
+# at integration; Desktop-Agent workers never edit it. Draft PRs still go to the integration branch.
+state_entry_by: control
+
 # Claude Code permission patterns granted to workers on this project. The
 # adapter always denies git push, gh, sudo, rm -rf, curl, wget, ssh, scp,
 # git reset --hard, git push --force; deny wins over allow. The launcher adds

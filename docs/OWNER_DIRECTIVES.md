@@ -140,3 +140,12 @@ Measured against the directive, what exists today (`build/stage-1`, `build/stage
 Michael, after reporting the Codex coordinator agent shut down and after the merge to `main`: the Claude Code session is the coordinator again and continues Stage 2 to its acceptance (IMPLEMENTATION_PLAN §5) without pausing for "continue", stopping only for genuine owner decisions, credentials, unauthorised spend, destructive actions, governance changes, production deployment or hard external dependencies.
 
 **Integration policy adopted under this instruction (review §12 decision 4, for this repository only):** work lands on `main` through short-lived branches merged by the coordinator after the test suite passes on the merged result, one at a time, each merge recorded in `docs/PROJECT_STATE.md`. CAOSCare and other managed projects keep draft PRs; nothing merges there without Michael.
+
+---
+
+## 2026-10-08 (night) — Inbox answers via the panel
+
+- **d-d6a71153** Deal Sniffer repository → **`michael-business-os`** (Michael, panel).
+- **d-a039320e** CAOSCare `PROJECT_STATE.md` authorship → **control plane writes it** (Michael, panel). Applied: `state_entry_by: control` in `config/projects/caoscare.yaml`; Desktop-Agent workers on CAOSCare no longer edit that file; the control plane appends one entry per verified task after verification. CAOSCare's own AGENTS.md rule for human/agent sessions is unchanged.
+- Open: **d-528e97b0** Anthropic API key; **d-58f742d0** OpenAI key transfer (needs the one-line install as `michaelos`).
+- **OpenAI API setup directive** (same evening): recorded in `docs/PROJECT_STATE.md`; the key could not be read from `/home/michaelos`, everything else was built and verified without paid calls.
