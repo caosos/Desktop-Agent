@@ -52,4 +52,4 @@ intake:
   owner_logins: [caosos]
   coordinator:
     kind: claude_peer
-    session_cwd_exact: /home/caoscare-1        # the Desktop-Agent coordinator Claude session (not the control plane)
+    session_name: caoscare-1-20                # this coordinator Claude session (pinned by name; shown on the card when it changes)
