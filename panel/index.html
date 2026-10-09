@@ -56,7 +56,7 @@ a { color:var(--accent); }
   <span class="muted tiny">uptime <span id="uptime" class="num">–</span>s · events <span id="seq" class="num">0</span></span>
   <span class="muted tiny" id="slots"></span>
   <span style="margin-left:auto" class="ctl">
-    <button id="pause">Pause</button><button id="resume">Resume</button><button id="stop" class="danger">Stop all</button>
+    <button id="pair">Pair widget</button><span id="pairmsg" class="tiny mono"></span><button id="pause">Pause</button><button id="resume">Resume</button><button id="stop" class="danger">Stop all</button>
   </span>
 </header>
 
@@ -243,6 +243,7 @@ $("dirform").onsubmit = async e => {
   try { const r = await api("/v0/directions", {method:"POST", body: JSON.stringify({project, text})}); $("dirmsg").textContent = `${r.status} · ${r.item_id}`; $("dir_text").value = ""; refresh(); }
   catch (err) { $("dirmsg").textContent = "failed: " + err; }
 };
+$("pair").onclick = async () => { const r = await api("/v0/pair/new", {method:"POST"}); $("pairmsg").textContent = `code ${r.code} (10 min) — type it in the widget`; };
 $("pause").onclick = () => api("/v0/control", {method:"POST", body: JSON.stringify({action:"pause"})}).then(refresh);
 $("resume").onclick = () => api("/v0/control", {method:"POST", body: JSON.stringify({action:"resume"})}).then(refresh);
 $("stop").onclick = () => api("/v0/control", {method:"POST", body: JSON.stringify({action:"stop"})}).then(refresh);

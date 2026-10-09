@@ -278,6 +278,32 @@ class AriaApp(Gtk.Application):
         return True
 
 
+def pair_dialog(cfg: dict) -> dict:
+    """First run without a token: a small GTK dialog asks for the pairing code from the panel's
+    'Pair widget' button and stores the returned token (mode 0600). No terminal, no copying tokens."""
+    from .client import pair
+    result = {"token": ""}
+    app = Gtk.Application(application_id="com.caos.desktopagent.aria.pair")
+
+    def activate(a):
+        win = Gtk.ApplicationWindow(application=a, title="Pair Aria"); win.set_default_size(340, 180)
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8, margin_top=12, margin_bottom=12, margin_start=12, margin_end=12)
+        box.append(Gtk.Label(label="On the control panel, press 'Pair widget' and type the 6-character code here.", wrap=True, xalign=0))
+        entry = Gtk.Entry(placeholder_text="pairing code"); box.append(entry)
+        msg = Gtk.Label(label="", xalign=0); msg.add_css_class("muted"); box.append(msg)
+        btn = Gtk.Button(label="Pair"); box.append(btn)
+        def do_pair(*_):
+            try:
+                r = pair(cfg["url"], entry.get_text())
+                cfg["token"], cfg["url"] = r["token"], r.get("url", cfg["url"]); save_config(cfg); result["token"] = cfg["token"]; win.close()
+            except ApiError as exc:
+                msg.set_text(str(exc)[:160])
+        btn.connect("clicked", do_pair); entry.connect("activate", do_pair)
+        win.set_child(box); win.present()
+    app.connect("activate", activate); app.run([])
+    return cfg
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="aria-widget")
     ap.add_argument("--toggle", action="store_true", help="show/hide a running widget")
@@ -297,8 +323,10 @@ def main(argv: list[str] | None = None) -> int:
         except (OSError, ValueError):
             pass
     if not cfg["token"]:
-        print("No control-plane token. Run once with --token <token from ~/.config/desktop-agent/token on the control-plane user>.", file=sys.stderr)
-        return 2
+        cfg = pair_dialog(cfg)
+        if not cfg["token"]:
+            print("Not paired. Press 'Pair widget' on the panel and enter the code.", file=sys.stderr)
+            return 2
     PIDFILE.write_text(str(os.getpid()))
     try:
         return AriaApp(cfg).run([])

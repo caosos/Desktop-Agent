@@ -70,6 +70,27 @@ def test_tool_dispatch():
     assert "error" in a.run_tool("nope", {})
 
 
+def test_pairing_code_exchange(tmp_path):
+    """Owner mints a code on the panel (authenticated); the widget claims it once without the token."""
+    from fastapi.testclient import TestClient
+    from desktop_agent.control.api import build_app
+    from desktop_agent.control.config import RuntimeConfig
+    from desktop_agent.control.service import Service
+    proj = tmp_path / "p.yaml"
+    proj.write_text(f"name: demo\nrepo_path: {tmp_path}\nremote_url: x\nintegration_branch: main\nstart_here: S\nagents_file: A\n")
+    svc = Service(RuntimeConfig(data_dir=tmp_path / "d", workspaces_dir=tmp_path / "w", token_file=tmp_path / "t", project_files=[proj])); svc.scheduler.paused = True
+    with TestClient(build_app(svc, "tok")) as c:
+        assert c.post("/v0/pair/new").status_code == 401
+        code = c.post("/v0/pair/new", headers={"Authorization": "Bearer tok"}).json()["code"]
+        assert len(code) == 6
+        r = c.post("/v0/pair/claim", json={"code": code.lower()})
+        assert r.status_code == 200 and r.json()["token"] == "tok"
+        assert c.post("/v0/pair/claim", json={"code": code}).status_code == 403          # one-time
+        assert c.post("/v0/pair/claim", json={"code": "ZZZZZZ"}).status_code == 403
+        kinds = [e.payload.get("action") for e in svc.store.events()]
+        assert "pairing_code_issued" in kinds and "widget_paired" in kinds
+
+
 def test_http_client_against_live_api(tmp_path):
     """Spin the real API up on a local port and drive it with the widget client."""
     import uvicorn

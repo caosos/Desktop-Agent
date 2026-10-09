@@ -74,6 +74,19 @@ def load_config() -> dict:
     return cfg
 
 
+def pair(url: str, code: str) -> dict:
+    """Exchange a one-time pairing code (shown on the panel) for the token; no auth needed for this call."""
+    req = urllib.request.Request(url.rstrip("/") + "/v0/pair/claim", data=json.dumps({"code": code.strip().upper()}).encode(), method="POST")
+    req.add_header("Content-Type", "application/json")
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            return json.loads(resp.read().decode())
+    except urllib.error.HTTPError as exc:
+        raise ApiError(f"pairing failed: {exc.code} {exc.read().decode(errors='replace')[:120]}") from None
+    except (urllib.error.URLError, OSError) as exc:
+        raise ApiError(f"control plane unreachable at {url}: {exc}") from None
+
+
 def save_config(cfg: dict) -> None:
     CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
     CONFIG_FILE.write_text(json.dumps({k: cfg.get(k, "") for k in ("url", "token", "anthropic_api_key")}, indent=2))

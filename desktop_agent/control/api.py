@@ -47,6 +47,10 @@ class ChatIn(BaseModel):
     reset: bool = False
 
 
+class PairIn(BaseModel):
+    code: str = Field(min_length=6, max_length=6)
+
+
 class IntakeStatusIn(BaseModel):
     status: str
     note: str = Field(default="", max_length=1000)
@@ -212,6 +216,28 @@ def build_app(service: Service, token: str) -> FastAPI:
             raise HTTPException(400, "status must be ACKNOWLEDGED|WORKING|BLOCKED|DONE")
         service.intake._set(item, body.status, f"{source(request)}: {body.note}", [source(request), body.note[:100]])
         return service.store.get_intake(item_id)
+
+    pairing: dict[str, float] = {}
+
+    @app.post("/v0/pair/new")
+    async def pair_new(_: str = Depends(auth)):
+        """Owner (already signed in on the panel) mints a one-time 6-character pairing code, valid 10 minutes,
+        so the widget in another login can obtain the token without anyone handling it by hand."""
+        code = "".join(secrets.choice("ABCDEFGHJKLMNPQRSTUVWXYZ23456789") for _ in range(6))
+        pairing[code] = time.time() + 600
+        service.store.append_event(Event(type=ET.CONTROL.value, task_id=None, payload={"action": "pairing_code_issued", "expires_in_sec": 600},
+                                         provenance=Provenance(actor=Actor.HUMAN.value, source="panel", evidence=["pairing"])))
+        return {"code": code, "expires_in_sec": 600}
+
+    @app.post("/v0/pair/claim")
+    async def pair_claim(body: PairIn, request: Request):
+        """No auth: the widget presents the code once; the code is consumed. Localhost only."""
+        exp = pairing.pop(body.code.strip().upper(), None)
+        if not exp or exp < time.time():
+            raise HTTPException(403, "invalid or expired pairing code")
+        service.store.append_event(Event(type=ET.CONTROL.value, task_id=None, payload={"action": "widget_paired", "client": request.client.host if request.client else None},
+                                         provenance=Provenance(actor=Actor.HUMAN.value, source="widget", evidence=["pairing code consumed"])))
+        return {"url": f"http://{service.cfg.api_host}:{service.cfg.api_port}", "token": token}
 
     @app.get("/v0/aria/greeting")
     async def aria_greeting(_: str = Depends(auth)):

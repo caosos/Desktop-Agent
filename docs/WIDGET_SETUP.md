@@ -6,28 +6,30 @@ belongs to user `michaelos`, so the widget runs there and talks to the control
 plane over the local API with a token. Nothing is shared through home
 directories.
 
-## Michael, once, as `michaelos`
+## Michael, once, in your own desktop login — the only step that needs you
+
+The widget has to run inside your GNOME session, which the control plane's
+account cannot reach. Everything else is automated. One command, once:
 
 ```bash
-# 1. the widget code (public repo)
-git clone https://github.com/caosos/Desktop-Agent.git ~/Desktop-Agent
-cd ~/Desktop-Agent && git checkout build/stage-1      # until merged to main
-
-# 2. the control-plane token: ask the caoscare-1 side for the contents of
-#    /home/caoscare-1/.config/desktop-agent/token and paste it once:
-python3 -m widget.app --token '<paste token>'
-#    (stored in ~/.config/desktop-agent/widget.json, mode 0600)
-
-# 3. conversational Aria needs no key: the control plane runs Aria's
-#    reasoning server-side (POST /v0/aria/chat, cheap structured calls on the
-#    subscription, about a cent per exchange). A local Anthropic key is only
-#    an alternative:  python3 -m widget.app --anthropic-api-key '<key>'
-#    optional voice: add "openai_api_key": "<key>" to the same json file
-#    and install alsa-utils for arecord.
+bash <(curl -fsSL https://raw.githubusercontent.com/caosos/Desktop-Agent/main/widget/install.sh)
 ```
 
-Then `python3 -m widget.app` opens the widget. A GNOME custom shortcut running
-`python3 -m widget.app --toggle` from `~/Desktop-Agent` shows/hides it.
+It fetches the public repo into `~/Desktop-Agent`, adds an **Aria** launcher to
+your applications menu, and starts the widget. On first start the widget asks
+for a 6-character **pairing code**: press **Pair widget** on the panel
+(http://127.0.0.1:8477/, where you are already signed in) and type the code
+into the widget. The code is one-time and expires in 10 minutes; the widget
+stores the resulting token itself (`~/.config/desktop-agent/widget.json`,
+mode 0600). No token is ever copied by hand.
+
+After that: open **Aria** from the applications menu, or bind a GNOME shortcut
+to `python3 -m widget.app --toggle` (run from `~/Desktop-Agent`) to show/hide it.
+
+Conversational Aria needs no key of yours: the control plane runs her reasoning
+server-side (about a cent per exchange on the subscription). Optional: a local
+Anthropic key (`--anthropic-api-key`) or, for push-to-talk, an OpenAI key in
+the same json file plus `alsa-utils` for `arecord`.
 
 Requirements already present on this host: Python 3.10, PyGObject with GTK 4.6.
 
