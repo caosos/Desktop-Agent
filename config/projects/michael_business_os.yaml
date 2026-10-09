@@ -1,0 +1,52 @@
+# Project package for Michael Business OS ("Deal Sniffer"), per Michael's inbox answer d-d6a71153 (2026-10-08).
+# This project runs its own persistent coordinator (Agent 01) and bounded workers (ADR-0014); Desktop-Agent
+# gives Michael visibility and may run planned tasks as draft PRs into the coordinator branch, but it does
+# not dispatch from that project's READY_QUEUE on its own: Agent 01 owns that queue.
+name: michael_business_os
+repo_path: ~/michael-business-os                 # local object source (clone of main; truth lives on the branch below)
+remote_url: https://github.com/caosos/michael-business-os.git
+github_repo: caosos/michael-business-os
+integration_branch: research/agent-01-coordinator
+
+start_here: START_HERE.md
+agents_file: docs/COORDINATION.md
+ready_queue: docs/status/READY_QUEUE.md
+current_state: docs/receipts/desktop-agent-tasks.md     # control-plane entries go to a file of their own, not Agent 01's ACTIVE_WORK.md
+acceptance: docs/integration/ROUND_TWO_INTEGRATION.md
+state_entry_by: control
+
+# The project requires Python >= 3.12 and a PostgreSQL-backed test suite (dbos, pgserver); this host's
+# control-plane account has Python 3.10 and no venv for it, so the verifier can only check bounds and
+# commits here until a 3.12 environment exists. Code tasks must stay out until then; docs tasks are fine.
+test_command: null
+
+shared_contract_paths:
+  - docs/research/contracts/FROZEN.sha256.json
+  - docs/research/contracts/action-request.schema.json
+  - docs/research/contracts/approval.schema.json
+  - docs/research/contracts/campaign.schema.json
+  - docs/research/contracts/card.schema.json
+  - docs/status/READY_QUEUE.md
+  - docs/status/ACTIVE_WORK.md
+
+never_read:
+  - "var/owner.env"
+  - "var/dev.env"
+  - "**/.env"
+  - "**/*.key"
+
+worker_allowed_tools:
+  - Read
+  - Glob
+  - Grep
+  - Edit
+  - Write
+  - MultiEdit
+  - "Bash(git:*)"
+  - "Bash(ls:*)"
+  - "Bash(cat:*)"
+  - "Bash(head:*)"
+  - "Bash(tail:*)"
+  - "Bash(grep:*)"
+  - "Bash(find:*)"
+  - "Bash(wc:*)"

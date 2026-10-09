@@ -63,6 +63,7 @@ open_draft_pr: true
 projects:
   - projects/caoscare.yaml
   - projects/desktop_agent.yaml
+  - projects/michael_business_os.yaml
 
 # Direct-API providers for the control plane's own calls (planner, Aria). Keys are read from
 # a 0600 file (or the named env var) by the control-plane process only and never reach workers.
