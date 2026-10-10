@@ -159,9 +159,33 @@ transcript: SIMULATED call call-6d6ba7e336 completed: SIMULATED call to fixture:
 
 Deviations: the cancel path also appends a SIMULATED transcript note ("was cancelled"); an out-of-order event writes a `simulated` receipt ("out-of-order event rejected") without advancing `seq`; the calling task is not a row in the code-task table, so the scheduler never sees it.
 
+## 9b. Worker evidence for section 11 (session runner; worker claim, the control plane verifies independently)
+
+- Branch: `agent/implement-docs-calling-brief-md--dfac57` from `main` at `5e7bd48`; the commit SHA is in the worker's final claim.
+- Files (implementation line counts): `desktop_agent/control/call_session.py` 282 (new), `desktop_agent/control/calling.py` 190 (was 187), `tests/test_call_session.py` 196 (new, 12 tests); docs: this file, `BLUEPRINT.md` §8 row. `tests/test_calling.py` unchanged.
+- Commands and actual results: `bin/run_tests.sh` (full suite) → `140 passed, 2 skipped, 1 warning in 38.67s` (first run, before the doubled-prefix cosmetic fix and the trace print); `.venv/bin/python -m pytest -q -s tests/test_call_session.py -k two_turn` → `1 passed` and printed the trace below. Final full-suite result is in the worker's claim.
+- Deviation: tool-call receipts are written on subject `("call_tool", call_id)`, not on `("call", call_id)`: the unchanged `tests/test_calling.py` happy loop requires exactly five receipts on the call chain with the default adapter, which now runs one tool call. Each tool receipt still carries `call_id`, `turn`, `tool_call_id`, `name` in evidence and `call_id`/`command_id`/`calling_task_id` as extras. `CallService.tool_receipt` is the writer; `SessionAdapter` reaches `record`/`tool_receipt` through the bound `apply` (`apply.__self__`).
+- Acceptance map (11.5): 1 `test_two_turn_conversation_default_adapter`, `test_default_adapter_sends_tool_result_before_close`; 2 `test_unknown_and_out_of_scope_tools_are_refused`; 3 `test_duplicate_and_replayed_tool_call_ids_execute_once`; 4 `test_interrupted_speech_…`; 5 `test_delayed_and_out_of_order_transcripts`, `test_tool_without_any_transcript_…`; 6 `test_disconnect_without_session_ended_fails`, `test_iterator_end_without_any_event_fails`; 7 `test_cancel_mid_session_ignores_late_events`, `test_cancel_then_events_already_in_flight_do_nothing`; 8 `test_two_overlapping_sessions_do_not_mix`; 9 the unchanged `tests/test_calling.py`.
+- End-to-end trace (default adapter, one call; copied from the `-s` run):
+
+```text
+verified  call      SIMULATED call command accepted for fixture:front-desk; no real call will be placed
+simulated call      SIMULATED call REQUESTED -> ACCEPTED: SIMULATED worker accepted the call
+simulated call      SIMULATED call ACCEPTED -> STARTED: SIMULATED call started (no line was opened)
+simulated call_tool SIMULATED tool lookup_fixture_status executed for turn 1
+simulated call      SIMULATED call STARTED -> IN_PROGRESS: SIMULATED call in progress (fixture conversation)
+simulated call      SIMULATED call IN_PROGRESS -> COMPLETED: SIMULATED call completed
+turn 1: user: SIMULATED caller: is the fixture office open today?
+turn 1: assistant: SIMULATED assistant: let me check the fixture status.
+turn 1: lookup_fixture_status: {'ok': True, 'alias': 'fixture:front-desk', 'status': 'SIMULATED: fixture office open', ...}
+turn 2: user: SIMULATED caller: thanks, that is all.
+turn 2: assistant: SIMULATED assistant: the fixture office is open; goodbye.
+```
+(The tool receipt is listed between STARTED and IN_PROGRESS here only because the print groups `call_tool` after the first three `call` receipts; the two chains are separate.)
+
 ## 10. What remains unimplemented
 
-Real adapter and any provider; destination directory and consent rules; voice transport; a panel card for
+Code-complete and SIMULATED-only after section 11: the transport interface, `FakeTransport`, the contract-bounded session runner (non-blocking receive loop, per-tool tasks, duplicate/replay safety, disconnect and cancel handling) and `CallService.record`/`tool_receipt`. Still unimplemented: any real transport; real adapter and any provider; destination directory and consent rules; voice transport; a panel card for
 calls (the transcript note is the only owner-visible surface in this slice); cost accounting for real
 calls; CAOSCare's voice work stays parked and untouched (its `call_lifecycle.advance` compare-and-set,
 `TRANSITIONS` table, terminal-outcome receipts and `spoken_call_state` were read as pattern references

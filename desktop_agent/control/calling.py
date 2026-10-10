@@ -15,6 +15,7 @@ import time
 import uuid
 
 from . import receipts as rc
+from .call_session import FakeTransport, SessionAdapter, fixture_script
 
 FIXTURE_PREFIX = "fixture:"
 TERMINAL = {"COMPLETED", "FAILED", "CANCELLED"}
@@ -28,36 +29,17 @@ TRANSITIONS = {
 INDEX_KV = "calls:index"
 
 
-class SimulatedAdapter:
-    """The only adapter the code can construct: walks a call through its states with no I/O."""
-    name = "simulated"
+class SimulatedAdapter(SessionAdapter):
+    """The only adapter the code can construct: the session runner over a scripted FakeTransport, no I/O."""
 
     def __init__(self, delay_sec: float = 0.0, outcome: str = "COMPLETED"):
         self.delay_sec = delay_sec
         self.outcome = outcome
-
-    async def run(self, call: dict, apply) -> None:
-        steps = [("ACCEPTED", "SIMULATED worker accepted the call"),
-                 ("STARTED", "SIMULATED call started (no line was opened)"),
-                 ("IN_PROGRESS", "SIMULATED call in progress (fixture conversation)")]
-        for seq, (state, detail) in enumerate(steps, 1):
-            await asyncio.sleep(self.delay_sec)
-            if not apply(call["call_id"], seq, state, detail)["applied"]:
-                return
-        await asyncio.sleep(self.delay_sec)
-        alias = call["destination_alias"]
-        if self.outcome == "COMPLETED":
-            result = {"outcome": "SIMULATED: completed", "duration_sec": round(self.delay_sec * 4, 3),
-                      "summary": f"SIMULATED call to {alias} about '{call['purpose']}' completed with a fixture answer; no real call was placed."}
-            apply(call["call_id"], 4, "COMPLETED", "SIMULATED call completed", result)
-        else:
-            result = {"outcome": "SIMULATED: failed", "duration_sec": round(self.delay_sec * 4, 3),
-                      "summary": f"SIMULATED call to {alias} failed (fixture failure); no real call was placed."}
-            apply(call["call_id"], 4, "FAILED", "SIMULATED call failed", result)
+        super().__init__(lambda call: FakeTransport(fixture_script(outcome, call["destination_alias"]), delay_sec))
 
 
 class CallService:
-    def __init__(self, store, aria, adapter: SimulatedAdapter | None = None):
+    def __init__(self, store, aria, adapter: SessionAdapter | None = None):
         self.store = store
         self.aria = aria
         self.adapter = adapter or SimulatedAdapter()
@@ -144,8 +126,29 @@ class CallService:
             call["history"].append({"seq": None, "state": "CANCELLED", "at": time.time(), "source": source, "detail": "SIMULATED call cancelled by the owner side"})
             self.store.set_kv(self._key(call_id), call)
             self._receipt(call, "SIMULATED call cancelled by command", rc.VERIFIED, "control", source, before={"state": before}, after={"state": "CANCELLED"})
+        stop = getattr(self.adapter, "cancel", None)
+        if stop:
+            stop(call_id)                                 # the runner stops all sends, tool runs and applies
         self._note(call, f"SIMULATED call {call_id} to {call['destination_alias']} was cancelled; any later result is ignored.")
         return self._view(call) | {"cancelled": True}
+
+    def record(self, call_id: str, entry: dict) -> None:
+        """Append a SIMULATED transcript/tool entry to the call record (no receipt, no state change)."""
+        with self._lock:
+            call = self.store.get_kv(self._key(call_id))
+            if not call or call["state"] in TERMINAL:
+                return
+            call.setdefault("transcript", []).append(dict(entry, at=time.time()))
+            self.store.set_kv(self._key(call_id), call)
+
+    def tool_receipt(self, call_id: str, claim: str, evidence: list) -> None:
+        """One simulated receipt per executed or refused tool call, on subject ("call_tool", call_id)."""
+        call = self.store.get_kv(self._key(call_id))
+        if not call or call["state"] in TERMINAL:
+            return
+        rc.write_receipt(self.store, subject_type="call_tool", subject_id=call_id, claim=claim, actor="calling_worker", source="simulated",
+                         result_label=rc.SIMULATED, evidence=evidence + [f"command_id={call['command_id']}"], correlation_id=call["command_id"],
+                         extra={"call_id": call_id, "calling_task_id": call["task_id"], "command_id": call["command_id"]})
 
     def get(self, call_id: str) -> dict | None:
         call = self.store.get_kv(self._key(call_id))
