@@ -169,7 +169,8 @@ class WorkerMonitor:
                 rows = w.get("approved_ready_rows_for_specialist_lanes")
                 feed_summary = {"dispatcher_running": bool(w.get("dispatcher_running")), "ready_rows": rows or 0, "stalled": len(w.get("stalled_workers") or []),
                                 "quota_allows_turn": d.get("quota_allows_a_turn"), "self_time": d.get("last_check"), "read_at": feed.get("fetched_at"),
-                                "fresh": fage < 900, "session": (d.get("session") or None)}
+                                "fresh": fage < 900, "session": (d.get("session") or None), "state": d.get("state"),
+                                "unacknowledged_messages": list(d.get("unacknowledged_messages") or []), "last_wake": d.get("last_wake")}
                 notes.append(f"feed: dispatcher {'running' if w.get('dispatcher_running') else 'not running'}, stalled {len(w.get('stalled_workers') or [])}, "
                              f"ready rows {rows if rows is not None else '?'}, quota allows a turn: {d.get('quota_allows_a_turn', '?')} ({when})")
                 if not w.get("dispatcher_running"):

@@ -131,6 +131,12 @@ class Watchdog:
                 continue
             item_id = "da-" + hashlib.sha1(f"{src.repo}:liaison:{f['path']}".encode()).hexdigest()[:10]
             item = self.store.get_intake(item_id)
+            sent = self.store.get_kv("liaison_sent:" + f["name"][:-3]) if not item else None
+            if sent and self.store.get_intake(sent["item_id"]):
+                item = self.store.get_intake(sent["item_id"]); item_id = item["item_id"]           # our own direction: one item, not two
+                if item["status"] == "SENT":
+                    self.intake._set(item, "RECEIVED", f"liaison file confirmed on {branch}: {f['path']}; awaiting the coordinator's own sync (no live session reachable)",
+                                     [f.get("html_url", ""), f"sha={f.get('sha','')[:12]}"])
             if not item:
                 content = await gh_api(f"repos/{src.repo}/contents/{f['path']}?ref={branch}")
                 body = base64.b64decode(content.get("content") or "").decode(errors="replace") if content.get("encoding") == "base64" else ""
@@ -147,7 +153,7 @@ class Watchdog:
                 await self._scan_ack_for_gates(src, ack_branch, ack_dir, f["name"])
             if f["name"] in acks and item["status"] not in ("ACKNOWLEDGED", "WORKING", "DONE", "BLOCKED"):
                 self.intake._set(item, "ACKNOWLEDGED", f"ack file {ack_dir}/{f['name']} on {ack_branch}", [f"{ack_branch}:{ack_dir}/{f['name']}"])
-                self.store.set_intake_activity(item_id, time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()))
+                self.store.set_intake_activity(item["item_id"], time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()))
                 self.store.save_coordinator_ack(src.project, time.time())
                 acked += 1
         return found, acked
@@ -187,5 +193,6 @@ class Watchdog:
                            fields={"message": f"liaison: {item['title'][:60]} (Desktop-Agent)", "branch": li["branch"],
                                    "content": base64.b64encode(body.encode()).decode()})
         url = (res.get("content") or {}).get("html_url", "")
+        self.store.set_kv("liaison_sent:" + mid, {"item_id": item["item_id"], "path": path, "sent_at": time.time()})   # the poller tracks this file on the same item
         return {"ok": True, "status": "SENT", "note": f"liaison message {mid} written on {li['branch']}; awaiting the coordinator's sync and ack file",
                 "evidence": [url, mid], "url": url}

@@ -102,6 +102,10 @@ class Drilldown:
                              + "; a live process proves the session exists, not that it is working this minute")
                 elif fsess and feed_fresh and st in ("closed", "exited", "stopped"):
                     actual, proof = "NOT RUNNING", f"its own feed reports session {fsess.get('name', '?')} {st} ({(feed.get('data') or {}).get('last_check') or ''}, read {_ago(feed_age)} ago)"
+                elif not fsess and feed_fresh and str((feed.get("data") or {}).get("state") or "").upper() == "STOPPED":
+                    actual = "NOT RUNNING"
+                    proof = (f"its own watchdog (same account) reports coordinator state STOPPED with no session ({(feed.get('data') or {}).get('last_check') or ''}, read {_ago(feed_age)} ago); "
+                             f"{len((feed.get('data') or {}).get('unacknowledged_messages') or [])} liaison message(s) it lists as unacknowledged — nobody is reading them until the session is started in its own account")
                 elif fsess and feed_fresh and st:
                     actual = "SESSION " + st.upper()
                     proof = f"per the project's own feed: session {fsess.get('name', '?')} {st} (pid {fsess.get('pid', '?')}, feed {(feed.get('data') or {}).get('last_check') or ''}, read {_ago(feed_age)} ago)"
@@ -137,8 +141,22 @@ class Drilldown:
                 nxt = "posted; delivery pending"
             else:
                 nxt = ""
+            # four separate facts from the item's own receipts: delivered / acknowledged / execution evidence / completed
+            facts = {"delivered_at": None, "acknowledged_at": None, "done_at": None, "evidence": []}
+            for rc in self.svc.store.receipts("instruction", i["item_id"]):
+                claim, ts = str(rc.get("claim") or ""), rc.get("ts")
+                head = claim.split(":")[0].strip().upper()
+                if head in ("DELIVERED", "RECEIVED", "SENT") and not facts["delivered_at"]:
+                    facts["delivered_at"] = ts
+                if head in ("ACKNOWLEDGED", "WORKING", "CLAIMED") and not facts["acknowledged_at"]:
+                    facts["acknowledged_at"] = ts
+                if head == "DONE":
+                    facts["done_at"] = ts
+                for ev in rc.get("evidence") or []:
+                    if isinstance(ev, str) and ev.startswith("http") and ev not in facts["evidence"]:
+                        facts["evidence"].append(ev)
             instr.append({"item_id": i["item_id"], "title": (i.get("title") or "")[:90], "status": i["status"], "age": age, "flagged": bool(i.get("flagged")),
-                          "url": i.get("url", ""), "next": nxt})
+                          "url": i.get("url", ""), "next": nxt, **facts, "evidence": facts["evidence"][-3:]})
         unacked = [x for x in instr if x["flagged"] and x["status"] in ("RECEIVED", "DELIVERED")]
         finished_open = [f for f in workers.get("finished", []) if "open" in f["status"]]
         amber = [a["text"] for a in workers.get("alerts", []) if a["level"] == "amber"]
@@ -171,56 +189,61 @@ class Drilldown:
 
 
 def work_summary(projects: list[dict], tasks: list[dict], inbox: list[dict], intake: dict, scheduler, slots: dict, store) -> dict:
-    """Three short lists for the owner, from live sources only: what can run now, what needs the owner,
+    """Every row names who it waits on (`who`). Three short lists for the owner, from live sources only: what can run now, what needs the owner,
     what is waiting on someone else. Never 'nothing needs you' when a project's own data says otherwise."""
     can, need, wait = [], [], []
+    now = time.time()
     ready = [t for t in tasks if t["status"] == "READY"]
     paused = bool(getattr(scheduler, "paused", False))
     if ready:
         if paused:
-            wait.append({"project": "desktop_agent", "text": f"{len(ready)} queued control-plane task(s) held: scheduler paused ({getattr(scheduler, 'hold_reason', None) or 'by owner'})"})
+            wait.append({"project": "desktop_agent", "who": "scheduler (you can press Resume)", "text": f"{len(ready)} queued control-plane task(s) held: scheduler paused ({getattr(scheduler, 'hold_reason', None) or 'by owner'})"})
         elif slots.get("free", 0) > 0:
-            can.append({"project": "desktop_agent", "text": f"{len(ready)} queued control-plane task(s) start on the next scheduler tick ({slots.get('free')} free slot(s))"})
+            can.append({"project": "desktop_agent", "who": "scheduler", "text": f"{len(ready)} queued control-plane task(s) start on the next scheduler tick ({slots.get('free')} free slot(s))"})
         else:
-            wait.append({"project": "desktop_agent", "text": f"{len(ready)} queued control-plane task(s) wait for a free slot ({slots.get('ceiling_reason') or 'budget or capacity'})"})
+            wait.append({"project": "desktop_agent", "who": "scheduler", "text": f"{len(ready)} queued control-plane task(s) wait for a free slot ({slots.get('ceiling_reason') or 'budget or capacity'})"})
     for d in inbox:
-        need.append({"project": d.get("project") or "desktop_agent", "text": f"optional decision: {d['question'][:90]}…" if len(d["question"]) > 90 else f"optional decision: {d['question']}"})
+        need.append({"project": d.get("project") or "desktop_agent", "who": "you", "text": f"optional decision: {d['question'][:90]}…" if len(d["question"]) > 90 else f"optional decision: {d['question']}"})
     for p in projects:
         name, w, c = p["name"], p.get("workers") or {}, p.get("coordinator") or {}
         ex = c.get("external") or {}
         for f in w.get("finished") or []:
             if "open" in f["status"]:
-                need.append({"project": name, "text": f"merge the verified PR {f['pr_url']} ({f['id'][:30]})"})
+                need.append({"project": name, "who": "you", "text": f"merge the verified PR {f['pr_url']} ({f['id'][:30]})"})
         for item in ex.get("ready_unblocked") or []:
-            can.append({"project": name, "text": f"its coordinator has unblocked work ready: {str(item)[:90]}"})
+            can.append({"project": name, "who": "its coordinator", "text": f"its coordinator has unblocked work ready: {str(item)[:90]}"})
         for item in ex.get("open_items") or []:
-            wait.append({"project": name, "text": f"instruction {item} in its coordinator's hands (WORKING until its DONE comment)"})
+            wait.append({"project": name, "who": "its coordinator", "text": f"instruction {item} in its coordinator's hands (WORKING until its DONE comment)"})
         if ex.get("waiting_owner"):
-            need.append({"project": name, "text": f"{len(ex['waiting_owner'])} gate(s) on its own list need you (see the approval packet's read-only section): " + "; ".join(map(str, ex["waiting_owner"][:3])) + ("…" if len(ex["waiting_owner"]) > 3 else "")})
+            need.append({"project": name, "who": "you", "text": f"{len(ex['waiting_owner'])} gate(s) on its own list need you (see the approval packet's read-only section): " + "; ".join(map(str, ex["waiting_owner"][:3])) + ("…" if len(ex["waiting_owner"]) > 3 else "")})
         feed = store.get_kv(f"feed:{name}") or {}
         fw = ((feed.get("data") or {}).get("work") or {}) if feed else {}
+        fstate = str(((feed.get("data") or {}).get("state") or "")).upper() if feed else ""
+        if feed and fstate == "STOPPED" and not (feed.get("data") or {}).get("session") and (now - float(feed.get("fetched_at") or 0)) < 900:
+            pend = (feed.get("data") or {}).get("unacknowledged_messages") or []
+            need.insert(0, {"project": name, "who": "you (other account)", "text": f"its coordinator session is STOPPED per its own watchdog ({(feed.get('data') or {}).get('last_check') or ''}); start it in your own account (tmux mbos-agent-01) — {len(pend)} liaison message(s) wait unread" + (": " + ", ".join(pend[:2]) if pend else "")})
         if fw:
             rows = fw.get("approved_ready_rows_for_specialist_lanes") or 0
             if rows and fw.get("dispatcher_running"):
-                can.append({"project": name, "text": f"{rows} approved row(s) ready; its own dispatcher launches them (quota allows a turn: {(feed.get('data') or {}).get('quota_allows_a_turn', '?')})"})
+                can.append({"project": name, "who": "its dispatcher", "text": f"{rows} approved row(s) ready; its own dispatcher launches them (quota allows a turn: {(feed.get('data') or {}).get('quota_allows_a_turn', '?')})"})
             elif rows:
-                need.append({"project": name, "text": f"{rows} approved row(s) ready but its dispatcher is stopped: restart it in your own account (tmux mbos-agent-01)"})
+                need.append({"project": name, "who": "you (other account)", "text": f"{rows} approved row(s) ready but its dispatcher is stopped: restart it in your own account (tmux mbos-agent-01)"})
             elif fw.get("dispatcher_running"):
-                wait.append({"project": name, "text": "dispatcher running, 0 approved rows: nothing to launch until a gate clears or a new gap is queued"})
+                wait.append({"project": name, "who": "its coordinator", "text": "dispatcher running, 0 approved rows: nothing to launch until a gate clears or a new gap is queued"})
         for r in (store.get_kv(f"roster:{name}") or {}).get("rows") or []:
             b = r.get("blocker") or ""
             if b and b.lower() != "none" and any(k in b for k in ("MICHAEL_DECISIONS", "credentials", "Michael", "host software", "host")):
-                need.append({"project": name, "text": f"lane {r['lane']} {r['role'][:20]}: {b[:110]}"})
+                need.append({"project": name, "who": "you", "text": f"lane {r['lane']} {r['role'][:20]}: {b[:110]}"})
     unacked = [i for i in (intake.get("items") or []) if i.get("flagged") and i.get("status") in ("RECEIVED", "DELIVERED")]
     by_proj: dict[str, int] = {}
     for i in unacked:
         by_proj[i["project"]] = by_proj.get(i["project"], 0) + 1
     for name, n in by_proj.items():
         liaison = any(i.get("kind") == "liaison" for i in unacked if i["project"] == name)
-        wait.append({"project": name, "text": f"{n} instruction(s) delivered, not acknowledged" + (": Agent 01 reads the liaison branch at its own sync; you can nudge it in your own account (tmux mbos-agent-01)" if liaison else ": resend from the Shared inbox or check the coordinator session")})
+        wait.append({"project": name, "who": ("Agent 01" if liaison else "its coordinator"), "text": f"{n} instruction(s) delivered, not acknowledged" + (": Agent 01 reads the liaison branch at its own sync; you can nudge it in your own account (tmux mbos-agent-01)" if liaison else ": resend from the Shared inbox or check the coordinator session")})
     for p in projects:
         if (p.get("workers") or {}).get("status") == "RUNNING":
-            can.append({"project": p["name"], "text": f"{(p['workers'] or {}).get('active', 0)} worker(s) running now: " + ", ".join(x["id"] for x in (p["workers"] or {}).get("workers", [])[:4])})
+            can.append({"project": p["name"], "who": "workers", "text": f"{(p['workers'] or {}).get('active', 0)} worker(s) running now: " + ", ".join(x["id"] for x in (p["workers"] or {}).get("workers", [])[:4])})
     return {"can_run_now": can, "needs_owner": need, "waiting": wait}
 
 

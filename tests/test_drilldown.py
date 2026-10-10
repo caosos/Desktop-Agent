@@ -129,3 +129,23 @@ def test_persistent_coordinator_absence_is_not_verified_not_stopped(tmp_path: Pa
     s.projects["mbos"].roster["coordinator_process_pattern"] = "AGENT 01 — COORDINATOR"
     s.workers.procs_fn = lambda: [{"pid": 14005, "ppid": 1, "user": "michaelos", "cmd": "claude MICHAEL BUSINESS OS — ROUND TWO AGENT 01 — COORDINATOR", "ticks": 1, "started_at": time.time() - 100}]
     r = lane01(); assert r["actual"].startswith("SESSION ALIVE") and "not that it is working this minute" in r["proof"]
+
+
+def test_feed_stopped_state_is_explicit_evidence_and_work_names_owner(tmp_path: Path):
+    """The project's own watchdog reporting STOPPED with no session is explicit evidence (NOT RUNNING, with its
+    reason); the Work row then names the owner's action first; a HEALTHY feed without a session stays NOT VERIFIED."""
+    from types import SimpleNamespace
+    from desktop_agent.control.drilldown import work_summary
+    s = _service(tmp_path)
+    s.store.set_kv("roster:mbos", {"fetched_at": time.time(), "source": "b:x", "url": "u", "sha": "abc",
+                                   "rows": [{"lane": "01", "role": "Coordinator (persistent)", "declared_state": "WORKING", "last_result": "", "ready": "", "blocker": "", "declared_as_of": "2026-10-08"}]})
+    s.workers.procs_fn = lambda: []
+    s.store.set_kv("feed:mbos", {"fetched_at": time.time(), "url": "u", "data": {"state": "STOPPED", "session": None, "last_check": "2026-10-10T03:32:41Z",
+                                 "unacknowledged_messages": ["ARIA-20261009-2106-deferred", "ARYA-20261010-0328-f49-verification"], "work": {"dispatcher_running": False, "stalled_workers": [], "approved_ready_rows_for_specialist_lanes": 0}}})
+    r = next(x for x in s.drill.build("mbos")["roster"] if x["lane"] == "01")
+    assert r["actual"] == "NOT RUNNING" and "its own watchdog" in r["proof"] and "2 liaison message(s)" in r["proof"]
+    st = s.state(); w = st["work"]
+    assert w["needs_owner"][0]["who"] == "you (other account)" and "STOPPED per its own watchdog" in w["needs_owner"][0]["text"] and "ARYA-20261010-0328-f49-verification" in w["needs_owner"][0]["text"]
+    assert all("who" in x for x in w["needs_owner"] + w["waiting"] + w["can_run_now"])
+    s.store.set_kv("feed:mbos", {"fetched_at": time.time(), "url": "u", "data": {"state": "HEALTHY", "session": None, "last_check": "t", "work": {"dispatcher_running": True, "stalled_workers": []}}})
+    assert next(x for x in s.drill.build("mbos")["roster"] if x["lane"] == "01")["actual"] == "NOT VERIFIED"

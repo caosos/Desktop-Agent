@@ -101,3 +101,31 @@ def test_rate_limit_capture_in_adapter():
                                                                           "unifiedWindows": {"five_hour": {"utilization": 0.28, "resetsAt": 1791487200}}}}))
     p = a.parse_line(json.dumps({"type": "result", "subtype": "success", "result": "STATUS: DONE\nCOMMIT: none", "total_cost_usd": 0.1, "usage": {}}))
     assert p.final["rate_limit"]["unifiedWindows"]["five_hour"]["utilization"] == 0.28
+
+
+def test_sent_liaison_direction_is_tracked_as_one_item(tmp_path: Path):
+    """A direction we write to the liaison inbox must not reappear as a second item when the poller sees the file;
+    the same item moves SENT → RECEIVED → ACKNOWLEDGED."""
+    store = Store(tmp_path); deliv = FakeDeliverer()
+    src = _src(kind="liaison", liaison={"branch": "l", "inbox_dir": "docs/messages/inbox", "ack_branch": "a", "ack_dir": "docs/messages/acks"})
+    it = Intake(store, [src], deliv, poll_sec=1); wd = Watchdog(store, it, deliv, FakeScheduler()); it.watchdog = wd
+    written = {}
+    async def gh(path, method="GET", fields=None, **kw):
+        if method == "PUT":
+            written["path"] = path.split("contents/")[1]; return {"content": {"html_url": "https://x/" + written["path"]}}
+        if "docs/messages/inbox?" in path:
+            return [{"name": written["path"].split("/")[-1], "path": written["path"], "sha": "abc123", "html_url": "https://x/f"}]
+        if "docs/messages/acks?" in path:
+            return [{"name": written["path"].split("/")[-1]}] if written.get("acked") else []
+        return {"content": "", "encoding": "base64"}
+    monkeypatch_gh = gh
+    wd_mod.gh_api = monkeypatch_gh; intake_mod.gh_api = monkeypatch_gh
+    item = asyncio.run(it.send_direction("caoscare", "Please add a session record to your feed", "panel"))
+    assert item["status"] == "SENT" and store.get_kv("liaison_sent:" + written["path"].split("/")[-1][:-3])["item_id"] == item["item_id"]
+    asyncio.run(wd.poll_liaison(src))
+    items = [i for i in store.list_intake() if i["project"] == "caoscare"]
+    assert len(items) == 1 and items[0]["item_id"] == item["item_id"] and items[0]["status"] == "RECEIVED"
+    written["acked"] = True
+    asyncio.run(wd.poll_liaison(src))
+    items = [i for i in store.list_intake() if i["project"] == "caoscare"]
+    assert len(items) == 1 and items[0]["status"] == "ACKNOWLEDGED"
