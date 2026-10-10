@@ -189,9 +189,14 @@ class Watchdog:
         now = time.time()
         d = parse_ack(body)
         if reparse:
-            # same content, newer parser: refresh the reading in place; a receipt only if the parse now says something else
-            rec = {**cur, **d, "parser_version": PARSER_VERSION, "reparsed_at": now}
+            # same content, newer parser: refresh the reading in place (links re-resolved, gates reconciled per SHA);
+            # a receipt only if the parse now says something else
+            rec = {**cur, **d, "parser_version": PARSER_VERSION, "reparsed_at": now,
+                   "links_resolved": await self._resolve_links(src.repo, ack_branch, d.get("links") or [])}
             self.store.set_kv(key, rec)
+            gates = self.store.get_kv("gates:" + src.project) or {"gates": [], "scanned": []}
+            if f"{name}@{sha}" not in gates.get("scanned", []):
+                await self._scan_ack_for_gates(src, ack_branch, ack_dir, name, body=body, url=rec.get("url", ""), sha=sha, category=d["category"])
             if (cur.get("stage"), cur.get("category")) == (d["stage"], d["category"]):
                 return rec
             evidence = [rec.get("url") or f"{ack_branch}:{ack_dir}/{name}", f"sha={sha[:12]}", f"stage={d['stage']}", f"parser_version={PARSER_VERSION}"]
