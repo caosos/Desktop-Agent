@@ -73,10 +73,10 @@ events table; the receipt chain on subject `("call", call_id)` is the trace.
 ## 5. Request contract
 
 ```json
-{"command_id": "cmd-<sha1 of (conversation_ref + destination_alias + purpose)>[:12] or caller-supplied",
+{"command_id": "caller-supplied; else cmd-<sha1 of (conversation_ref + destination_alias + purpose)>[:12] when conversation_ref (the owner turn id) is given; else a fresh cmd-<uuid> — a request with neither is a new command",
  "destination_alias": "fixture:<label>",      // must start with "fixture:"; anything else → rejected
  "purpose": "<= 200 chars, free text",
- "conversation_ref": "aria turn index or null",
+ "conversation_ref": "the owner turn id (turn-<hex>, minted per Ask Aria owner turn, stored on the owner turn and on the call) or null",
  "source": "aria | panel | test"}
 ```
 Returns the calling-task record:
@@ -85,7 +85,12 @@ Returns the calling-task record:
  "simulated": true, "adapter": "simulated", "duplicate": false, "created_at": 0.0}
 ```
 A second request with the same `command_id` returns the **same** record with `duplicate: true`, starts
-nothing, writes no new receipt (the idempotency table answers).
+nothing, writes no new receipt (the idempotency table answers). The owner turn id is the durable command
+identity for Aria: a model that selects the same `request_call` twice inside one owner turn, or a replay of
+that turn, hits the same command; two separate owner turns with identical words are two commands, however
+long the transcript is or whether it was trimmed, reset or recovered (the id is minted per turn, not derived
+from transcript position). Rejected adapter events (late or out-of-order) are remembered per `(seq, state)` on
+the call: the first rejection writes one receipt, an identical replay writes none.
 
 ## 6. Result contract (`GET /v0/calls/{call_id}` and the transcript note)
 
@@ -122,6 +127,9 @@ adapter transition and result. A worker-style actor never produces `verified`.
    turn contains "SIMULATED".
 7. API: `POST /v0/calls` (201), `GET /v0/calls/{id}`, `POST …/cancel`, with the bearer token.
 8. Out-of-order adapter events (e.g. COMPLETED before STARTED) are rejected by `TRANSITIONS`.
+9. Correction da-586eaa76af: the same `request_call` action twice in one owner turn → one call, adapter
+   started once; two identical owner turns at the transcript cap → two calls; the identical rejected late
+   COMPLETED applied twice → one rejection receipt, state still CANCELLED.
 
 ## 8. Authorization boundary for future real calls (not built)
 

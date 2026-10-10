@@ -144,3 +144,65 @@ def test_out_of_order_events_are_rejected(tmp_path):
     assert s.calling.get(cid)["result"] is None
     assert s.calling.apply(cid, 1, "STARTED")["applied"] is False       # skipping ACCEPTED
     assert s.calling.apply(cid, 1, "ACCEPTED")["applied"] is True
+
+
+# --- correction da-586eaa76af: command identity per owner turn; rejected events remembered ---------------------
+
+def test_same_action_twice_in_one_owner_turn_is_one_call(tmp_path):
+    s = _svc(tmp_path)
+    act = {"name": "request_call", "args": {"destination_alias": ALIAS, "purpose": "check hours"}}
+    s.aria.llm = FakeLLM([{"reply": "Calling.", "action": act}, {"reply": "Calling again.", "action": act}, {"reply": "Done.", "action": None}])
+
+    async def go():
+        r = await s.aria.chat("Call the front desk and check their hours")
+        await s.calling.wait(r["actions"][0]["evidence"]["call_id"])
+        return r
+    r = asyncio.run(go())
+    assert [a["name"] for a in r["actions"]] == ["request_call", "request_call"]
+    assert r["actions"][0]["evidence"]["call_id"] == r["actions"][1]["evidence"]["call_id"]
+    assert len(s.calling.list()) == 1 and s.calling.adapter_starts == 1
+    second = [h for h in s.aria.history if h["role"] == "action"][1]["text"]
+    assert '"duplicate": true' in second
+    owner = [h for h in s.aria.history if h["role"] == "owner"][-1]
+    assert owner["turn_id"].startswith("turn-") and s.calling.get(r["actions"][0]["evidence"]["call_id"])["conversation_ref"] == owner["turn_id"]
+
+
+def test_two_identical_owner_turns_at_history_cap_are_two_calls(tmp_path):
+    from desktop_agent.control.aria import HISTORY_KEEP
+    s = _svc(tmp_path)
+    s.aria.history = [{"role": "owner" if i % 2 == 0 else "aria", "text": f"filler {i}", "ts": float(i)} for i in range(HISTORY_KEEP + 5)]
+    act = {"name": "request_call", "args": {"destination_alias": ALIAS, "purpose": "check hours"}}
+    ids = []
+
+    async def go():
+        for _ in range(2):
+            s.aria.llm = FakeLLM([{"reply": "Calling.", "action": act}, {"reply": "Done.", "action": None}])
+            r = await s.aria.chat("Call the front desk and check their hours")
+            ids.append(r["actions"][0]["evidence"]["call_id"])
+            await s.calling.wait(ids[-1])
+    asyncio.run(go())
+    assert len(set(ids)) == 2 and s.calling.adapter_starts == 2 and len(s.calling.list()) == 2
+    assert len(s.aria.history) <= HISTORY_KEEP and {c["conversation_ref"] for c in s.calling.list()} == {h["turn_id"] for h in s.aria.history if h["role"] == "owner" and h.get("turn_id")}
+    # a request with neither command_id nor a turn is a new command every time (API callers must pass command_id to replay)
+    a = s.calling.request(None, ALIAS, "check hours", None, "test"); b = s.calling.request(None, ALIAS, "check hours", None, "test")
+    assert a["call_id"] != b["call_id"] and a["command_id"] != b["command_id"]
+
+
+def test_identical_rejected_late_completion_twice_is_one_receipt(tmp_path):
+    s = _svc(tmp_path)
+    cid = s.calling.request("cmd-late", ALIAS, "p", None, "test")["call_id"]
+    s.calling.apply(cid, 1, "ACCEPTED"); s.calling.apply(cid, 2, "STARTED")
+    assert s.calling.cancel(cid, "test")["state"] == "CANCELLED"
+    n = len(chain(s.store, "call", cid))
+    late = dict(detail="late", result={"outcome": "SIMULATED: completed", "summary": "SIMULATED late"})
+    r1 = s.calling.apply(cid, 4, "COMPLETED", **late)
+    r2 = s.calling.apply(cid, 4, "COMPLETED", **late)
+    assert r1 == {"applied": False, "reason": "late result ignored", "state": "CANCELLED"}
+    assert r2 == {"applied": False, "reason": "replayed rejection ignored", "state": "CANCELLED"}
+    assert len(chain(s.store, "call", cid)) == n + 1
+    call = s.calling.get(cid)
+    assert call["state"] == "CANCELLED" and call["result"] is None
+    # out-of-order rejections are remembered the same way; a different rejected event is a new receipt
+    cid2 = s.calling.request("cmd-ooo", ALIAS, "p", None, "test")["call_id"]
+    s.calling.apply(cid2, 3, "IN_PROGRESS"); s.calling.apply(cid2, 3, "IN_PROGRESS"); s.calling.apply(cid2, 4, "COMPLETED")
+    assert [r["claim"][:40] for r in chain(s.store, "call", cid2)][1:] == ["SIMULATED out-of-order event rejected: R", "SIMULATED out-of-order event rejected: R"]
