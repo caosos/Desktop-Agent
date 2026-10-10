@@ -77,8 +77,7 @@ class SessionRunner:
         return applied
 
     def _terminal(self, state: str, detail: str, result: dict | None) -> bool:
-        """Terminal reporting is best effort: if persisting the outcome itself fails, the failure is recorded on the
-        runner (report_error) and nothing is claimed; the exception never escapes the runner."""
+        """Best-effort terminal report: a failing outcome write is recorded in report_error, nothing is claimed."""
         try:
             return self._step(state, detail, result)
         except Exception as exc:
@@ -127,8 +126,7 @@ class SessionRunner:
             self.cleanup_error = f"close failed: {exc!r}"
 
     async def _settle_tasks(self, cancel_pending: bool) -> None:
-        """Cancel (or let finish) and await every tool/resend task and retrieve their exceptions, so no tool or
-        send effect survives the terminal outcome. Its own errors are recorded, never raised."""
+        """Cancel (or let finish) and await every tool/resend task, retrieving exceptions; nothing survives the outcome."""
         tasks = list(self._tasks.values())
         if cancel_pending:
             for t in tasks:
@@ -136,7 +134,7 @@ class SessionRunner:
                     t.cancel()
         if tasks:
             for r in await asyncio.gather(*tasks, return_exceptions=True):
-                if isinstance(r, Exception) and repr(r) not in self.task_errors:   # the boundary normally saw it first
+                if isinstance(r, Exception):             # the boundary normally saw it first; keep anything it missed
                     self.task_errors.append(repr(r))
 
     # ---- the session ---------------------------------------------------------------------------------------
@@ -283,8 +281,7 @@ class SessionRunner:
                 "turns": len(self._turns), "tools": self._tools}
 
     async def _finish(self, ev: dict, t0: float) -> None:
-        """Terminal outcome after session.ended: COMPLETED only when every tool result was delivered and no
-        tool task failed; otherwise FAILED with the first failure named. Never success after a failed delivery."""
+        """After session.ended: COMPLETED only if every tool result was delivered and no task failed, else FAILED."""
         alias, purpose = self.call["destination_alias"], self.call["purpose"]
         failure = self._broken or (f"tool task failed: {self.task_errors[0]}" if self.task_errors else None)
         if failure:

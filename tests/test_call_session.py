@@ -385,10 +385,12 @@ def test_failed_tool_task_in_any_phase_exits_failed_with_a_quiet_peer(tmp_path, 
     expected = {"execute": "tool task failed", "receipt": "tool task failed", "record": "event handling failed",   # the transcript record fails first, in the receive loop
                 "send": "send failed", "resend": "send failed"}[phase]
     assert expected in call["history"][-1]["detail"]
-    assert runner.task_errors and all(t.done() for t in runner._tasks.values()) and transport.closed and runner.report_error is None
+    if phase in ("execute", "receipt"):
+        assert runner.task_errors                                  # caught by the tool-task boundary
+    assert all(t.done() for t in runner._tasks.values()) and transport.closed and runner.report_error is None
     assert "completed" not in " ".join(t["text"] for t in s.aria.transcript())
     receipts = _tools(s, cid)
-    if phase in ("execute", "receipt"):
+    if phase in ("execute", "receipt", "record"):               # record: the transcript write fails before the tool runs
         assert receipts == [] and not [e for e in call.get("transcript", []) if e.get("tool_call_id")]   # nothing claimed that did not happen
     else:
         assert len(receipts) == 1                                  # the execution that did happen is receipted once
