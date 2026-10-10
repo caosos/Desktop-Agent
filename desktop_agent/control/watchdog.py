@@ -49,6 +49,7 @@ class Watchdog:
         self.cooldown_sec = cooldown_sec
         self.workers = None                                      # WorkerMonitor, set by the service (feeds + open-PR refresh)
         self.allowance_path = None                               # <data_dir>/allowance.json, set by the service
+        self.allowance_project = "desktop_agent"                 # whose coordinator session is the registered allowance writer
         self._last_wake: dict[str, tuple[float, str]] = {}      # project → (ts, reasons key)
 
     def _emit(self, project: str, etype: str, payload: dict, evidence: list) -> None:
@@ -75,7 +76,12 @@ class Watchdog:
             self.store.save_coordinator_check(src.project, entry)
             report[src.project] = {k: v for k, v in entry.items() if k != "state"}
         if self.allowance_path is not None:
-            report["allowance"] = allowance.ingest(self.store, self.allowance_path)
+            writer_path = self.allowance_path.with_name(allowance.WRITER_FILE)
+            own = next((s for s in self.intake.sources if s.project == self.allowance_project), None)
+            if own is not None and hasattr(self.deliverer, "resolve_for"):
+                sess, note = self.deliverer.resolve_for(own)
+                allowance.register_writer(writer_path, sess, note)
+            report["allowance"] = allowance.ingest(self.store, self.allowance_path, writer_path=writer_path)
         self._resume_after_quota_reset()
         if self.workers is not None:
             try:

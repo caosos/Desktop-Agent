@@ -24,34 +24,83 @@ from .store import Store
 MAX_BODY = 6000
 
 
-def find_session(cwd_prefix: str, exact: bool = False, name: str | None = None) -> dict | None:
-    """Live Claude Code session by working directory (prefix or exact) or by name (newest first)."""
-    best = None
+HEADLESS_FLAGS = ("-p", "--print", "--output-format", "--json-schema")
+
+
+def _session_records() -> list[dict]:
+    out = []
     for p in glob.glob(os.path.expanduser("~/.claude/sessions/*.json")):
         try:
             d = json.load(open(p))
         except (OSError, json.JSONDecodeError):
             continue
+        if isinstance(d, dict):
+            out.append(d)
+    return out
+
+
+def _alive(pid: int) -> bool:
+    return os.path.exists(f"/proc/{pid}")
+
+
+def _cmdline(pid: int) -> list[str]:
+    try:
+        with open(f"/proc/{pid}/cmdline", "rb") as f:
+            return [x.decode(errors="replace") for x in f.read().split(b"\0") if x]
+    except OSError:
+        return []
+
+
+def eligible_sessions() -> list[dict]:
+    """Every live session record with a verdict. Eligible = explicitly interactive (`kind: interactive`,
+    `entrypoint: cli`), named, alive, and not a headless/worker command line. Missing metadata is
+    ineligible (fail closed), never assumed interactive."""
+    out = []
+    for d in _session_records():
         pid, cwd, sname = d.get("pid"), d.get("cwd") or "", d.get("name")
-        if not (pid and sname):
+        if not pid or not _alive(pid):
             continue
+        why = None
+        if not sname:
+            why = "unnamed session"
+        elif d.get("kind") != "interactive" or d.get("entrypoint") != "cli":
+            why = f"not an interactive CLI session (kind={d.get('kind')!r}, entrypoint={d.get('entrypoint')!r})"
+        else:
+            argv = _cmdline(pid)
+            if any(a in HEADLESS_FLAGS for a in argv[1:]):
+                why = "headless/worker command line"
+        out.append({"name": sname, "pid": pid, "cwd": cwd, "status": d.get("status"), "updatedAt": d.get("updatedAt"),
+                    "tmux": d.get("tmux"), "session_id": d.get("sessionId"), "eligible": why is None, "why": why})
+    return out
+
+
+def find_session(cwd_prefix: str, exact: bool = False, name: str | None = None) -> dict | None:
+    """Exactly one eligible session by name, or by working directory (prefix or exact). Two matches is
+    ambiguity and returns None — commands are never routed to "the newest" session."""
+    s, _ = resolve_session(cwd_prefix, exact=exact, name=name)
+    return s
+
+
+def resolve_session(cwd_prefix: str, exact: bool = False, name: str | None = None) -> tuple[dict | None, str]:
+    """(session, note): the sole eligible match, or None with the reason (no candidate / N candidates)."""
+    cands, rejected = [], []
+    for c in eligible_sessions():
         if name:
-            if sname != name:
+            if c["name"] != name:
                 continue
         elif exact:
-            if cwd.rstrip("/") != cwd_prefix.rstrip("/"):
+            if c["cwd"].rstrip("/") != cwd_prefix.rstrip("/"):
                 continue
-        elif not cwd.startswith(cwd_prefix.rstrip("/")):
+        elif not c["cwd"].startswith(cwd_prefix.rstrip("/")):
             continue
-        name_ = sname
-        if not os.path.exists(f"/proc/{pid}"):
-            continue
-        if d.get("kind") not in (None, "interactive") and d.get("entrypoint") == "sdk":
-            continue
-        cand = {"name": name_, "pid": pid, "cwd": cwd, "status": d.get("status"), "updatedAt": d.get("updatedAt"), "tmux": d.get("tmux")}
-        if best is None or (cand["updatedAt"] or 0) > (best["updatedAt"] or 0):
-            best = cand
-    return best
+        (cands if c["eligible"] else rejected).append(c)
+    where = f"name {name}" if name else f"cwd {cwd_prefix}{' (exact)' if exact else ''}"
+    if len(cands) == 1:
+        return cands[0], f"sole eligible session at {where}: {cands[0]['name']} (pid {cands[0]['pid']})"
+    if not cands:
+        rej = "; ".join(f"{r['name']} rejected: {r['why']}" for r in rejected)
+        return None, f"no eligible session at {where}" + (f" ({rej})" if rej else "")
+    return None, f"ambiguous: {len(cands)} eligible sessions at {where} ({', '.join(c['name'] for c in cands)}); not routing"
 
 
 def delivery_text(item: dict, backfill: bool = False) -> str:
@@ -114,30 +163,35 @@ class Deliverer:
         return posted < self.backfill_before
 
     @staticmethod
-    def session_for(src) -> dict | None:
-        """Pinned name first; when that session is gone (every restart renames it), fall back to the
-        configured working directory so delivery does not silently queue. The result says how it was found."""
+    def resolve_for(src) -> tuple[dict | None, str]:
+        """Pinned name first (the registered intended coordinator). When that session is gone (every
+        restart renames it), exactly one eligible interactive session in the configured working directory
+        may stand in; zero or several = fail closed, with the reason. The result says how it was found."""
         c = src.coordinator or {}
+        notes = []
         if c.get("session_name"):
-            s = find_session("", name=c["session_name"])
+            s, note = resolve_session("", name=c["session_name"])
             if s:
-                return {**s, "resolved_by": "name"}
-        if c.get("session_cwd_exact"):
-            s = find_session(c["session_cwd_exact"], exact=True)
-            if s:
-                return {**s, "resolved_by": "cwd (exact)"}
-        if c.get("session_cwd"):
-            s = find_session(c["session_cwd"])
-            if s:
-                return {**s, "resolved_by": "cwd (prefix)"}
-        return None
+                return {**s, "resolved_by": "name"}, note
+            notes.append(note)
+        for key, label, exact in (("session_cwd_exact", "cwd (exact)", True), ("session_cwd", "cwd (prefix)", False)):
+            if c.get(key):
+                s, note = resolve_session(c[key], exact=exact)
+                if s:
+                    return {**s, "resolved_by": label, "pinned_name": c.get("session_name")}, "; ".join(notes + [note])
+                notes.append(note)
+        return None, "; ".join(notes) or "no coordinator session configured"
+
+    @staticmethod
+    def session_for(src) -> dict | None:
+        return Deliverer.resolve_for(src)[0]
 
     async def _claude_peer(self, src, item: dict, backfill: bool, prebuilt_text: str | None = None) -> dict:
         c = src.coordinator or {}
         where = c.get("session_name") or c.get("session_cwd_exact") or c.get("session_cwd") or ""
-        session = self.session_for(src)
+        session, rnote = self.resolve_for(src)
         if not session:
-            return {"ok": False, "note": f"no live Claude Code session at {where}; queued, awaiting connection", "evidence": [where]}
+            return {"ok": False, "note": f"no live Claude Code session at {where}; queued, awaiting connection ({rnote})"[:300], "evidence": [where, rnote[:200]]}
         how = (f"; pinned name {c['session_name']} not live, resolved by {session['resolved_by']}"
                if session.get("resolved_by", "name") != "name" and c.get("session_name") else "")
         text = prebuilt_text or delivery_text(item, backfill)

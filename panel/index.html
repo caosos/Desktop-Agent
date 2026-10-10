@@ -226,7 +226,7 @@ function allowanceText(q, long) {
   const v = q.view, lbl = {five_hour: "5h", seven_day: "7d"};
   const win = Object.entries(v.windows).map(([k, w]) => w.state === "KNOWN"
     ? `${lbl[k] || k} ${Math.round(w.used_percentage)}% used, resets ${new Date(w.resets_at * 1000).toLocaleString([], {weekday: "short", hour: "2-digit", minute: "2-digit"})}`
-    : `${lbl[k] || k} UNKNOWN (${w.reason})`).join(" · ");
+    : `${lbl[k] || k} UNKNOWN (${w.reason})` + (w.historical ? ` — last known ${Math.round(w.historical.used_percentage)}% at ${new Date(w.historical.seen_at * 1000).toLocaleTimeString([], {hour: "2-digit", minute: "2-digit"})}, historical` : "")).join(" · ");
   const src = v.source === "claude_code_statusline" ? "coordinator session status line" : v.source === "worker_run" ? "last worker run" : v.source;
   const fresh = v.freshness === "fresh" ? `observed ${ago(v.observed_at)} ago` : v.freshness === "stale" ? `STALE — last observed ${ago(v.observed_at)} ago` : "observation time unknown";
   return `included Claude allowance (${v.account_alias}): ${win} · ${fresh} from ${src}` + (long ? " · not a bill; the same windows for every session of this account" : "");

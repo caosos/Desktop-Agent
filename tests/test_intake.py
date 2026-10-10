@@ -156,21 +156,60 @@ def test_control_plane_coordinator_acks_itself(tmp_path: Path):
     assert f"ACK {iid}" in text and "Do the thing." in text and "DA-INTAKE item=" in text
 
 
-def test_session_pin_falls_back_to_working_directory(monkeypatch):
-    """The pinned session name dies with every restart; delivery must then resolve by the configured
-    working directory and say so, instead of queueing silently."""
+def _sessions(monkeypatch, records, alive=None, cmdlines=None):
     from desktop_agent.control import intake_delivery as idm
-    live = {"name": "caoscare-1-05", "pid": 1, "cwd": "/home/caoscare-1", "status": "idle", "updatedAt": 1, "tmux": None}
-    def fake_find(cwd_prefix, exact=False, name=None):
-        if name:
-            return live if name == live["name"] else None
-        return live if (cwd_prefix.rstrip("/") == live["cwd"]) else None
-    monkeypatch.setattr(idm, "find_session", fake_find)
-    src = IntakeSource(project="desktop_agent", repo="x/y", issues=[3],
-                       coordinator={"kind": "claude_peer", "session_name": "caoscare-1-20", "session_cwd_exact": "/home/caoscare-1"})
-    s = idm.Deliverer.session_for(src)
+    monkeypatch.setattr(idm, "_session_records", lambda: records)
+    monkeypatch.setattr(idm, "_alive", lambda pid: pid in (alive if alive is not None else {r["pid"] for r in records}))
+    monkeypatch.setattr(idm, "_cmdline", lambda pid: (cmdlines or {}).get(pid, ["claude"]))
+    return idm
+
+
+def _rec(pid, name, cwd="/home/caoscare-1", kind="interactive", entrypoint="cli", sid=None, **extra):
+    d = {"pid": pid, "name": name, "cwd": cwd, "status": "idle", "updatedAt": pid, "sessionId": sid or f"sid-{pid}"}
+    if kind is not None: d["kind"] = kind
+    if entrypoint is not None: d["entrypoint"] = entrypoint
+    return {**d, **extra}
+
+
+def _src(**coord):
+    return IntakeSource(project="desktop_agent", repo="x/y", issues=[3], coordinator={"kind": "claude_peer", **coord})
+
+
+def test_routing_pinned_name_then_sole_eligible_candidate_else_fail_closed(monkeypatch):
+    """Stale pin + exactly one eligible interactive session in the directory → that one, saying so.
+    Two eligible home-directory sessions → ambiguous, nothing routed (never "the newest")."""
+    idm = _sessions(monkeypatch, [_rec(5, "caoscare-1-05", updatedAt=1), _rec(9, "caoscare-1-09", updatedAt=99)])
+    src = _src(session_name="caoscare-1-20", session_cwd_exact="/home/caoscare-1")
+    s, note = idm.Deliverer.resolve_for(src)
+    assert s is None and "ambiguous: 2 eligible sessions" in note and "caoscare-1-05" in note and "caoscare-1-09" in note
+    # the pinned name is live again: by name, regardless of the other session
+    src.coordinator["session_name"] = "caoscare-1-09"
+    s, note = idm.Deliverer.resolve_for(src)
+    assert s["name"] == "caoscare-1-09" and s["resolved_by"] == "name" and s["session_id"] == "sid-9"
+    # only one eligible session left: stale pin falls back to it, and the result says how
+    idm = _sessions(monkeypatch, [_rec(5, "caoscare-1-05")])
+    src.coordinator["session_name"] = "caoscare-1-20"
+    s, note = idm.Deliverer.resolve_for(src)
+    assert s["name"] == "caoscare-1-05" and s["resolved_by"] == "cwd (exact)" and s["pinned_name"] == "caoscare-1-20"
+    assert "no eligible session at name caoscare-1-20" in note and "sole eligible session at cwd /home/caoscare-1 (exact)" in note
+    # nothing configured beyond a dead name: None with the reason
+    assert idm.Deliverer.resolve_for(_src(session_name="caoscare-1-20"))[0] is None
+
+
+def test_routing_excludes_sdk_worker_and_metadata_less_sessions(monkeypatch):
+    """A session record without kind/entrypoint, an SDK session, and a `claude -p` worker are never
+    candidates, so they can neither receive commands nor make the directory ambiguous."""
+    recs = [_rec(5, "caoscare-1-05"),
+            _rec(6, "sdk-no-kind", kind=None, entrypoint="sdk"),
+            _rec(7, "no-metadata", kind=None, entrypoint=None),
+            _rec(8, "worker-print", kind="interactive", entrypoint="cli"),
+            _rec(10, "dead", )]
+    idm = _sessions(monkeypatch, recs, alive={5, 6, 7, 8}, cmdlines={8: ["claude", "-p", "do work", "--output-format", "stream-json"]})
+    elig = {e["name"]: e for e in idm.eligible_sessions()}
+    assert elig["caoscare-1-05"]["eligible"] and not elig["sdk-no-kind"]["eligible"] and not elig["no-metadata"]["eligible"]
+    assert "headless/worker" in elig["worker-print"]["why"] and "dead" not in elig
+    s, note = idm.Deliverer.resolve_for(_src(session_name="gone", session_cwd_exact="/home/caoscare-1"))
     assert s["name"] == "caoscare-1-05" and s["resolved_by"] == "cwd (exact)"
-    src.coordinator["session_name"] = "caoscare-1-05"
-    assert idm.Deliverer.session_for(src)["resolved_by"] == "name"
-    src.coordinator = {"kind": "claude_peer", "session_name": "caoscare-1-20"}
-    assert idm.Deliverer.session_for(src) is None
+    # pinning a worker by name does not make it eligible either
+    s, note = idm.Deliverer.resolve_for(_src(session_name="worker-print"))
+    assert s is None and "worker-print rejected: headless/worker command line" in note
