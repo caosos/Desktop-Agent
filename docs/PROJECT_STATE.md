@@ -379,3 +379,7 @@ HANDOFF CAPSULE
 - **Unfinished items marked PAUSED_BY_OWNER (not DONE):** Ask Aria dictation owner microphone smoke (fix `d0923e1` is live in the repo; untested on the Lenovo); OpenAI pilot flip (your one line, `providers.openai.enabled: true`) and the Anthropic key file; PR #11 merge; P3 research-job workflow (FUTURE/BLOCKED on two decisions); Business OS six liaison messages awaiting Agent 01's ack; CAOSCare Room 214 goodbye/stop semantics (`da-a6325b308f` BLOCKED at its coordinator; no rebuild or deploy was made).
 - **Refs:** `main` at the checkpoint commit recorded below; suite 87 passed, 1 skipped at the last run.
 - **Resume (owner, on the EliteDesk as `caoscare-1`):** `systemctl --user enable --now desktop-agent` then open `http://127.0.0.1:8477/?access_token=$(cat ~/.config/desktop-agent/token)`; the scheduler stays paused until **Resume** is pressed on the panel; the intake catches up on #3 / #117 comments posted while down (cursors persisted, no duplicates).
+
+## 2026-10-10 — Resumed by owner ("all usages have been reset. resume working")
+
+- `systemctl --user enable --now desktop-agent` → active, enabled; scheduler resumed by control receipt; intake polled: CAOSCare pause `da-95e095aaaf` marked DONE by its coordinator, three new Business OS liaison messages RECEIVED (awaiting Agent 01's ack files, manual-only). **CAOSCare development stays paused** (owner order of 2026-10-09 23:42Z); Business OS stays manual. No tasks open; no model calls made to resume.

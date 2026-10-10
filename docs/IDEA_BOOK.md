@@ -13,7 +13,7 @@ Capturing an idea is not authorization to build it. A checklist item is checked 
 
 ## 1. Prioritized checklist — owner-approved NEXT actions only (max 3)
 
-**PAUSED_BY_OWNER 2026-10-09 (da-82e9f63bf8):** Desktop-Agent development and the background control plane are stopped; the items below wait until Michael resumes (`systemctl --user enable --now desktop-agent`).
+Resumed 2026-10-10 by Michael ("all usages have been reset. resume working"); CAOSCare development stays paused.
 
 | # | Action | Project | Depends on | Done when (verifiable) |
 |---|---|---|---|---|
