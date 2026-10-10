@@ -295,3 +295,35 @@ def test_cancel_mid_session_leaves_no_running_task(tmp_path):
     rec, runner = asyncio.run(go())
     assert _kv(s, rec["call_id"])["state"] == "CANCELLED" and all(t.done() for t in runner._tasks.values())
     assert s.calling.adapter.transports[0].closed and s.calling.adapter.transports[0].sent == [] and _tools(s, rec["call_id"]) == []
+
+
+# --- correction da-e50c8a9f1c: a failed send must end a session whose peer then stays silent ---------------------
+
+class QuietAfterSendFailureTransport(FakeTransport):
+    """Yields its script, then waits forever (no session.ended, no disconnect); every send raises."""
+    async def events(self):
+        async for ev in super().events():
+            yield ev
+        await asyncio.Event().wait()                               # the quiet peer: no further event ever arrives
+
+    async def send(self, obj):
+        raise OSError("SIMULATED socket send error")
+
+
+def test_send_failure_with_a_quiet_peer_exits_failed_without_another_event(tmp_path):
+    from desktop_agent.control.call_session import CallContract, SessionRunner
+    s = _service(tmp_path)
+    rec = s.calling.request("c", ALIAS, "p", 0, "test")
+    cid = rec["call_id"]
+    transport = QuietAfterSendFailureTransport([{"type": "transcript.user", "turn": 1, "text": "hi"}, tc(1, "t")])
+    runner = SessionRunner(_kv(s, cid), CallContract(cid), transport, s.calling.apply, s.calling.record, s.calling.tool_receipt)
+
+    async def go():
+        await asyncio.wait_for(runner.run(), 3.0)                  # on the previous runner this never returns
+        await asyncio.sleep(0.05)
+    asyncio.run(go())
+    call = _kv(s, cid)
+    assert call["state"] == "FAILED" and "send failed" in call["history"][-1]["detail"] and "OSError" in call["result"]["summary"]
+    assert all(t.done() for t in runner._tasks.values()) and transport.closed
+    assert len(_tools(s, cid)) == 1 and transport.sent == []       # the one execution is receipted; nothing was delivered
+    assert "completed" not in " ".join(t["text"] for t in s.aria.transcript())

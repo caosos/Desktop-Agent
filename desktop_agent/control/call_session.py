@@ -53,6 +53,7 @@ class SessionRunner:
         self._seq = 0
         self._cancelled = False
         self._broken: str | None = None                  # a failed send / tool task: the session can no longer succeed
+        self._fatal: asyncio.Event | None = None         # set when the session cannot continue: wakes the receive wait
         self.cleanup_error: str | None = None            # recorded, never allowed to replace the primary outcome
         self.task_errors: list[str] = []                 # exceptions retrieved from finished tool/resend tasks
         self._outputs: dict[str, dict] = {}
@@ -84,7 +85,12 @@ class SessionRunner:
             raise
         except Exception as exc:                         # a failed delivery can never be followed by success
             self._broken = f"send failed: {exc!r}"
+            self._wake()                                 # a quiet peer must not keep the session open after this
             return False
+
+    def _wake(self) -> None:
+        if self._fatal is not None and not self._fatal.is_set():
+            self._fatal.set()
 
     def _rec(self, entry: dict) -> None:
         if not self._cancelled:
@@ -98,6 +104,7 @@ class SessionRunner:
             self._cancel_now()
 
     def _cancel_now(self) -> None:
+        self._wake()
         for t in self._tasks.values():
             t.cancel()
         if self._loop is not None:
@@ -130,9 +137,10 @@ class SessionRunner:
            not self._step("STARTED", "SIMULATED call started (no line was opened)"):
             return await self._close_quietly()
         first, ended, read_error = True, None, None
+        self._fatal = asyncio.Event()
         try:
-            async for ev in self.transport.events():
-                if self._cancelled:
+            async for ev in self._events_until_fatal():
+                if self._cancelled or self._broken:
                     break
                 if first:
                     first = False
@@ -147,17 +155,40 @@ class SessionRunner:
         except Exception as exc:
             read_error = f"transport read failed: {exc!r}"
         try:
-            if ended is not None and not self._cancelled and not read_error:
+            if ended is not None and not self._cancelled and not read_error and not self._broken:
                 await self._settle_tasks(cancel_pending=False)    # tool results are delivered before the session closes
                 await self._finish(ended, t0)
                 return
             await self._settle_tasks(cancel_pending=True)         # failure / disconnect / cancel: no effect survives
             if self._cancelled:
                 return
-            reason = read_error or "transport disconnected"
+            reason = read_error or self._broken or "transport disconnected"
             self._step("FAILED", f"SIMULATED {reason}", self._result("failed", f"SIMULATED call failed: {reason}; no real call was placed.", t0))
         finally:
             await self._close_quietly()                           # cleanup errors are recorded, never the outcome
+
+    async def _events_until_fatal(self):
+        """The transport's events, abandoned the moment the session becomes fatal (failed send, cancel): a peer
+        that never sends another event cannot keep the runner pending."""
+        it = self.transport.events().__aiter__()
+        fatal = asyncio.ensure_future(self._fatal.wait())
+        try:
+            while True:
+                nxt = asyncio.ensure_future(it.__anext__())
+                done, _ = await asyncio.wait({nxt, fatal}, return_when=asyncio.FIRST_COMPLETED)
+                if nxt not in done:
+                    nxt.cancel()
+                    try:
+                        await nxt
+                    except (asyncio.CancelledError, StopAsyncIteration, Exception):
+                        pass
+                    return
+                try:
+                    yield nxt.result()
+                except StopAsyncIteration:
+                    return
+        finally:
+            fatal.cancel()
 
     async def _handle(self, ev: dict) -> None:
         kind, turn = ev.get("type"), ev.get("turn")

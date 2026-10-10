@@ -298,6 +298,9 @@ request → ACCEPTED → STARTED → IN_PROGRESS → COMPLETED chain now runs th
   terminal step, so no tool executes or sends after the outcome; on `session.ended` pending tasks are awaited
   (not cancelled) so delivered results precede `session.close`.
 - Transport close errors are recorded in `runner.cleanup_error` and never replace the primary outcome.
+- A fatal send (da-e50c8a9f1c) also wakes the receive wait (`_events_until_fatal` races the next event against the
+  runner's fatal signal), so a peer that then stays silent cannot keep the session pending: the runner settles its
+  tasks and writes FAILED without another provider event. Cancel uses the same wake.
 - Regressions (`tests/test_call_session.py`): raising read; raising send; pending tool at disconnect (task
   cancelled, `_outputs` empty after the wait window); read failure + raising close (primary outcome kept,
   cleanup error recorded, pending task cancelled); cancel leaves no running task.
