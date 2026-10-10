@@ -490,3 +490,14 @@ HANDOFF CAPSULE
 - **Panel vs F-60:** the instruction row for the 1733 note shows "COMPLETED → coordination-completed · implementation: result linked · live: unknown" (a docs ACK), while the worker row shows F-60 RUNNING from the host process list and lane 06 "RUNNING — pid 3909450 alive since 5m": queued/ACKed and actual engineering start are shown as separate facts. Accurate.
 - **Unfinished Desktop items after `2238799`:** none authorized and open on this side; `da-a59815bd0a` is BLOCKED on Michael's account-side action; this item.
 - **One observation defect reproduced and corrected (`service.coordinator_state`):** the CAOSCare card read "pinned name None is not live; resolved by cwd (prefix)" although that project pins no name. Now: "resolved by cwd (prefix) (no name pinned for this project)". Fixture added. **Not restarted** under this item (no process restart authorized); the running service shows the old wording until the next restart.
+
+
+## 2026-10-10 — task `implement-docs-calling-brief-md--52fe05` verified (recorded by the control plane)
+
+- **Objective:** Implement docs/CALLING_BRIEF.md sections 1-8 exactly: the SIMULATED Ask Aria conversational-calling loop (owner item da-24dcdd2b97). Read docs/CALLING_BRIEF.md FIRST, then desktop_agent/control/aria.py, receipts.py (read only), store.py set_kv/get_kv/idempotent/remember, api.py build_app, tests/test
+- **Why now:** Owner instruction da-24dcdd2b97 on caosos/Desktop-Agent#3: Desktop-only preparation for conversational calling through the existing Ask Aria, task/worker and receipt paths; synthetic loop only.
+- **Model class:** cloud_strong; attempt 1; adapter claude_headless
+- **Worker head:** `39beb9d0f500bc4fb992863597d68cbcae5cb1b6` on `agent/implement-docs-calling-brief-md--52fe05` from `398710eb53a2`
+- **Verifier (clean checkout):** `/home/caoscare-1/Desktop-Agent/.venv/bin/python -m pytest -q` exit 0
+- **Files:** desktop_agent/control/api.py, desktop_agent/control/aria.py, desktop_agent/control/calling.py, desktop_agent/control/calling_api.py, desktop_agent/control/service.py, docs/ASK_ARIA_PLAN.md, docs/BLUEPRINT.md, docs/CALLING_BRIEF.md, tests/test_calling.py
+- **Receipts:** worker claim unverified → verifier verified; integration follows this entry.
