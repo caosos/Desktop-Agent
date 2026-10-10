@@ -1,6 +1,7 @@
 """Worker visibility from grounded sources only: idle coordinator with two live workers, a stale worker,
 finished-without-merge, paused on quota, a genuinely idle shop, and a project with no telemetry (UNKNOWN)."""
 import asyncio
+import time
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -83,7 +84,7 @@ def test_running_record_grounded_in_process_and_unknown_project(tmp_path: Path):
 def test_feed_and_open_pr_refresh(tmp_path: Path):
     store = Store(tmp_path)
     feed = {"projects": {"mbos": {"work": {"dispatcher_running": True, "stalled_workers": ["C-9"], "approved_ready_rows_for_specialist_lanes": 2},
-                                  "quota_allows_a_turn": True, "last_check": "2026-10-09T18:10:48Z"}}}
+                                  "quota_allows_a_turn": True, "last_check": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}}}
     store.save_task("t-done", "g", "da", "DONE", {"objective": "o"}, "h", {"integration": {"pr_url": "https://x/pr/11"}})
     calls = []
     async def gh(path): calls.append(path); return [{"html_url": "https://x/pr/11"}]
@@ -98,7 +99,8 @@ def test_feed_and_open_pr_refresh(tmp_path: Path):
     feed["projects"]["mbos"]["work"] = {"dispatcher_running": False, "stalled_workers": [], "approved_ready_rows_for_specialist_lanes": 1}
     asyncio.run(mon.refresh_remote())
     s = mon.snapshot(projects["mbos"], [], None)
-    assert s["status"] == "IDLE" and s["alerts"] == [{"level": "amber", "text": "dispatcher stopped — 1 approved row(s) queued and not being dispatched (feed 2026-10-09T18:10:48Z)"}]
+    assert s["status"] == "IDLE" and [a["level"] for a in s["alerts"]] == ["amber"]
+    assert s["alerts"][0]["text"].startswith("dispatcher stopped — 1 approved row(s) queued and not being dispatched (observed 2026-") and "read 0s ago" in s["alerts"][0]["text"]
     feed["projects"]["mbos"]["work"]["approved_ready_rows_for_specialist_lanes"] = 0
     asyncio.run(mon.refresh_remote())
     assert mon.snapshot(projects["mbos"], [], None)["alerts"][0]["level"] == "info"

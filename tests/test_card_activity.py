@@ -43,11 +43,11 @@ def _seed(tmp_path: Path, monkeypatch) -> Service:
         {"pid": 11, "ppid": 1, "user": "c", "cmd": 'bash -c claude "$(cat /x/IDLE2/rq-1.prompt)"', "ticks": 3, "started_at": now - 300},
         {"pid": 12, "ppid": 1, "user": "c", "cmd": 'bash -c claude "$(cat /x/IDLE2/rq-2.prompt)"', "ticks": 5, "started_at": now - 200},
         {"pid": 13, "ppid": 1, "user": "m", "cmd": "python -I tools/worker.py F-45 --lane 06", "ticks": 9, "started_at": now - 100}]
-    s.store.set_kv("feed:ext", {"fetched_at": now, "url": "u", "data": {"work": {"dispatcher_running": True, "stalled_workers": [], "approved_ready_rows_for_specialist_lanes": 0}, "last_check": "t"}})
-    s.store.set_kv("feed:extq", {"fetched_at": now, "url": "u", "data": {"work": {"dispatcher_running": True, "stalled_workers": [], "approved_ready_rows_for_specialist_lanes": 0}, "session": None, "last_check": "t"}})
-    s.store.set_kv("feed:extstop", {"fetched_at": now, "url": "u", "data": {"state": "STOPPED", "session": None, "unacknowledged_messages": ["ARYA-1", "ARIA-2"], "last_check": "t", "work": {"dispatcher_running": False, "stalled_workers": [], "approved_ready_rows_for_specialist_lanes": 0}}})
-    s.store.set_kv("feed:extbusy", {"fetched_at": now, "url": "u", "data": {"work": {"dispatcher_running": True, "stalled_workers": [], "approved_ready_rows_for_specialist_lanes": 0}, "session": {"name": "agent-01-coordinator-17", "status": "busy", "pid": 14005}, "last_check": "t"}})
-    s.store.set_kv("feed:stale", {"fetched_at": now, "url": "u", "data": {"work": {"dispatcher_running": True, "stalled_workers": ["C-9"], "approved_ready_rows_for_specialist_lanes": 0}, "last_check": "t"}})
+    s.store.set_kv("feed:ext", {"fetched_at": now, "url": "u", "data": {"work": {"dispatcher_running": True, "stalled_workers": [], "approved_ready_rows_for_specialist_lanes": 0}, "last_check": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}})
+    s.store.set_kv("feed:extq", {"fetched_at": now, "url": "u", "data": {"work": {"dispatcher_running": True, "stalled_workers": [], "approved_ready_rows_for_specialist_lanes": 0}, "session": None, "last_check": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}})
+    s.store.set_kv("feed:extstop", {"fetched_at": now, "url": "u", "data": {"state": "STOPPED", "session": None, "unacknowledged_messages": ["ARYA-1", "ARIA-2"], "last_check": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "work": {"dispatcher_running": False, "stalled_workers": [], "approved_ready_rows_for_specialist_lanes": 0}}})
+    s.store.set_kv("feed:extbusy", {"fetched_at": now, "url": "u", "data": {"work": {"dispatcher_running": True, "stalled_workers": [], "approved_ready_rows_for_specialist_lanes": 0}, "session": {"name": "agent-01-coordinator-17", "status": "busy", "pid": 14005}, "last_check": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}})
+    s.store.set_kv("feed:stale", {"fetched_at": now, "url": "u", "data": {"work": {"dispatcher_running": True, "stalled_workers": ["C-9"], "approved_ready_rows_for_specialist_lanes": 0}, "last_check": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}})
     return s
 
 
@@ -82,7 +82,7 @@ def test_cards_state_coordinator_and_workers_separately(served):
         q2 = card("extq"); assert "COORDINATOR: STATUS NOT VERIFIED" in q2 and "not evidence that it is stopped" in q2 and "0 running" in q2 and "coordinator not verified · 0 specialists observed" in q2
         assert "NO CURRENT ACTIVITY" not in q2 and "NOT RUNNING" not in q2
         # the project feed carries a fresh busy session record: coordinator BUSY per its own feed, card ACTIVE with 0 workers
-        es = card("extstop"); assert "COORDINATOR: NOT RUNNING" in es and "its own watchdog reports STOPPED" in es and "2 liaison message(s) unread" in es and "start it in your own account" in es and "ACTIVE" not in es and "NO CURRENT ACTIVITY · coordinator not running" in es
+        es = card("extstop"); assert "COORDINATOR: NOT RUNNING" in es and "its own watchdog reports STOPPED" in es and "2 liaison message(s) it lists unread" in es and "start it in your own account" in es and "ACTIVE" not in es and "NO CURRENT ACTIVITY · coordinator not running" in es
         eb = card("extbusy"); assert "COORDINATOR: BUSY" in eb and "per its own feed" in eb and "0 running" in eb and "ACTIVE · coordinator" in eb
         q = card("quiet"); assert "COORDINATOR: IDLE" in q and "0 running" in q and "NO CURRENT ACTIVITY · waiting for instructions" in q and "ACTIVE" not in q
         st = card("stale"); assert "alive but not progressing: C-9" in st and "attention" in st and "ACTIVE" not in st

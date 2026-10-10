@@ -49,7 +49,7 @@ def test_drilldown_roster_live_vs_declared_and_instructions(tmp_path: Path, monk
     monkeypatch.setattr(dd, "gh_api", fake_gh)
     assert asyncio.run(s.drill.refresh_remote()) == {"mbos": "4 declared rows"}
     s.store.set_kv("feed:mbos", {"fetched_at": time.time(), "url": "u", "data": {"work": {"dispatcher_running": True, "stalled_workers": [], "approved_ready_rows_for_specialist_lanes": 1},
-                                                                       "session": {"name": "agent-01-coordinator-17", "status": "idle", "pid": 14005}, "last_check": "2026-10-09T22:00:00Z"}})
+                                                                       "session": {"name": "agent-01-coordinator-17", "status": "idle", "pid": 14005}, "last_check": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}})
     s.workers.procs_fn = lambda: [{"pid": 77, "ppid": 1, "user": "michaelos", "cmd": "python -I tools/worker.py F-39 --lane 06 --kind implement", "ticks": 3, "started_at": time.time() - 120}]
     s.store.save_intake({"item_id": "da-old0000000", "project": "mbos", "repo": "x/mbos", "issue": 0, "kind": "liaison", "gh_id": 0, "author": "aria", "title": "Owner direction one",
                          "body": "b", "url": "https://x/m1", "posted_at": "2026-10-09T18:00:00Z", "status": "RECEIVED", "coordinator": "liaison"})
@@ -69,13 +69,13 @@ def test_drilldown_roster_live_vs_declared_and_instructions(tmp_path: Path, monk
     # the persistent coordinator's own process (other account) is shown alive when declared and visible; feed without session says so
     s.projects["mbos"].roster["coordinator_process_pattern"] = "ROUND TWO AGENT 01 — COORDINATOR"
     s.workers.procs_fn = lambda: [{"pid": 14005, "ppid": 1, "user": "michaelos", "cmd": "claude --permission-mode acceptEdits MICHAEL BUSINESS OS — ROUND TWO AGENT 01 — COORDINATOR", "ticks": 1, "started_at": time.time() - 5000}]
-    s.store.set_kv("feed:mbos", {"fetched_at": time.time(), "url": "u", "data": {"work": {"dispatcher_running": True, "stalled_workers": [], "approved_ready_rows_for_specialist_lanes": 0}, "session": None, "last_check": "t"}})
+    s.store.set_kv("feed:mbos", {"fetched_at": time.time(), "url": "u", "data": {"work": {"dispatcher_running": True, "stalled_workers": [], "approved_ready_rows_for_specialist_lanes": 0}, "session": None, "last_check": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}})
     d = s.drill.build("mbos"); by = {r["lane"]: r for r in d["roster"]}
     assert by["01"]["actual"] == "SESSION ALIVE" and "pid 14005 (michaelos)" in by["01"]["proof"] and "no session entry" in by["01"]["proof"]
     assert d["coordinator"]["process"]["pid"] == 14005 and d["coordinator"]["feed_note"] == "feed read, no session entry"
     assert by["06"]["actual"] == "NOT OBSERVED"
     # a stopped dispatcher with queued rows outranks the unacknowledged instruction
-    s.store.set_kv("feed:mbos", {"fetched_at": time.time(), "url": "u", "data": {"work": {"dispatcher_running": False, "stalled_workers": [], "approved_ready_rows_for_specialist_lanes": 2}, "last_check": "t"}})
+    s.store.set_kv("feed:mbos", {"fetched_at": time.time(), "url": "u", "data": {"work": {"dispatcher_running": False, "stalled_workers": [], "approved_ready_rows_for_specialist_lanes": 2}, "last_check": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}})
     assert s.drill.build("mbos")["primary_action"].startswith("dispatcher stopped")
     assert s.drill.build("nope") is None
 
@@ -85,7 +85,8 @@ def test_work_summary_three_lists(tmp_path: Path):
     from desktop_agent.control.drilldown import work_summary
     from desktop_agent.control.store import Store
     store = Store(tmp_path)
-    store.set_kv("feed:mbos", {"fetched_at": time.time(), "data": {"work": {"dispatcher_running": True, "approved_ready_rows_for_specialist_lanes": 2}, "quota_allows_a_turn": True}})
+    store.set_kv("feed:mbos", {"fetched_at": time.time(), "data": {"work": {"dispatcher_running": True, "approved_ready_rows_for_specialist_lanes": 2}, "quota_allows_a_turn": True,
+                                                              "last_check": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}})
     store.set_kv("roster:mbos", {"rows": [{"lane": "02", "role": "Discovery", "blocker": "B-12 live smoke: credentials + MICHAEL_DECISIONS #8"}, {"lane": "07", "role": "QA", "blocker": "none"}]})
     projects = [{"name": "caoscare", "workers": {"status": "IDLE", "finished": [{"id": "c2e594", "status": "FINISHED (verified; PR open, not merged)", "pr_url": "https://x/110"}]},
                  "coordinator": {"external": {"ready_unblocked": ["RQ-052 docs"], "open_items": ["da-1"], "waiting_owner": ["drivers", "telephony"]}}},
@@ -113,17 +114,17 @@ def test_persistent_coordinator_absence_is_not_verified_not_stopped(tmp_path: Pa
     s.workers.procs_fn = lambda: []
     lane01 = lambda: next(r for r in s.drill.build("mbos")["roster"] if r["lane"] == "01")
     # (a) feed read, no session entry, no process → NOT VERIFIED, with the reason
-    s.store.set_kv("feed:mbos", {"fetched_at": time.time(), "url": "u", "data": {"work": {"dispatcher_running": True, "stalled_workers": [], "approved_ready_rows_for_specialist_lanes": 0}, "session": None, "last_check": "t"}})
+    s.store.set_kv("feed:mbos", {"fetched_at": time.time(), "url": "u", "data": {"work": {"dispatcher_running": True, "stalled_workers": [], "approved_ready_rows_for_specialist_lanes": 0}, "session": None, "last_check": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}})
     r = lane01(); assert r["actual"] == "NOT VERIFIED" and "separate Linux account" in r["proof"] and "not evidence that it is stopped" in r["proof"]
     assert s.drill.build("mbos")["coordinator"]["verdict"] == "NOT VERIFIED"
     # (b) fresh feed says the session is busy → SESSION BUSY
-    s.store.set_kv("feed:mbos", {"fetched_at": time.time(), "url": "u", "data": {"work": {"dispatcher_running": True, "stalled_workers": []}, "session": {"name": "agent-01-coordinator-17", "status": "busy", "pid": 14005}, "last_check": "t"}})
+    s.store.set_kv("feed:mbos", {"fetched_at": time.time(), "url": "u", "data": {"work": {"dispatcher_running": True, "stalled_workers": []}, "session": {"name": "agent-01-coordinator-17", "status": "busy", "pid": 14005}, "last_check": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}})
     assert lane01()["actual"] == "SESSION BUSY"
     # (c) explicitly verified closed → NOT RUNNING
-    s.store.set_kv("feed:mbos", {"fetched_at": time.time(), "url": "u", "data": {"work": {}, "session": {"name": "agent-01-coordinator-17", "status": "closed"}, "last_check": "t"}})
+    s.store.set_kv("feed:mbos", {"fetched_at": time.time(), "url": "u", "data": {"work": {}, "session": {"name": "agent-01-coordinator-17", "status": "closed"}, "last_check": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}})
     assert lane01()["actual"] == "NOT RUNNING" and "its own feed reports" in lane01()["proof"]
     # (d) stale feed → UNKNOWN (stale feed), never a claim
-    s.store.set_kv("feed:mbos", {"fetched_at": time.time() - 3600, "url": "u", "data": {"work": {}, "session": {"name": "x", "status": "busy"}, "last_check": "t"}})
+    s.store.set_kv("feed:mbos", {"fetched_at": time.time() - 3600, "url": "u", "data": {"work": {}, "session": {"name": "x", "status": "busy"}, "last_check": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}})
     assert lane01()["actual"].startswith("UNKNOWN") and "stale" in lane01()["actual"]
     # (e) a live process proves the session exists, not that it is working
     s.projects["mbos"].roster["coordinator_process_pattern"] = "AGENT 01 — COORDINATOR"
@@ -140,12 +141,12 @@ def test_feed_stopped_state_is_explicit_evidence_and_work_names_owner(tmp_path: 
     s.store.set_kv("roster:mbos", {"fetched_at": time.time(), "source": "b:x", "url": "u", "sha": "abc",
                                    "rows": [{"lane": "01", "role": "Coordinator (persistent)", "declared_state": "WORKING", "last_result": "", "ready": "", "blocker": "", "declared_as_of": "2026-10-08"}]})
     s.workers.procs_fn = lambda: []
-    s.store.set_kv("feed:mbos", {"fetched_at": time.time(), "url": "u", "data": {"state": "STOPPED", "session": None, "last_check": "2026-10-10T03:32:41Z",
+    s.store.set_kv("feed:mbos", {"fetched_at": time.time(), "url": "u", "data": {"state": "STOPPED", "session": None, "last_check": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
                                  "unacknowledged_messages": ["ARIA-20261009-2106-deferred", "ARYA-20261010-0328-f49-verification"], "work": {"dispatcher_running": False, "stalled_workers": [], "approved_ready_rows_for_specialist_lanes": 0}}})
     r = next(x for x in s.drill.build("mbos")["roster"] if x["lane"] == "01")
     assert r["actual"] == "NOT RUNNING" and "its own watchdog" in r["proof"] and "2 liaison message(s)" in r["proof"]
     st = s.state(); w = st["work"]
     assert w["needs_owner"][0]["who"] == "you (other account)" and "STOPPED per its own watchdog" in w["needs_owner"][0]["text"] and "ARYA-20261010-0328-f49-verification" in w["needs_owner"][0]["text"]
     assert all("who" in x for x in w["needs_owner"] + w["waiting"] + w["can_run_now"])
-    s.store.set_kv("feed:mbos", {"fetched_at": time.time(), "url": "u", "data": {"state": "HEALTHY", "session": None, "last_check": "t", "work": {"dispatcher_running": True, "stalled_workers": []}}})
+    s.store.set_kv("feed:mbos", {"fetched_at": time.time(), "url": "u", "data": {"state": "HEALTHY", "session": None, "last_check": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "work": {"dispatcher_running": True, "stalled_workers": []}}})
     assert next(x for x in s.drill.build("mbos")["roster"] if x["lane"] == "01")["actual"] == "NOT VERIFIED"

@@ -23,6 +23,8 @@ import re
 import time
 import urllib.request
 
+from .feedtime import feed_freshness
+
 STALE_AFTER_SEC = 900
 
 
@@ -164,23 +166,28 @@ class WorkerMonitor:
             d = feed.get("data") or {}
             w = d.get("work") or {}
             fage = now - float(feed.get("fetched_at") or 0)
+            ff = feed_freshness(feed, now, last_ack=(self.store.coordinator_rows().get(pkg.name) or {}).get("last_ack"))
             if w:
-                when = d.get("last_check") or feed.get("fetched_at")
+                when = ff["label"]
                 rows = w.get("approved_ready_rows_for_specialist_lanes")
                 feed_summary = {"dispatcher_running": bool(w.get("dispatcher_running")), "ready_rows": rows or 0, "stalled": len(w.get("stalled_workers") or []),
                                 "quota_allows_turn": d.get("quota_allows_a_turn"), "self_time": d.get("last_check"), "read_at": feed.get("fetched_at"),
-                                "fresh": fage < 900, "session": (d.get("session") or None), "state": d.get("state"),
+                                "fresh": ff["fresh"], "freshness": ff["status"], "freshness_label": ff["label"], "source_age_sec": ff["source_age"],
+                                "ack_recent": ff["ack_recent"], "last_ack": ff["last_ack"],
+                                "session": (d.get("session") or None), "state": d.get("state"),
                                 "unacknowledged_messages": list(d.get("unacknowledged_messages") or []), "last_wake": d.get("last_wake")}
                 notes.append(f"feed: dispatcher {'running' if w.get('dispatcher_running') else 'not running'}, stalled {len(w.get('stalled_workers') or [])}, "
                              f"ready rows {rows if rows is not None else '?'}, quota allows a turn: {d.get('quota_allows_a_turn', '?')} ({when})")
-                if not w.get("dispatcher_running"):
+                if not ff["fresh"]:
+                    alerts.append({"level": "info", "text": f"feed claims are not current ({when}); dispatcher/ready/stalled figures are its last statement, not now"})
+                elif not w.get("dispatcher_running"):
                     if rows:
-                        alerts.append({"level": "amber", "text": f"dispatcher stopped — {rows} approved row(s) queued and not being dispatched (feed {when})"})
+                        alerts.append({"level": "amber", "text": f"dispatcher stopped — {rows} approved row(s) queued and not being dispatched ({when})"})
                     else:
-                        alerts.append({"level": "info", "text": f"dispatcher stopped, nothing queued (feed {when})"})
-                if w.get("stalled_workers"):
-                    alerts.append({"level": "amber", "text": f"feed reports stalled workers: {', '.join(map(str, w['stalled_workers']))} (feed {when})"})
-                for sid in w.get("stalled_workers") or []:
+                        alerts.append({"level": "info", "text": f"dispatcher stopped, nothing queued ({when})"})
+                if w.get("stalled_workers") and ff["fresh"]:
+                    alerts.append({"level": "amber", "text": f"feed reports stalled workers: {', '.join(map(str, w['stalled_workers']))} ({when})"})
+                for sid in (w.get("stalled_workers") or []) if ff["fresh"] else []:      # an old stalled list is not a current STALE worker
                     if not any(x["id"] == sid for x in workers):
                         workers.append({"id": str(sid), "pid": None, "user": None, "started_at": None, "last_progress_at": None, "status": "STALE",
                                         "source": "project feed", "evidence": "listed as stalled by the project's own feed"})

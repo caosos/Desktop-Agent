@@ -256,12 +256,18 @@ function coordLine(p) {
   const c = p.coordinator || {}; const fd = (p.workers || {}).feed || null; const fs = fd && fd.session;
   if (c.kind === "control_plane") return {state: "this control plane", busy: null, verified: true, src: "self"};
   if (c.kind === "liaison") {
+    const stoppedClaim = fd && ((fs && ["closed", "exited", "stopped"].includes(String(fs.status || "").toLowerCase())) || (!fs && String(fd.state || "").toUpperCase() === "STOPPED"));
+    const feedSrc = fd ? `project feed: ${fd.freshness_label || ""}` : "";
+    if (fd && fd.fresh && stoppedClaim && fd.ack_recent)
+      return {state: "UNKNOWN (contradicted)", busy: null, verified: false, detail: `its watchdog says STOPPED, but an ack file from its account appeared ${ago(fd.last_ack)} ago — the inbox is being processed; no restart implied`, src: feedSrc};
     if (fs && fd.fresh && fs.status) { const st = String(fs.status).toLowerCase(); const closed = ["closed", "exited", "stopped"].includes(st);
-      return {state: closed ? "NOT RUNNING" : st.toUpperCase(), busy: closed ? false : st === "busy", verified: true,
-        detail: `session ${fs.name || ""} per its own feed`, src: `project feed ${fd.self_time || ""}, read ${fd.read_at ? ago(fd.read_at) + " ago" : "now"}`}; }
-    if (fd && fd.fresh && String(fd.state || "").toUpperCase() === "STOPPED" && !fs)
-      return {state: "NOT RUNNING", busy: false, verified: true, detail: `its own watchdog reports STOPPED, no session${(fd.unacknowledged_messages||[]).length ? `; ${fd.unacknowledged_messages.length} liaison message(s) unread` : ""} — start it in your own account`, src: `project feed ${fd.self_time || ""}, read ${fd.read_at ? ago(fd.read_at) + " ago" : "now"}`};
-    return {state: "STATUS NOT VERIFIED", busy: null, verified: false, detail: "separate Linux account; no session record in its feed" + (fd && !fd.fresh ? " (feed stale)" : ""), src: "cannot be observed from this account — not evidence that it is stopped"};
+      return {state: closed ? "NOT RUNNING" : st.toUpperCase(), busy: closed ? false : st === "busy", verified: true, detail: `session ${fs.name || ""} per its own feed`, src: feedSrc}; }
+    if (fd && fd.fresh && stoppedClaim && !fs)
+      return {state: "NOT RUNNING", busy: false, verified: true, detail: `its own watchdog reports STOPPED, no session${(fd.unacknowledged_messages||[]).length ? `; ${fd.unacknowledged_messages.length} liaison message(s) it lists unread` : ""} — start it in your own account`, src: feedSrc};
+    if (fd && !fd.fresh && (stoppedClaim || (fs && fs.status) || fd.state))
+      return {state: fd.freshness === "unknown_time" ? "UNKNOWN (undated feed)" : "UNKNOWN (stale feed)", busy: null, verified: false,
+        detail: `its feed last said ${fs && fs.status ? "session " + fs.status : fd.state} — ${fd.freshness === "unknown_time" ? "no valid observation time" : "observation " + (fd.source_age_sec != null ? ago(Date.now()/1000 - fd.source_age_sec) + " old" : "stale")}; not current, no restart implied`, src: feedSrc};
+    return {state: "STATUS NOT VERIFIED", busy: null, verified: false, detail: "separate Linux account; no session record in its feed" + (fd && !fd.fresh ? " (feed not current)" : ""), src: "cannot be observed from this account — not evidence that it is stopped"};
   }
   if (c.kind === "claude_peer" && c.connected) return {state: c.session_status === "busy" ? "BUSY" : "IDLE", busy: c.session_status === "busy", verified: true,
     detail: `Claude session ${c.session}${c.session_status === "busy" ? ", working" : ", waiting for a message"}`, src: `live session registry, checked ${c.last_check_at ? ago(c.last_check_at) + " ago" : "now"}`};
@@ -291,7 +297,7 @@ function ocard(p, st) {
     : idleKnown ? `<span class="chip${["NOT RUNNING", "DOWN"].includes(cl.state) ? " warn" : ""}">${["NOT RUNNING", "DOWN"].includes(cl.state) ? "NO CURRENT ACTIVITY · coordinator not running" : queued ? "NO CURRENT ACTIVITY · work queued" : "NO CURRENT ACTIVITY · waiting for instructions"}</span>`
     : `<span class="chip">${cl.verified ? "workers not verified" : "coordinator not verified"}${!cl.verified && workersIdleKnown ? " · 0 specialists observed" : ""}</span>`;
   const fd = w.feed || null;
-  const dispatcher = fd ? `<div class="tiny"><span class="muted">DISPATCHER:</span> <b>${fd.dispatcher_running ? "running" : "stopped"}</b> · ${fd.ready_rows} approved row(s) · ${fd.stalled} stalled <span class="muted">(its own feed ${esc(fd.self_time || "")}, read ${fd.read_at ? ago(fd.read_at) + " ago" : "now"}${fd.fresh ? "" : " — STALE"})</span></div>` : "";
+  const dispatcher = fd ? `<div class="tiny"><span class="muted">DISPATCHER:</span> <b>${fd.fresh ? (fd.dispatcher_running ? "running" : "stopped") : "not current"}</b> · ${fd.ready_rows} approved row(s) · ${fd.stalled} stalled <span class="muted">(${fd.fresh ? "" : "its LAST statement, not now — "}${esc(fd.freshness_label || "")})</span></div>` : "";
   const chip = activity + (alerts.length ? ' <span class="chip warn">▲ attention</span>' : "");
   const open = drillOpen === p.name;
   return `<div class="ocard${open ? " open" : ""}" role="button" tabindex="0" data-p="${esc(p.name)}" aria-expanded="${open}" aria-label="Open ${esc(p.name)} details"><h3>${esc(p.name)} <span style="display:flex;gap:4px;flex-wrap:wrap;justify-content:flex-end">${chip}</span></h3>` +

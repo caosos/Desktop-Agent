@@ -46,7 +46,7 @@ def _seed(tmp_path: Path) -> Service:
         {"pid": 30, "ppid": 1, "user": "c", "cmd": "bwrap --bind /home/c/Desktop-Agent-work/t-run/repo /work claude -p", "ticks": 9, "started_at": time.time() - 300}]
     # beta: dispatcher stopped with READY work while quota permits (its own feed says so)
     st.set_kv("feed:beta", {"fetched_at": time.time(), "url": "http://127.0.0.1:1/", "data": {"work": {"dispatcher_running": False, "stalled_workers": [], "approved_ready_rows_for_specialist_lanes": 2},
-                                                                                           "quota_allows_a_turn": True, "last_check": "2026-10-09T20:24:10Z"}})
+                                                                                           "quota_allows_a_turn": True, "last_check": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}})
     # gamma: genuinely idle, but a READY control-plane task waits behind the quota pause
     st.save_task("t-ready", "g", "gamma", "READY", {"objective": "Docs touch-up", "model_class": "cloud_cheap", "attempt": 1}, "h")
     # inbox: a bounced delivery vs an acknowledged one; one outstanding decision

@@ -18,9 +18,10 @@ import base64
 import re
 import time
 
+from .feedtime import feed_freshness
 from .intake import gh_api
 
-FEED_TTL_SEC = 15 * 60      # a project feed older than this proves nothing about "now"
+from .feedtime import FEED_TTL_SEC   # a feed observation older than this proves nothing about "now" (one rule, feedtime.py)
 
 
 def parse_active_work_table(text: str) -> list[dict]:
@@ -73,6 +74,7 @@ class Drilldown:
         tasks = [t for t in st["tasks"] if t["project"] == name]
         feed = self.svc.store.get_kv(f"feed:{name}") or {}
         fsess = ((feed.get("data") or {}).get("session") or {}) if feed else {}
+        fstate = str(((feed.get("data") or {}).get("state") or "")).upper() if feed else ""
         roster_kv = self.svc.store.get_kv(f"roster:{name}") or {}
         live_by_lane: dict[str, list] = {}
         for w in workers.get("workers", []):
@@ -85,8 +87,8 @@ class Drilldown:
             rx = re.compile(ro["coordinator_process_pattern"])
             coord_proc = next((p for p in sorted(self.svc.workers.procs_fn(), key=lambda p: p["started_at"]) if rx.search(p["cmd"])), None)
         # Evidence rules (owner finding da-bd13834bc7): absence of a match is never proof of "not running".
-        feed_age = (now - float(feed.get("fetched_at") or 0)) if feed else None
-        feed_fresh = feed_age is not None and feed_age < FEED_TTL_SEC
+        ff = feed_freshness(feed, now, last_ack=(self.svc.store.coordinator_rows().get(name) or {}).get("last_ack"))
+        feed_age, feed_fresh = ff["fetch_age"], ff["fresh"]
         other_account = coord.get("kind") == "liaison"
         roster = []
         for r in roster_kv.get("rows", []):
@@ -100,17 +102,23 @@ class Drilldown:
                     proof = (f"coordinator process pid {coord_proc['pid']} ({coord_proc['user']}) alive on this host since {_ago(now - coord_proc['started_at'])}"
                              + (f"; its own feed says session {fsess.get('name', '?')} {st}" if st else "; its feed carries no session entry")
                              + "; a live process proves the session exists, not that it is working this minute")
-                elif fsess and feed_fresh and st in ("closed", "exited", "stopped"):
-                    actual, proof = "NOT RUNNING", f"its own feed reports session {fsess.get('name', '?')} {st} ({(feed.get('data') or {}).get('last_check') or ''}, read {_ago(feed_age)} ago)"
-                elif not fsess and feed_fresh and str((feed.get("data") or {}).get("state") or "").upper() == "STOPPED":
+                elif fsess and feed_fresh and st in ("closed", "exited", "stopped") and not ff["ack_recent"]:
+                    actual, proof = "NOT RUNNING", f"its own feed reports session {fsess.get('name', '?')} {st} ({ff['label']})"
+                elif not fsess and feed_fresh and fstate == "STOPPED" and not ff["ack_recent"]:
                     actual = "NOT RUNNING"
-                    proof = (f"its own watchdog (same account) reports coordinator state STOPPED with no session ({(feed.get('data') or {}).get('last_check') or ''}, read {_ago(feed_age)} ago); "
+                    proof = (f"its own watchdog (same account) reports coordinator state STOPPED with no session ({ff['label']}); "
                              f"{len((feed.get('data') or {}).get('unacknowledged_messages') or [])} liaison message(s) it lists as unacknowledged — nobody is reading them until the session is started in its own account")
+                elif feed_fresh and ff["ack_recent"] and (fstate == "STOPPED" or st in ("closed", "exited", "stopped")):
+                    actual = "UNKNOWN (contradicted)"
+                    proof = (f"its own watchdog says {fstate or st.upper()} ({ff['label']}), but an ack file from its account was observed {_ago(now - float(ff['last_ack']))} ago — "
+                             "something there is processing the inbox; the STOPPED claim is not current evidence and no restart is implied")
                 elif fsess and feed_fresh and st:
                     actual = "SESSION " + st.upper()
-                    proof = f"per the project's own feed: session {fsess.get('name', '?')} {st} (pid {fsess.get('pid', '?')}, feed {(feed.get('data') or {}).get('last_check') or ''}, read {_ago(feed_age)} ago)"
-                elif fsess and st:
-                    actual, proof = "UNKNOWN (stale feed)", f"last feed record said session {st} but it is {_ago(feed_age)} old (TTL {FEED_TTL_SEC // 60} min)"
+                    proof = f"per the project's own feed: session {fsess.get('name', '?')} {st} (pid {fsess.get('pid', '?')}; {ff['label']})"
+                elif feed and ff["status"] == "unknown_time" and (st or fstate):
+                    actual, proof = "UNKNOWN (undated feed)", f"its feed says {fstate or ('session ' + st)} but {ff['label']}"
+                elif feed and ff["status"] == "stale" and (st or fstate):
+                    actual, proof = "UNKNOWN (stale feed)", f"its feed last said {fstate or ('session ' + st)}; {ff['label']}"
                 else:
                     actual = "NOT VERIFIED"
                     proof = ("no verified process match and no session record in its feed; " + ("the coordinator runs under a separate Linux account, so " if other_account else "")
@@ -219,10 +227,26 @@ def work_summary(projects: list[dict], tasks: list[dict], inbox: list[dict], int
         feed = store.get_kv(f"feed:{name}") or {}
         fw = ((feed.get("data") or {}).get("work") or {}) if feed else {}
         fstate = str(((feed.get("data") or {}).get("state") or "")).upper() if feed else ""
-        if feed and fstate == "STOPPED" and not (feed.get("data") or {}).get("session") and (now - float(feed.get("fetched_at") or 0)) < 900:
+        if feed and fstate == "STOPPED" and not (feed.get("data") or {}).get("session"):
+            ff = feed_freshness(feed, now, last_ack=(store.coordinator_rows().get(name) or {}).get("last_ack"))
             pend = (feed.get("data") or {}).get("unacknowledged_messages") or []
-            need.insert(0, {"project": name, "who": "you (other account)", "text": f"its coordinator session is STOPPED per its own watchdog ({(feed.get('data') or {}).get('last_check') or ''}); start it in your own account (tmux mbos-agent-01) — {len(pend)} liaison message(s) wait unread" + (": " + ", ".join(pend[:2]) if pend else "")})
-        if fw:
+            acked_here = {i["title"]: i for i in store.list_intake(name) if i.get("status") == "ACKNOWLEDGED"}
+            with_receipt = [m for m in pend if any(m in t for t in acked_here)]
+            receipts = (f"{len(pend)} message(s) its feed lists as unread, {len(with_receipt)} of them with an ack receipt here" if pend
+                        else "no message its feed lists as unread")
+            if ff["fresh"] and not ff["ack_recent"]:
+                need.insert(0, {"project": name, "who": "you (other account)",
+                                "text": f"its coordinator session is STOPPED per its own watchdog ({ff['label']}); start it in your own account (tmux mbos-agent-01) — {receipts}" + (": " + ", ".join(pend[:2]) if pend else "")})
+            elif ff["ack_recent"]:
+                wait.append({"project": name, "who": "its coordinator (other account)",
+                             "text": f"its watchdog says STOPPED ({ff['label']}) but an ack file from its account appeared {_ago(now - float(ff['last_ack']))} ago: the inbox is being processed, state UNKNOWN; no restart implied — {receipts}"})
+            else:
+                wait.append({"project": name, "who": "its watchdog (other account)",
+                             "text": f"its watchdog last said STOPPED, but {ff['label']}; not a current state and not a restart instruction — {receipts}"})
+        if fw and not feed_freshness(feed, now)["fresh"]:
+            wait.append({"project": name, "who": "its watchdog (other account)",
+                         "text": f"its feed's dispatcher/ready-row figures are not current ({feed_freshness(feed, now)['label']}); nothing is claimed from them"})
+        elif fw:
             rows = fw.get("approved_ready_rows_for_specialist_lanes") or 0
             if rows and fw.get("dispatcher_running"):
                 can.append({"project": name, "who": "its dispatcher", "text": f"{rows} approved row(s) ready; its own dispatcher launches them (quota allows a turn: {(feed.get('data') or {}).get('quota_allows_a_turn', '?')})"})

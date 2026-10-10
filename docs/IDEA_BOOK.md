@@ -15,6 +15,8 @@ Capturing an idea is not authorization to build it. A checklist item is checked 
 
 Resumed 2026-10-10 by Michael ("all usages have been reset. resume working"); CAOSCare development stays paused.
 
+*Dated update 2026-10-10 05:29Z (`da-eadf20a26e`, `da-7cc17f93fd`): Michael resumed all three projects on the included allowance; CAOSCare non-voice work resumed (its coordinator reported IDLE at 05:39Z after the approved items). Dated update 2026-10-10 04:04Z: the F-49 liaison note has an ack file (`da-684ad0b380` ACKNOWLEDGED); the Business OS feed lists no unread messages as of 06:36Z while its watchdog still reports STOPPED with no session — treated as UNKNOWN (contradicted), not a restart instruction. The line above and row 0 below are kept as history.*
+
 | # | Action | Project | Depends on | Done when (verifiable) |
 |---|---|---|---|---|
 | **0** | **Start the Deal Sniffer coordinator in your own account** so its watchdog can wake it: `tmux attach -t mbos-agent-01` then `~/bin/mbos-agent 1`; until then liaison messages (incl. the F-49 verification) sit unread and automatic pickup cannot work | Business OS | nothing | :8479 feed shows a session, the ack file for ARYA-20261010-0328-f49-verification appears, panel shows acknowledged |
