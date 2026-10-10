@@ -494,7 +494,9 @@ class Service:
             s = Deliverer.session_for(IntakeSourceLite(coord))
             verified = bool(row.get("last_wake") and row.get("last_ack") and row["last_ack"] >= row["last_wake"])
             if s:
-                how = "" if s.get("resolved_by", "name") == "name" else f" — pinned name {coord.get('session_name')} is not live; resolved by {s['resolved_by']}"
+                how = ("" if s.get("resolved_by", "name") == "name"
+                       else f" — pinned name {coord.get('session_name')} is not live; resolved by {s['resolved_by']}" if coord.get("session_name")
+                       else f" — resolved by {s['resolved_by']} (no name pinned for this project)")
                 return base | {"connected": True, "detail": f"session {s['name']} ({s['status']}){how}", "session": s["name"], "session_status": s["status"],
                                "resolved_by": s.get("resolved_by", "name"),
                                "wake": "VERIFIED (delivery → ACK observed)" if verified else "delivered, ACK pending" if row.get("last_wake") else "untested"}

@@ -213,3 +213,20 @@ def test_routing_excludes_sdk_worker_and_metadata_less_sessions(monkeypatch):
     # pinning a worker by name does not make it eligible either
     s, note = idm.Deliverer.resolve_for(_src(session_name="worker-print"))
     assert s is None and "worker-print rejected: headless/worker command line" in note
+
+
+def test_coordinator_card_wording_when_no_name_is_pinned(monkeypatch, tmp_path):
+    """A project configured with only a working directory must not read 'pinned name None is not live'."""
+    from desktop_agent.control.service import Service
+    from desktop_agent.control import intake_delivery as idm
+    live = {"name": "caoscare-integration-b2", "pid": 1, "cwd": "/home/caoscare-1/CAOSCARE-INTEGRATION", "status": "busy", "updatedAt": 1, "tmux": None, "session_id": "s"}
+    monkeypatch.setattr(idm, "_session_records", lambda: [{"pid": 1, "name": live["name"], "cwd": live["cwd"], "status": "busy", "updatedAt": 1, "sessionId": "s", "kind": "interactive", "entrypoint": "cli"}])
+    monkeypatch.setattr(idm, "_alive", lambda pid: True); monkeypatch.setattr(idm, "_cmdline", lambda pid: ["claude"])
+    svc = Service.__new__(Service)
+    from desktop_agent.control.store import Store
+    svc.store = Store(tmp_path)
+    class Pkg: name = "caoscare"; intake = {"coordinator": {"kind": "claude_peer", "session_cwd": "/home/caoscare-1/CAOSCARE-INTEGRATION"}}
+    c = svc.coordinator_state(Pkg())
+    assert c["connected"] and "pinned name None" not in c["detail"] and "resolved by cwd (prefix) (no name pinned" in c["detail"]
+    Pkg.intake = {"coordinator": {"kind": "claude_peer", "session_name": "gone-20", "session_cwd": "/home/caoscare-1/CAOSCARE-INTEGRATION"}}
+    assert "pinned name gone-20 is not live; resolved by cwd (prefix)" in svc.coordinator_state(Pkg())["detail"]
