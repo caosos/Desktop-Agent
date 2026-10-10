@@ -93,7 +93,15 @@ class CallService:
         if not alias.startswith(FIXTURE_PREFIX) or len(alias) == len(FIXTURE_PREFIX):
             raise ValueError("destination_alias must be a fixture identity starting with 'fixture:' (calls are SIMULATED)")
         purpose = str(purpose or "")[:200]
-        cid = command_id or "cmd-" + hashlib.sha1(f"{conversation_ref}|{alias}|{purpose}".encode()).hexdigest()[:12]
+        # Command identity: the caller's command_id, else one derived from the owner turn (a repeated model action
+        # or a replayed request inside the same turn is the same command); with neither, a new request is a new
+        # command and nothing is deduplicated against it.
+        if command_id:
+            cid = command_id
+        elif conversation_ref:
+            cid = "cmd-" + hashlib.sha1(f"{conversation_ref}|{alias}|{purpose}".encode()).hexdigest()[:12]
+        else:
+            cid = "cmd-" + uuid.uuid4().hex[:12]
         with self._lock:
             seen = self.store.idempotent("call:" + cid)
             if seen:
@@ -101,7 +109,7 @@ class CallService:
             call = {"task_id": "calltask-" + uuid.uuid4().hex[:10], "call_id": "call-" + uuid.uuid4().hex[:10], "command_id": cid,
                     "conversation_ref": conversation_ref, "destination_alias": alias, "purpose": purpose, "state": "REQUESTED",
                     "simulated": True, "label": "SIMULATED", "adapter": self.adapter.name, "history": [], "result": None,
-                    "last_seq": 0, "created_at": time.time(), "source": source}
+                    "last_seq": 0, "rejected": [], "created_at": time.time(), "source": source}
             self.store.set_kv(self._key(call["call_id"]), call)
             self.store.remember("call:" + cid, {"call_id": call["call_id"]})
             index = (self.store.get_kv(INDEX_KV) or {}).get("ids", [])
@@ -154,14 +162,16 @@ class CallService:
                 return {"applied": False, "reason": "no such call", "state": None}
             if seq <= call["last_seq"]:
                 return {"applied": False, "reason": "replayed seq ignored", "state": call["state"]}
-            if call["state"] in TERMINAL:
-                self._receipt(call, f"SIMULATED late result ignored: {state} (seq {seq}) arrived after {call['state']}", rc.SIMULATED, "calling_worker",
-                              "simulated", before={"state": call["state"]}, after={"state": call["state"]})
-                return {"applied": False, "reason": "late result ignored", "state": call["state"]}
-            if state not in TRANSITIONS.get(call["state"], set()):
-                self._receipt(call, f"SIMULATED out-of-order event rejected: {call['state']} -> {state} (seq {seq})", rc.SIMULATED, "calling_worker",
-                              "simulated", before={"state": call["state"]}, after={"state": call["state"]})
-                return {"applied": False, "reason": f"transition {call['state']} -> {state} not allowed", "state": call["state"]}
+            late = call["state"] in TERMINAL
+            if late or state not in TRANSITIONS.get(call["state"], set()):
+                if [seq, state] in call.get("rejected", []):             # the same rejected event again: remembered, no second receipt
+                    return {"applied": False, "reason": "replayed rejection ignored", "state": call["state"]}
+                call.setdefault("rejected", []).append([seq, state])
+                self.store.set_kv(self._key(call_id), call)
+                claim = (f"SIMULATED late result ignored: {state} (seq {seq}) arrived after {call['state']}" if late
+                         else f"SIMULATED out-of-order event rejected: {call['state']} -> {state} (seq {seq})")
+                self._receipt(call, claim, rc.SIMULATED, "calling_worker", "simulated", before={"state": call["state"]}, after={"state": call["state"]})
+                return {"applied": False, "reason": "late result ignored" if late else f"transition {call['state']} -> {state} not allowed", "state": call["state"]}
             before = call["state"]
             call.update(state=state, last_seq=seq)
             call["history"].append({"seq": seq, "state": state, "at": time.time(), "source": "simulated", "detail": detail or f"SIMULATED {state}"})
