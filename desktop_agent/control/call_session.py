@@ -12,6 +12,8 @@ import threading
 import time
 from typing import AsyncIterator, Protocol
 
+from .call_fixture import DEFAULT_FIXTURE_SCRIPT, FakeTransport, fixture_script, lookup_fixture_status  # noqa: F401  (synthetic path)
+
 TRANSCRIPT_WAIT_SEC = 0.9
 FIXTURE_PREFIX = "fixture:"
 
@@ -20,65 +22,6 @@ class SessionTransport(Protocol):
     def events(self) -> AsyncIterator[dict]: ...      # provider -> runner; ending without session.ended = disconnect
     async def send(self, obj: dict) -> None: ...      # runner -> provider
     async def close(self) -> None: ...
-
-
-def fixture_script(outcome: str = "completed", alias: str = "fixture:front-desk") -> list[dict]:
-    """Two fixture turns, one allowed tool call, then the terminal event."""
-    return [
-        {"type": "speech.started", "turn": 1},
-        {"type": "transcript.user", "turn": 1, "text": "SIMULATED caller: is the fixture office open today?"},
-        {"type": "response.text", "turn": 1, "text": "SIMULATED assistant: let me check the fixture status."},
-        {"type": "tool.call", "turn": 1, "tool_call_id": "tc-1", "name": "lookup_fixture_status", "args": {"alias": alias}},
-        {"type": "speech.stopped", "turn": 1},
-        {"type": "transcript.user", "turn": 2, "text": "SIMULATED caller: thanks, that is all."},
-        {"type": "response.text", "turn": 2, "text": "SIMULATED assistant: the fixture office is open; goodbye."},
-        {"type": "session.ended", "outcome": outcome.lower()},
-    ]
-
-
-DEFAULT_FIXTURE_SCRIPT = fixture_script()
-
-
-class FakeTransport:
-    """Scripted transport for the synthetic path: yields the script in order, records every send."""
-
-    def __init__(self, script, delay_sec: float = 0.0):
-        self.script = list(script)
-        self.delay_sec = delay_sec
-        self.sent: list[dict] = []
-        self.closed = False
-        self._closed_ev: asyncio.Event | None = None
-
-    def _ev(self) -> asyncio.Event:
-        if self._closed_ev is None:
-            self._closed_ev = asyncio.Event()
-        return self._closed_ev
-
-    async def events(self):
-        for ev in self.script:
-            if self.closed:
-                return
-            if self.delay_sec:
-                try:
-                    await asyncio.wait_for(self._ev().wait(), self.delay_sec)
-                    return                                          # closed while waiting
-                except asyncio.TimeoutError:
-                    pass
-            else:
-                await asyncio.sleep(0)                              # let tool tasks run between events
-            if self.closed:
-                return
-            if ev.get("type") == "disconnect":
-                return
-            yield dict(ev)
-
-    async def send(self, obj: dict) -> None:
-        if not self.closed:
-            self.sent.append(dict(obj))
-
-    async def close(self) -> None:
-        self.closed = True
-        self._ev().set()
 
 
 class CallContract:
@@ -102,10 +45,6 @@ def _sim(text: str) -> str:
     return text if "SIMULATED" in text else f"SIMULATED {text}"
 
 
-def lookup_fixture_status(alias: str) -> dict:
-    return {"ok": True, "alias": alias, "status": "SIMULATED: fixture office open", "note": "SIMULATED fixture data; no real system was queried"}
-
-
 class SessionRunner:
     def __init__(self, call: dict, contract: CallContract, transport, apply, record, receipt=None):
         self.call, self.contract, self.transport = call, contract, transport
@@ -113,6 +52,9 @@ class SessionRunner:
         self.call_id = call["call_id"]
         self._seq = 0
         self._cancelled = False
+        self._broken: str | None = None                  # a failed send / tool task: the session can no longer succeed
+        self.cleanup_error: str | None = None            # recorded, never allowed to replace the primary outcome
+        self.task_errors: list[str] = []                 # exceptions retrieved from finished tool/resend tasks
         self._outputs: dict[str, dict] = {}
         self._tasks: dict[str, asyncio.Task] = {}
         self._turn_events: dict = {}
@@ -122,7 +64,7 @@ class SessionRunner:
         self._loop: asyncio.AbstractEventLoop | None = None
         self._thread = None
 
-    # ---- guarded effects: nothing leaves the runner once cancelled ---------------------------------------
+    # ---- guarded effects: nothing leaves the runner once cancelled or broken ------------------------------
     def _step(self, state: str, detail: str, result: dict | None = None) -> bool:
         if self._cancelled:
             return False
@@ -132,9 +74,17 @@ class SessionRunner:
             self._cancelled = True                       # the service refused (cancelled / terminal): stop everything
         return applied
 
-    async def _send(self, obj: dict) -> None:
-        if not self._cancelled:
+    async def _send(self, obj: dict) -> bool:
+        if self._cancelled or self._broken:
+            return False
+        try:
             await self.transport.send(obj)
+            return True
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:                         # a failed delivery can never be followed by success
+            self._broken = f"send failed: {exc!r}"
+            return False
 
     def _rec(self, entry: dict) -> None:
         if not self._cancelled:
@@ -151,18 +101,35 @@ class SessionRunner:
         for t in self._tasks.values():
             t.cancel()
         if self._loop is not None:
-            self._loop.create_task(self.transport.close())
+            self._loop.create_task(self._close_quietly())
+
+    async def _close_quietly(self) -> None:
+        try:
+            await self.transport.close()
+        except Exception as exc:
+            self.cleanup_error = f"close failed: {exc!r}"
+
+    async def _settle_tasks(self, cancel_pending: bool) -> None:
+        """Cancel (or let finish) and await every tool/resend task and retrieve their exceptions, so no tool or
+        send effect survives the terminal outcome. Its own errors are recorded, never raised."""
+        tasks = list(self._tasks.values())
+        if cancel_pending:
+            for t in tasks:
+                if not t.done():
+                    t.cancel()
+        if tasks:
+            for r in await asyncio.gather(*tasks, return_exceptions=True):
+                if isinstance(r, Exception):
+                    self.task_errors.append(repr(r))
 
     # ---- the session ---------------------------------------------------------------------------------------
     async def run(self) -> None:
         self._loop, self._thread = asyncio.get_running_loop(), threading.current_thread()
         t0 = time.monotonic()
-        if not self._step("ACCEPTED", "SIMULATED worker accepted the call"):
-            return await self.transport.close()
-        if not self._step("STARTED", "SIMULATED call started (no line was opened)"):
-            return await self.transport.close()
-        first = True
-        ended = False
+        if not self._step("ACCEPTED", "SIMULATED worker accepted the call") or \
+           not self._step("STARTED", "SIMULATED call started (no line was opened)"):
+            return await self._close_quietly()
+        first, ended, read_error = True, None, None
         try:
             async for ev in self.transport.events():
                 if self._cancelled:
@@ -172,14 +139,25 @@ class SessionRunner:
                     if not self._step("IN_PROGRESS", "SIMULATED call in progress (fixture conversation)"):
                         break
                 if ev.get("type") == "session.ended":
-                    ended = True
-                    await self._finish(ev, t0)
+                    ended = ev
                     break
                 await self._handle(ev)
-            if not ended and not self._cancelled:
-                self._step("FAILED", "SIMULATED transport disconnected", self._result("failed", "SIMULATED call failed: transport disconnected; no real call was placed.", t0))
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            read_error = f"transport read failed: {exc!r}"
+        try:
+            if ended is not None and not self._cancelled and not read_error:
+                await self._settle_tasks(cancel_pending=False)    # tool results are delivered before the session closes
+                await self._finish(ended, t0)
+                return
+            await self._settle_tasks(cancel_pending=True)         # failure / disconnect / cancel: no effect survives
+            if self._cancelled:
+                return
+            reason = read_error or "transport disconnected"
+            self._step("FAILED", f"SIMULATED {reason}", self._result("failed", f"SIMULATED call failed: {reason}; no real call was placed.", t0))
         finally:
-            await self.transport.close()
+            await self._close_quietly()                           # cleanup errors are recorded, never the outcome
 
     async def _handle(self, ev: dict) -> None:
         kind, turn = ev.get("type"), ev.get("turn")
@@ -220,7 +198,7 @@ class SessionRunner:
                 await asyncio.wait_for(self._turn_event(turn).wait(), TRANSCRIPT_WAIT_SEC)
             except asyncio.TimeoutError:
                 pass
-        if self._cancelled:
+        if self._cancelled or self._broken:
             return
         reason = self.contract.validate(name, ev.get("args"))
         if reason:
@@ -234,20 +212,21 @@ class SessionRunner:
         if self._receipt:
             self._receipt(self.call_id, claim, [f"call_id={self.call_id}", f"turn={turn}", f"tool_call_id={tid}", f"name={name}"])
         self._rec({"turn": turn, "tool_call_id": tid, "name": name, "output": out})
-        await self._send({"type": "tool.result", "tool_call_id": tid, "output": out})
-        await self._send({"type": "response.create"})
+        if await self._send({"type": "tool.result", "tool_call_id": tid, "output": out}):
+            await self._send({"type": "response.create"})
 
     def _result(self, outcome: str, summary: str, t0: float) -> dict:
         return {"outcome": f"SIMULATED: {outcome}", "summary": summary, "duration_sec": round(time.monotonic() - t0, 3),
                 "turns": len(self._turns), "tools": self._tools}
 
     async def _finish(self, ev: dict, t0: float) -> None:
-        pending = [t for t in self._tasks.values() if not t.done()]
-        if pending:                                      # tool results are sent before the session is closed
-            await asyncio.gather(*pending, return_exceptions=True)
-        if self._cancelled:
-            return
+        """Terminal outcome after session.ended: COMPLETED only when every tool result was delivered and no
+        tool task failed; otherwise FAILED with the first failure named. Never success after a failed delivery."""
         alias, purpose = self.call["destination_alias"], self.call["purpose"]
+        failure = self._broken or (f"tool task failed: {self.task_errors[0]}" if self.task_errors else None)
+        if failure:
+            self._step("FAILED", f"SIMULATED {failure}", self._result("failed", f"SIMULATED call to {alias} failed: {failure}; no real call was placed.", t0))
+            return
         ok = ev.get("outcome", "completed") == "completed"
         summary = ev.get("summary") or (f"SIMULATED call to {alias} about '{purpose}' completed with a fixture answer; no real call was placed." if ok
                                          else f"SIMULATED call to {alias} failed (fixture failure); no real call was placed.")
@@ -255,7 +234,10 @@ class SessionRunner:
             summary = "SIMULATED: " + summary
         result = self._result("completed" if ok else "failed", summary, t0)
         if self._step("COMPLETED" if ok else "FAILED", "SIMULATED call completed" if ok else "SIMULATED call failed", result):
-            await self._send({"type": "session.close"})
+            try:
+                await self.transport.send({"type": "session.close"})
+            except Exception as exc:
+                self.cleanup_error = f"close message failed: {exc!r}"
 
 
 class SessionAdapter:

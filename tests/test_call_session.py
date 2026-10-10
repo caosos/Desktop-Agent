@@ -194,3 +194,104 @@ def test_two_overlapping_sessions_do_not_mix(tmp_path):
         [r] = _tools(s, rec["call_id"])
         assert f"tool_call_id={own}" in r["evidence"] and r["call_id"] == rec["call_id"]
         assert all(r2["call_id"] == rec["call_id"] for r2 in chain(s.store, "call", rec["call_id"]))
+
+
+# --- correction da-b7d52b6b03: transport read/send failures, pending tools at teardown, cleanup errors -------------
+
+class RaisingReadTransport(FakeTransport):
+    """Yields its script, then the read raises (a dropped socket)."""
+    async def events(self):
+        async for ev in super().events():
+            yield ev
+        raise OSError("SIMULATED socket read error")
+
+
+class RaisingSendTransport(FakeTransport):
+    async def send(self, obj):
+        raise OSError("SIMULATED socket send error")
+
+
+class RaisingCloseTransport(RaisingReadTransport):
+    async def close(self):
+        await super().close()
+        raise OSError("SIMULATED close error")
+
+
+def _adapter(s, transport_cls, script):
+    made = []
+    s.calling.adapter = SimulatedAdapter()
+    s.calling.adapter.transport_factory = lambda call: made.append(transport_cls(script)) or made[-1]
+    return made
+
+
+def test_raising_read_is_a_truthful_failed_outcome(tmp_path):
+    s = _service(tmp_path)
+    made = _adapter(s, RaisingReadTransport, [{"type": "transcript.user", "turn": 1, "text": "hi"}, tc(1, "t")])
+    [rec] = _go(s, ("c", ALIAS, "p", 0, "test"))                 # no exception propagates out of the runner
+    call = _kv(s, rec["call_id"])
+    assert call["state"] == "FAILED" and "transport read failed" in call["history"][-1]["detail"] and "OSError" in call["result"]["summary"]
+    runner_tasks = s.calling.adapter.runners
+    assert runner_tasks == {} and made[0].closed
+    assert "completed" not in " ".join(t["text"] for t in s.aria.transcript())
+
+
+def test_raising_send_never_becomes_completed(tmp_path):
+    s = _service(tmp_path)
+    _adapter(s, RaisingSendTransport, [{"type": "transcript.user", "turn": 1, "text": "hi"}, tc(1, "t"), END])
+    [rec] = _go(s, ("c", ALIAS, "p", 0, "test"))
+    call = _kv(s, rec["call_id"])
+    assert call["state"] == "FAILED" and "send failed" in call["history"][-1]["detail"] and "OSError" in call["result"]["summary"]
+    assert len(_tools(s, rec["call_id"])) == 1                   # the execution is receipted once; its delivery failed
+    assert "completed" not in " ".join(t["text"] for t in s.aria.transcript())
+
+
+def test_pending_tool_at_disconnect_is_cancelled_not_executed_late(tmp_path):
+    """A tool waiting for a transcript that never comes, then a disconnect: the runner must cancel that task,
+    not let it execute after FAILED (an execution the service's terminal guards would merely leave unreceipted)."""
+    from desktop_agent.control.call_session import CallContract, SessionRunner
+    s = _service(tmp_path)
+    rec = s.calling.request("c", ALIAS, "p", 0, "test")           # no running loop: the runner is driven by hand
+    cid = rec["call_id"]
+    transport = FakeTransport([tc(5, "pending"), {"type": "disconnect"}])
+    runner = SessionRunner(_kv(s, cid), CallContract(cid), transport, s.calling.apply, s.calling.record, s.calling.tool_receipt)
+
+    async def go():
+        await runner.run()
+        state_at_exit = _kv(s, cid)["state"]
+        await asyncio.sleep(1.2)                                  # past TRANSCRIPT_WAIT_SEC: a surviving task would execute here
+        return state_at_exit
+    assert asyncio.run(go()) == "FAILED"
+    task = runner._tasks["pending"]
+    assert task.done() and task.cancelled() and runner._outputs == {} and runner._tools == 0   # never executed, not merely unreceipted
+    assert _tools(s, cid) == [] and transport.sent == [] and not [e for e in _kv(s, cid).get("transcript", []) if e.get("tool_call_id")]
+
+
+def test_read_failure_cancels_pending_tasks_and_cleanup_error_keeps_primary_outcome(tmp_path):
+    from desktop_agent.control.call_session import CallContract, SessionRunner
+    s = _service(tmp_path)
+    rec = s.calling.request("c", ALIAS, "p", 0, "test")           # no running loop: nothing starts; the runner is driven by hand
+    cid = rec["call_id"]
+    transport = RaisingCloseTransport([{"type": "transcript.user", "turn": 1, "text": "hi"}, tc(2, "waits")])
+    runner = SessionRunner(_kv(s, cid), CallContract(cid), transport, s.calling.apply, s.calling.record, s.calling.tool_receipt)
+    asyncio.run(runner.run())                                     # neither the read error nor the close error propagates
+    call = _kv(s, cid)
+    assert call["state"] == "FAILED" and "transport read failed" in call["history"][-1]["detail"]     # primary outcome kept
+    assert runner.cleanup_error and "close error" in runner.cleanup_error                            # cleanup error recorded, not raised
+    tasks = list(runner._tasks.values())
+    assert tasks and all(t.done() for t in tasks) and tasks[0].cancelled() and _tools(s, cid) == [] and transport.sent == []
+
+
+def test_cancel_mid_session_leaves_no_running_task(tmp_path):
+    s = _svc(tmp_path, [tc(3, "waits"), END], delay=30)
+
+    async def go():
+        rec = s.calling.request("c", ALIAS, "p", 0, "test")
+        for _ in range(10):
+            await asyncio.sleep(0)
+        runner = s.calling.adapter.runners[rec["call_id"]]
+        s.calling.cancel(rec["call_id"], "test")
+        await s.calling.wait(rec["call_id"])
+        return rec, runner
+    rec, runner = asyncio.run(go())
+    assert _kv(s, rec["call_id"])["state"] == "CANCELLED" and all(t.done() for t in runner._tasks.values())
+    assert s.calling.adapter.transports[0].closed and s.calling.adapter.transports[0].sent == [] and _tools(s, rec["call_id"]) == []

@@ -205,7 +205,8 @@ no Care import, data, service or credential is used.
 
 | File | Content | Limit |
 |---|---|---|
-| `desktop_agent/control/call_session.py` (new) | `SessionTransport` protocol, `FakeTransport`, `CallContract`, `SessionRunner`, `SessionAdapter`, `DEFAULT_FIXTURE_SCRIPT` | ≤ 300 lines |
+| `desktop_agent/control/call_session.py` (new) | `SessionTransport` protocol, `CallContract`, `SessionRunner`, `SessionAdapter` | ≤ 300 lines |
+| `desktop_agent/control/call_fixture.py` (new, split out under da-b7d52b6b03) | `FakeTransport`, `fixture_script` / `DEFAULT_FIXTURE_SCRIPT`, `lookup_fixture_status` — the synthetic path only | small |
 | `desktop_agent/control/calling.py` | `SimulatedAdapter` becomes a thin constructor over `SessionAdapter` + `FakeTransport` (same signature `delay_sec`, `outcome`, so existing callers and tests keep working); `CallService.record(call_id, entry)` appends a transcript/tool entry to the call record without a receipt; `CallService.apply` unchanged | stays ≤ 300 |
 | `tests/test_call_session.py` (new) | acceptance in 11.5 | — |
 | `docs/CALLING_BRIEF.md` §9b, §10 | worker evidence; code-complete vs unimplemented | — |
@@ -286,6 +287,20 @@ request → ACCEPTED → STARTED → IN_PROGRESS → COMPLETED chain now runs th
 8. Two overlapping sessions (two calls, two transports, interleaved events): each record and receipt chain
    contains only its own `call_id`/`turn`s; no cross-session send.
 9. The four command-identity/replay regressions in `tests/test_calling.py` keep passing unchanged.
+
+### 11.5a Failure and teardown rules (correction da-b7d52b6b03, coordinator)
+
+- A transport read that raises → FAILED "transport read failed: <error>"; the exception never propagates.
+- A `send` that raises marks the runner broken: no further send or tool execution, and a later `session.ended`
+  yields FAILED "send failed: …", never COMPLETED. A tool task that raises is retrieved (`task_errors`) and
+  likewise turns the outcome into FAILED.
+- On disconnect, read failure and cancel, every pending tool/resend task is cancelled and awaited **before** the
+  terminal step, so no tool executes or sends after the outcome; on `session.ended` pending tasks are awaited
+  (not cancelled) so delivered results precede `session.close`.
+- Transport close errors are recorded in `runner.cleanup_error` and never replace the primary outcome.
+- Regressions (`tests/test_call_session.py`): raising read; raising send; pending tool at disconnect (task
+  cancelled, `_outputs` empty after the wait window); read failure + raising close (primary outcome kept,
+  cleanup error recorded, pending task cancelled); cancel leaves no running task.
 
 ### 11.6 Still unimplemented after this slice
 
