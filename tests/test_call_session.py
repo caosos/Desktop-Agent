@@ -363,7 +363,10 @@ def test_failed_tool_task_in_any_phase_exits_failed_with_a_quiet_peer(tmp_path, 
     elif phase == "receipt":
         def receipt(call_id, claim, evidence): raise OSError("fixture receipt write failed")
     elif phase == "record":
-        def record(call_id, entry): raise OSError("fixture record write failed")
+        def record(call_id, entry):                                 # fails specifically on the tool's own record
+            if entry.get("tool_call_id"):
+                raise OSError("fixture tool record write failed")
+            s.calling.record(call_id, entry)
     elif phase == "send":
         transport.send_raises = True
     elif phase == "resend":
@@ -382,18 +385,23 @@ def test_failed_tool_task_in_any_phase_exits_failed_with_a_quiet_peer(tmp_path, 
     asyncio.run(go())
     call = _kv(s, cid)
     assert call["state"] == "FAILED" and "SIMULATED" in call["history"][-1]["detail"] and "OSError" in call["result"]["summary"]
-    expected = {"execute": "tool task failed", "receipt": "tool task failed", "record": "event handling failed",   # the transcript record fails first, in the receive loop
+    expected = {"execute": "tool task failed", "receipt": "tool task failed", "record": "tool task failed",
                 "send": "send failed", "resend": "send failed"}[phase]
     assert expected in call["history"][-1]["detail"]
-    if phase in ("execute", "receipt"):
-        assert runner.task_errors                                  # caught by the tool-task boundary
+    if phase in ("execute", "receipt", "record"):
+        assert runner.task_errors and "OSError" in runner.task_errors[0]   # caught by the tool-task boundary
+    else:
+        assert runner.task_errors == [] and runner._broken and "send failed" in runner._broken   # handled by _send, not a task error
     assert all(t.done() for t in runner._tasks.values()) and transport.closed and runner.report_error is None
     assert "completed" not in " ".join(t["text"] for t in s.aria.transcript())
     receipts = _tools(s, cid)
-    if phase in ("execute", "receipt", "record"):               # record: the transcript write fails before the tool runs
-        assert receipts == [] and not [e for e in call.get("transcript", []) if e.get("tool_call_id")]   # nothing claimed that did not happen
+    tool_entries = [e for e in call.get("transcript", []) if e.get("tool_call_id")]
+    if phase in ("execute", "receipt"):
+        assert receipts == [] and tool_entries == []               # nothing claimed that did not happen
+    elif phase == "record":
+        assert len(receipts) == 1 and tool_entries == []           # the execution was receipted; its record write failed
     else:
-        assert len(receipts) == 1                                  # the execution that did happen is receipted once
+        assert len(receipts) == 1 and len(tool_entries) == 1       # execution and record happened; delivery failed
 
 
 def test_terminal_report_failure_is_best_effort_and_never_claims_success(tmp_path):
@@ -413,3 +421,19 @@ def test_terminal_report_failure_is_best_effort_and_never_claims_success(tmp_pat
     assert runner.report_error and "outcome store unavailable" in runner.report_error
     assert _kv(s, cid)["state"] == "IN_PROGRESS" and not [m for m in transport.sent if m["type"] == "session.close"]
     assert "completed" not in " ".join(t["text"] for t in s.aria.transcript())
+
+
+def test_receive_loop_record_failure_exits_failed_with_a_quiet_peer(tmp_path):
+    """The record callback failing on a transcript event (inside the receive loop, before any tool) is fatal too."""
+    from desktop_agent.control.call_session import CallContract, SessionRunner
+    s = _service(tmp_path)
+    rec = s.calling.request("c", ALIAS, "p", 0, "test")
+    cid = rec["call_id"]
+    transport = QuietTransport([{"type": "transcript.user", "turn": 1, "text": "hi"}, tc(1, "t")])
+
+    def record(call_id, entry): raise OSError("fixture transcript record write failed")
+    runner = SessionRunner(_kv(s, cid), CallContract(cid), transport, s.calling.apply, record, s.calling.tool_receipt)
+    asyncio.run(asyncio.wait_for(runner.run(), 3.0))
+    call = _kv(s, cid)
+    assert call["state"] == "FAILED" and "event handling failed" in call["history"][-1]["detail"] and "OSError" in call["result"]["summary"]
+    assert _tools(s, cid) == [] and transport.sent == [] and transport.closed and all(t.done() for t in runner._tasks.values())
