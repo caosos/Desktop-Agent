@@ -234,6 +234,11 @@ class Watchdog:
         if d["category"] == "blocked" and item["status"] != "BLOCKED":
             rec.pop("retained_block", None); self.store.set_kv(key, rec)
             self.intake._set(item, "BLOCKED", f"BLOCKED per its ack file ({d['blocked_reason'][:160]})", evidence)
+        elif d["category"] == "blocked":
+            # recognised BLOCKED → BLOCKED with new wording: stay BLOCKED, carry the new reason and provenance
+            rec.pop("retained_block", None); self.store.set_kv(key, rec)
+            if f"({d['blocked_reason'][:160]})" not in (item.get("note") or ""):
+                self.intake._set(item, "BLOCKED", f"BLOCKED per its ack file, reason updated ({d['blocked_reason'][:160]})", evidence)
         elif item["status"] == "BLOCKED" and d["category"] in EXPLICIT_LIFT:
             rec.pop("retained_block", None); self.store.set_kv(key, rec)
             self.intake._set(item, "ACKNOWLEDGED", f"BLOCKED lifted by explicit {d['stage']} ({d['category']}) in its ack; not product DONE", evidence)

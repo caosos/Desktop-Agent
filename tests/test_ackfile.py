@@ -312,3 +312,24 @@ def test_gates_recorded_before_sha_tracking_are_reconciled_on_reread(tmp_path: P
     asyncio.run(it.poll_once())
     g2 = store.get_kv("gates:mbos")
     assert [x.get("sha") for x in g2["gates"]] == ["g1"] and g2["history"][0]["gate"] == "- an older question" and "not an answer" in g2["history"][0]["approval"]
+
+
+BLOCKED_REASON_B = """# ACK: ARYA-20261010-0433-f51-scope-handoff
+
+- **Stage:** BLOCKED — now waiting on the :8766 reload gate instead; the worker question is settled.
+"""
+
+
+def test_recognised_blocked_to_blocked_updates_reason_and_keeps_blocked(tmp_path: Path):
+    store, it, state = _harness(tmp_path)
+    state["ack"] = ("b1", BLOCKED_AMENDMENT); asyncio.run(it.poll_once())
+    iid = store.list_intake()[0]["item_id"]
+    assert store.get_intake(iid)["status"] == "BLOCKED" and "F-51 worker exited" in store.get_intake(iid)["note"]
+    state["ack"] = ("b2", BLOCKED_REASON_B); asyncio.run(it.poll_once())
+    item = store.get_intake(iid); kv = store.get_kv("liaison_ack:" + iid)
+    assert item["status"] == "BLOCKED" and "reason updated" in item["note"] and ":8766 reload gate" in item["note"] and "F-51 worker exited" not in item["note"]
+    assert "retained_block" not in kv and kv["blocked_reason"].startswith("— now waiting on the :8766 reload gate")
+    assert [h["sha"] for h in kv["history"]] == ["b1", "b2"] and len(_ackfile_receipts(store, iid)) == 2
+    sts = [r for r in store.receipts("instruction", iid) if str(r.get("claim", "")).startswith("BLOCKED")]
+    assert len(sts) == 2 and "reason updated" in sts[-1]["claim"]
+    asyncio.run(it.poll_once()); assert state["content_fetches"] == 2 and len(store.receipts("instruction", iid)) == len(store.receipts("instruction", iid))
