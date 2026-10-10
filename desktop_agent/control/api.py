@@ -13,6 +13,7 @@ from fastapi.responses import HTMLResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 from .events import Actor, Event, EventType as ET, Provenance
+from .calling_api import calling_routes
 from .service import Service, describe
 
 PANEL = Path(__file__).resolve().parents[2] / "panel" / "index.html"
@@ -104,6 +105,8 @@ def build_app(service: Service, token: str) -> FastAPI:
         if not supplied or not secrets.compare_digest(supplied, token):
             raise HTTPException(401, "missing or invalid token")
         return "owner"
+
+    app.include_router(calling_routes(service, auth))
 
     def source(request: Request) -> str:
         return request.headers.get("X-Source", "panel")

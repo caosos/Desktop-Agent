@@ -82,6 +82,8 @@ class Service:
         self.planner = Planner(self.llm, self.projects)
         from .aria import AriaBrain                  # local import: aria depends on the service surface
         self.aria = AriaBrain(self, self.llm)
+        from .calling import CallService             # SIMULATED calling loop only (docs/CALLING_BRIEF.md)
+        self.calling = CallService(self.store, self.aria)
         from .intake import Intake, IntakeSource
         from .intake_delivery import Deliverer
         from .watchdog import Watchdog

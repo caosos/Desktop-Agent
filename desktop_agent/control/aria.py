@@ -26,8 +26,10 @@ ACTIONS = {
     "send_direction": "DIRECTION: message a project's existing coordinator through the Shared Inbox (posted to GitHub, delivered, tracked POSTED→DELIVERED→ACK→DONE); never completes work by itself: args {project, text}",
     "answer_decision": "OWNER DECISION: record the owner's answer to an open decision: args {decision_id, answer}",
     "control": "pause, resume or stop this control plane's scheduler: args {action, task_id (optional)}",
+    "request_call": "SIMULATED CALL: start a simulated conversational call to a fixture identity; no real call is ever placed: args {destination_alias (must start with 'fixture:'), purpose}",
+    "call_status": "state, history and SIMULATED result of one simulated call: args {call_id}",
 }
-KIND_BY_ACTION = {"submit_goal": "new work", "send_direction": "direction", "answer_decision": "owner decision", "control": "control"}
+KIND_BY_ACTION = {"request_call": "call (SIMULATED)", "submit_goal": "new work", "send_direction": "direction", "answer_decision": "owner decision", "control": "control"}
 HISTORY_KV = "aria:history"
 HISTORY_KEEP = 60
 
@@ -54,7 +56,8 @@ class AriaBrain:
             "\nUse at most one action per step; after its result you will be asked again. Ask for confirmation before submit_goal, send_direction, answer_decision and control unless the owner already said yes/go/do it. " \
             "Classify the owner's message: a QUESTION is answered read-only from actions like get_state, project_brief, explain_task; a DIRECTION goes to the project's coordinator via send_direction; NEW WORK via submit_goal; an OWNER DECISION via answer_decision. " \
             "Ground every status claim in an action result and name its source (host process, project feed, roster table, receipt, GitHub item); if the data does not say, answer 'unknown' rather than guessing. " \
-            "A submitted direction or goal is not finished work: say what will happen next and how the owner will see the result. You have no web access and no knowledge beyond these actions."
+            "A submitted direction or goal is not finished work: say what will happen next and how the owner will see the result. You have no web access and no knowledge beyond these actions. " \
+            "Calls are SIMULATED: no real call is ever placed, destinations are fixture labels ('fixture:…'), and a call result is a SIMULATED result."
 
     async def run_action(self, name: str, args: dict) -> dict:
         s = self.service
@@ -86,6 +89,10 @@ class AriaBrain:
                 return await s.plan_goal(text=str(args.get("text", "")), source="aria", project_hint=args.get("project"))
             if name == "answer_decision":
                 return await s.answer_decision(str(args.get("decision_id", "")), str(args.get("answer", "")), "aria")
+            if name == "request_call":
+                return s.calling.request(None, str(args.get("destination_alias", "")), str(args.get("purpose", "")), len(self.history), "aria")
+            if name == "call_status":
+                return s.calling.get(str(args.get("call_id", ""))) or {"error": "no such call"}
             if name == "control":
                 return await s.control(str(args.get("action", "")), args.get("task_id"), "aria")
             return {"error": f"unknown action {name}"}
@@ -157,7 +164,7 @@ class AriaBrain:
             if not action or not action.get("name"):
                 break
             result = await self.run_action(action["name"], action.get("args") or {})
-            evidence = {k: result.get(k) for k in ("item_id", "status", "url", "task_ids", "decision_id", "note") if isinstance(result, dict) and result.get(k)}
+            evidence = {k: result.get(k) for k in ("item_id", "status", "url", "task_ids", "decision_id", "note", "call_id") if isinstance(result, dict) and result.get(k)}
             actions_taken.append({"name": action["name"], "args": action.get("args") or {}, "ok": "error" not in result, "evidence": evidence})
             self.history.append({"role": "aria_step", "text": reply, "ts": time.time()})
             self.history.append({"role": "action", "text": f"{action['name']} → {json.dumps(result, default=str)[:3000]}", "ts": time.time()})
@@ -171,6 +178,12 @@ class AriaBrain:
         return {"reply": reply or "(no reply)", "actions": actions_taken, "kind": kind, "model": self.llm.model_for("cloud_cheap"),
                 "cost_usd": None if unknown_cost else round(cost, 5), "tokens": {"in": tokens_in, "out": tokens_out},
                 "duration_ms": int((time.time() - started) * 1000)}
+
+    def note(self, text: str, kind: str, evidence: dict | None = None) -> None:
+        """Append one Aria turn from a background worker (e.g. a SIMULATED call status) to the same conversation."""
+        self.history.append({"role": "aria", "text": text, "ts": time.time(), "kind": kind,
+                             "actions": [{"name": "note", "ok": True, "evidence": evidence or {}}]})
+        self._persist()
 
     def transcript(self) -> list[dict]:
         """Owner and Aria turns (action rows folded into the Aria turn), for the panel after reload or restart."""

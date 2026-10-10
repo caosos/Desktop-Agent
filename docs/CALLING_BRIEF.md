@@ -134,10 +134,22 @@ Until then the code can construct the simulated adapter only.
 
 ## 9. Worker evidence (filled by the bounded worker; the control plane verifies independently)
 
-- Branch / commit:
-- Files changed with line counts (implementation files):
-- Commands run and actual results:
-- One trace (command → worker START → status → SIMULATED result / receipt), copied from a test run:
+- Branch / commit: `agent/implement-docs-calling-brief-md--52fe05` from `main` at `398710e`; commit SHA is in the worker's final claim (a commit cannot name itself).
+- Files changed with line counts (implementation files): `desktop_agent/control/calling.py` 177 (new), `calling_api.py` 45 (new), `aria.py` 226, `api.py` 344 (+2 lines), `service.py` 578 (+3 lines), `tests/test_calling.py` 146 (new); docs: this file, `BLUEPRINT.md` §8, `ASK_ARIA_PLAN.md` (one row each). `api.py` and `service.py` were already over 300 lines before this change.
+- Commands run and actual results: `bin/run_tests.sh` (full suite, `.venv/bin/python -m pytest -q`): first run 1 failed (the API test's zero-delay adapter finished before the cancel arrived; fixed by a 30 s adapter in that test), final run `124 passed, 2 skipped, 1 warning in 33.94s`. `bin/run_tests.sh tests/test_calling.py -s -k happy` printed the trace below. Worker claim only; the control plane re-runs the gate.
+- One trace (command → worker START → status → SIMULATED result / receipt), copied from a test run (`test_happy_loop_receipts_and_transcript`):
+
+```text
+verified  control        SIMULATED call command accepted for fixture:front-desk; no real call will be placed
+simulated calling_worker SIMULATED call REQUESTED -> ACCEPTED: SIMULATED worker accepted the call
+simulated calling_worker SIMULATED call ACCEPTED -> STARTED: SIMULATED call started (no line was opened)
+simulated calling_worker SIMULATED call STARTED -> IN_PROGRESS: SIMULATED call in progress (fixture conversation)
+simulated calling_worker SIMULATED call IN_PROGRESS -> COMPLETED: SIMULATED call completed
+transcript: SIMULATED call call-6d6ba7e336 to fixture:front-desk started (confirm the fixture appointment).
+transcript: SIMULATED call call-6d6ba7e336 completed: SIMULATED call to fixture:front-desk about 'confirm the fixture appointment' completed with a fixture answer; no real call was placed.
+```
+
+Deviations: the cancel path also appends a SIMULATED transcript note ("was cancelled"); an out-of-order event writes a `simulated` receipt ("out-of-order event rejected") without advancing `seq`; the calling task is not a row in the code-task table, so the scheduler never sees it.
 
 ## 10. What remains unimplemented
 

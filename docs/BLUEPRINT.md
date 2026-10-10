@@ -156,6 +156,7 @@ API.
 | Widget GTK window displayed in Michael's session | [`widget/app.py`](../widget/app.py) | HOST-UNVERIFIED | PROJECT_STATE "Stage 1 acceptance sequence complete": display check needs Michael ([`WIDGET_SETUP.md`](WIDGET_SETUP.md)) |
 | Push-to-talk voice | [`widget/voice.py`](../widget/voice.py) | HOST-UNVERIFIED | no test; needs an OpenAI key and `arecord` ([`WIDGET_SETUP.md`](WIDGET_SETUP.md)) |
 | Server-side Aria (`POST /v0/aria/chat`, acts only through control-plane operations) | [`aria.py`](../desktop_agent/control/aria.py), [`widget/aria_prompt.md`](../widget/aria_prompt.md) | VERIFIED-IMPLEMENTED | [`tests/test_aria_brain.py`](../tests/test_aria_brain.py) (all three tests); PROJECT_STATE "Stage 2 core in place" (live probe) |
+| Conversational calling, SIMULATED adapter only (`request_call` / `call_status`, `/v0/calls*`); real provider PROPOSED and gated ([`CALLING_BRIEF.md`](CALLING_BRIEF.md) §8) | [`calling.py`](../desktop_agent/control/calling.py), [`calling_api.py`](../desktop_agent/control/calling_api.py) | VERIFIED-IMPLEMENTED (simulated loop only) | [`tests/test_calling.py`](../tests/test_calling.py) |
 | Owner-decision inbox (`POST /v0/decisions`) | `api.py`, `service.py` | VERIFIED-IMPLEMENTED | `tests/test_core.py` `test_tasks_decisions_costs`; `tests/test_planner.py` `test_service_plan_goal_then_decision_replans` |
 
 ## 9. Provider layer, metering, budgets, unknown-cost accounting
