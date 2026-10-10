@@ -64,6 +64,8 @@ def test_liaison_inbox_and_acks(tmp_path: Path):
         if "contents/docs/messages/acks?" in path: return acks
         if "contents/docs/messages/inbox/ARIA" in path:
             return {"encoding": "base64", "content": base64.b64encode(b"# Owner note\n**Date:** 2026-10-08 CDT\nbody").decode()}
+        if "contents/docs/messages/acks/ARIA" in path:
+            return {"encoding": "base64", "html_url": "https://x/" + path, "sha": "s1", "content": base64.b64encode(b"# ACK\n- **Stage:** RECEIVED\n").decode()}
         raise AssertionError(path)
     intake_mod.gh_api = gh; wd_mod.gh_api = gh
     src = _src("liaison", liaison={"branch": "liaison/x", "inbox_dir": "docs/messages/inbox", "ack_branch": "research/c", "ack_dir": "docs/messages/acks"})

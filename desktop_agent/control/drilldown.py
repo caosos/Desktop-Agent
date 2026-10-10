@@ -18,6 +18,7 @@ import base64
 import re
 import time
 
+from .ackfile import next_action as ack_next_action
 from .feedtime import feed_freshness
 from .intake import gh_api
 
@@ -143,14 +144,17 @@ class Drilldown:
             if i["status"] in ("RECEIVED", "DELIVERED") and i.get("flagged"):
                 nxt = ("awaiting Agent 01's ack file; it reads the liaison branch at its own sync — no cross-account wake exists" if i.get("kind") == "liaison"
                        else "delivered but not acknowledged; resend from the Shared inbox or check the coordinator session")
+            elif i["status"] in ("WORKING", "ACKNOWLEDGED", "CLAIMED", "BLOCKED") and i.get("kind") == "liaison" and self.svc.store.get_kv("liaison_ack:" + i["item_id"]):
+                nxt = ack_next_action(self.svc.store.get_kv("liaison_ack:" + i["item_id"]), i["status"])
             elif i["status"] in ("WORKING", "ACKNOWLEDGED", "CLAIMED"):
                 nxt = "in the coordinator's hands; DONE arrives by its comment or ack file"
             elif i["status"] in ("POSTED", "SENT"):
                 nxt = "posted; delivery pending"
             else:
                 nxt = ""
-            # four separate facts from the item's own receipts: delivered / acknowledged / execution evidence / completed
-            facts = {"delivered_at": None, "acknowledged_at": None, "done_at": None, "evidence": []}
+            # separate facts from the item's own receipts: delivered / acknowledged / blocked / coordination-completed /
+            # implementation result / verified live / DONE (issue route only). Never collapsed into one.
+            facts = {"delivered_at": None, "acknowledged_at": None, "done_at": None, "evidence": [], "blocked_at": None, "coordination_completed_at": None}
             for rc in self.svc.store.receipts("instruction", i["item_id"]):
                 claim, ts = str(rc.get("claim") or ""), rc.get("ts")
                 head = claim.split(":")[0].strip().upper()
@@ -160,11 +164,20 @@ class Drilldown:
                     facts["acknowledged_at"] = ts
                 if head == "DONE":
                     facts["done_at"] = ts
+                if head == "BLOCKED" or head.startswith("ACKFILE BLOCKED"):
+                    facts["blocked_at"] = ts
+                if head.startswith("ACKFILE") and "coordination-completed" in claim and not facts["coordination_completed_at"]:
+                    facts["coordination_completed_at"] = ts
                 for ev in rc.get("evidence") or []:
                     if isinstance(ev, str) and ev.startswith("http") and ev not in facts["evidence"]:
                         facts["evidence"].append(ev)
+            disp = self.svc.store.get_kv("liaison_ack:" + i["item_id"]) if i.get("kind") == "liaison" else None
+            if disp and facts["coordination_completed_at"] is None and disp.get("category") == "coordination-completed":
+                facts["coordination_completed_at"] = disp.get("observed_at")
             instr.append({"item_id": i["item_id"], "title": (i.get("title") or "")[:90], "status": i["status"], "age": age, "flagged": bool(i.get("flagged")),
-                          "url": i.get("url", ""), "next": nxt, **facts, "evidence": facts["evidence"][-3:]})
+                          "url": i.get("url", ""), "next": nxt, **facts, "evidence": facts["evidence"][-3:],
+                          "disposition": ({k: disp.get(k) for k in ("stage", "category", "implementation", "live", "links", "not_proven", "followups", "sha", "url", "observed_at", "first_seen_at", "history", "stage_line")}
+                                          if disp else None)})
         unacked = [x for x in instr if x["flagged"] and x["status"] in ("RECEIVED", "DELIVERED")]
         finished_open = [f for f in workers.get("finished", []) if "open" in f["status"]]
         amber = [a["text"] for a in workers.get("alerts", []) if a["level"] == "amber"]

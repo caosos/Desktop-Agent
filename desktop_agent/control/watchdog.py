@@ -23,6 +23,7 @@ import re
 import time
 
 from . import allowance
+from .ackfile import parse_ack
 from .events import Actor, Event, EventType as ET, Provenance
 from .intake import gh_api, IntakeSource
 from .receipts import FAILED, VERIFIED, write_receipt
@@ -134,7 +135,7 @@ class Watchdog:
         li = src.coordinator.get("liaison") or {}
         branch, inbox, ack_branch, ack_dir = li["branch"], li["inbox_dir"], li["ack_branch"], li["ack_dir"]
         files = await gh_api(f"repos/{src.repo}/contents/{inbox}?ref={branch}")
-        acks = {f["name"] for f in (await gh_api(f"repos/{src.repo}/contents/{ack_dir}?ref={ack_branch}") or [])}
+        acks = {f["name"]: {"sha": f.get("sha", ""), "url": f.get("html_url", "")} for f in (await gh_api(f"repos/{src.repo}/contents/{ack_dir}?ref={ack_branch}") or [])}
         found = acked = 0
         for f in files or []:
             if not f.get("name", "").endswith(".md"):
@@ -159,35 +160,83 @@ class Watchdog:
                 self.intake._set(item, "RECEIVED", f"liaison message on {branch}: {f['path']}; awaiting the coordinator's own sync (no live session reachable)",
                                  [f.get("html_url", ""), f"sha={f.get('sha','')[:12]}"])
                 found += 1
-            if f["name"] in acks and f["name"] not in (self.store.get_kv("gates:" + src.project) or {}).get("scanned", []):
-                await self._scan_ack_for_gates(src, ack_branch, ack_dir, f["name"])
             if f["name"] in acks and item["status"] not in ("ACKNOWLEDGED", "WORKING", "DONE", "BLOCKED"):
                 self.intake._set(item, "ACKNOWLEDGED", f"ack file {ack_dir}/{f['name']} on {ack_branch}", [f"{ack_branch}:{ack_dir}/{f['name']}"])
                 self.store.set_intake_activity(item["item_id"], time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()))
                 self.store.save_coordinator_ack(src.project, time.time())
                 acked += 1
+            if f["name"] in acks:
+                await self._track_ack_disposition(src, item, ack_branch, ack_dir, f["name"], acks[f["name"]])
         return found, acked
 
-    async def _scan_ack_for_gates(self, src: IntakeSource, ack_branch: str, ack_dir: str, name: str) -> None:
-        """Owner gates the coordinator wrote into its ack file (lines under an 'Owner decision(s)' heading or a
-        'Next single owner decision' bullet) are quoted, with their source, for the approval packet."""
-        kv = self.store.get_kv("gates:" + src.project) or {"gates": [], "scanned": []}
+    async def _track_ack_disposition(self, src: IntakeSource, item: dict, ack_branch: str, ack_dir: str, name: str, meta: dict) -> dict | None:
+        """SHA-aware: the ack file is read only when its content SHA differs from the last reading; each
+        new reading is one receipt on the instruction (claim `ACKFILE <stage>`), the gates scan runs per
+        SHA, and the item's status follows only the unambiguous dispositions (BLOCKED ↔ not blocked).
+        COMPLETED never becomes DONE here: it is 'coordination-completed' on the row, with what the
+        ack itself says about implementation and live state."""
+        key = "liaison_ack:" + item["item_id"]
+        cur = self.store.get_kv(key) or {}
+        sha = meta.get("sha") or ""
+        if cur.get("sha") == sha:
+            return None
         try:
             content = await gh_api(f"repos/{src.repo}/contents/{ack_dir}/{name}?ref={ack_branch}")
             body = base64.b64decode(content.get("content") or "").decode(errors="replace") if content.get("encoding") == "base64" else ""
-        except Exception:
-            return
-        url = content.get("html_url", "")
+        except Exception as exc:
+            return {"error": str(exc)[:120]}
+        now = time.time()
+        d = parse_ack(body)
+        hist = (cur.get("history") or [])[-5:] + [{"sha": sha[:12], "at": now, "stage": d["stage"], "category": d["category"]}]
+        rec = {**d, "sha": sha, "url": content.get("html_url") or meta.get("url", ""), "file": f"{ack_dir}/{name}", "observed_at": now,
+               "first_seen_at": cur.get("first_seen_at") or now, "history": hist}
+        self.store.set_kv(key, rec)
+        evidence = [rec["url"] or f"{ack_branch}:{ack_dir}/{name}", f"sha={sha[:12]}", f"stage={d['stage']}", f"implementation={d['implementation']}", f"live={d['live']}"]
+        write_receipt(self.store, subject_type="instruction", subject_id=item["item_id"],
+                      claim=f"ACKFILE {d['stage'] or 'UNRECOGNISED'}: {d['category']}; {d['stage_text'][:120]}",
+                      actor=Actor.CONTROL.value, source="watchdog:liaison-ack", result_label=VERIFIED, evidence=evidence,
+                      before_state={"sha": (cur.get("sha") or "")[:12], "stage": cur.get("stage")}, after_state={"sha": sha[:12], "stage": d["stage"], "category": d["category"]})
+        self._emit(src.project, ET.CONTROL.value, {"action": "ack_disposition", "item_id": item["item_id"], "stage": d["stage"], "category": d["category"],
+                                                   "implementation": d["implementation"], "live": d["live"]}, evidence)
+        if d["category"] == "blocked" and item["status"] != "BLOCKED":
+            self.intake._set(item, "BLOCKED", f"BLOCKED per its ack file ({d['blocked_reason'][:160]})", evidence)
+        elif d["category"] != "blocked" and item["status"] == "BLOCKED":
+            self.intake._set(item, "ACKNOWLEDGED", f"ack file amended: {d['stage']} ({d['category']}); not product DONE", evidence)
+        self.store.set_intake_activity(item["item_id"], time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(now)))
+        self.store.save_coordinator_ack(src.project, now)
+        gates = self.store.get_kv("gates:" + src.project) or {"gates": [], "scanned": []}
+        if f"{name}@{sha}" not in gates.get("scanned", []):
+            await self._scan_ack_for_gates(src, ack_branch, ack_dir, name, body=body, url=rec["url"], sha=sha)
+        return rec
+
+    async def _scan_ack_for_gates(self, src: IntakeSource, ack_branch: str, ack_dir: str, name: str, body: str | None = None, url: str = "", sha: str = "") -> None:
+        """Owner gates the coordinator wrote into its ack file (lines under an 'Owner decision(s)' heading or a
+        'Next single owner decision' bullet) are quoted, with their source, for the approval packet. Scanned
+        once per content SHA (an amended file is read again); duplicates by (source, text) are not re-added."""
+        kv = self.store.get_kv("gates:" + src.project) or {"gates": [], "scanned": []}
+        if body is None:
+            try:
+                content = await gh_api(f"repos/{src.repo}/contents/{ack_dir}/{name}?ref={ack_branch}")
+                body = base64.b64decode(content.get("content") or "").decode(errors="replace") if content.get("encoding") == "base64" else ""
+                url, sha = content.get("html_url", ""), content.get("sha", sha)
+            except Exception:
+                return
+        seen = {(g.get("source"), g.get("gate")) for g in kv["gates"]}
         lines = body.splitlines()
         for i, line in enumerate(lines):
             low = line.lower()
             if re.match(r"^#+\s*owner decision", low):
                 for nxt in lines[i + 1:i + 6]:
                     if nxt.strip() and not nxt.startswith("#"):
-                        kv["gates"].append({"gate": nxt.strip()[:300], "source": f"{ack_dir}/{name}", "url": url}); break
+                        g = {"gate": nxt.strip()[:300], "source": f"{ack_dir}/{name}", "url": url}
+                        if (g["source"], g["gate"]) not in seen:
+                            kv["gates"].append(g)
+                        break
             elif "next single owner decision" in low or low.lstrip("-* ").startswith("owner decisions that only unlock"):
-                kv["gates"].append({"gate": line.strip().lstrip("-* ")[:300], "source": f"{ack_dir}/{name}", "url": url})
-        kv["scanned"].append(name)
+                g = {"gate": line.strip().lstrip("-* ")[:300], "source": f"{ack_dir}/{name}", "url": url}
+                if (g["source"], g["gate"]) not in seen:
+                    kv["gates"].append(g)
+        kv["scanned"] = (kv.get("scanned") or [])[-200:] + [f"{name}@{sha}" if sha else name]
         kv["gates"] = kv["gates"][-12:]
         self.store.set_kv("gates:" + src.project, kv)
 
