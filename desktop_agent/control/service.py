@@ -324,11 +324,13 @@ class Service:
         for g in caos.get("waiting_owner") or []:
             external.append({"project": "caoscare", "gate": g, "source": "CAOSCare coordinator state script (waiting_owner)",
                              "answer_via": "a direction to CAOSCare from the Shared Inbox (posted on #117)", "answerable_here": False})
-        for g in (self.store.get_kv("gates:michael_business_os") or {}).get("gates") or []:
+        mb = self.store.get_kv("gates:michael_business_os") or {}
+        for g in mb.get("gates") or []:
             external.append({"project": "michael_business_os", **g, "answerable_here": False,
                              "answer_via": "a liaison message from the Shared Inbox (Agent 01 reads it at its own sync)"})
+        historical = [{"project": "michael_business_os", **g} for g in (mb.get("history") or [])[-12:]]
         deferred = [d["decision_id"] for d in self.store.open_decisions(include_deferred=True) if d.get("deferred_until") and d["deferred_until"] > time.time()]
-        return {"generated_at": time.time(), "decisions": items, "external_gates": external, "deferred": deferred,
+        return {"generated_at": time.time(), "decisions": items, "external_gates": external, "historical_gates": historical, "deferred": deferred,
                 "rules": ["each answer is recorded as its own receipt", "an item left blank is not consent", "DEFER hides the item for a day and changes nothing",
                           "external gates are shown as read from the other project's own files and are answered on that project's channel"],
                 "classifier_note": ("Some actions (for example a Business OS self-wake through tmux, 'W-4') are refused by the Claude Code auto-mode safety classifier. "

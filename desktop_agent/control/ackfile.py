@@ -91,21 +91,28 @@ def parse_ack(body: str) -> dict:
             "live": live, "not_proven": not_proven[:3], "followups": followups[:4], "acked_by": acked_by}
 
 
-def next_action(d: dict | None, status: str) -> str:
+EXPLICIT_LIFT = {"working", "coordination-completed", "superseded"}     # only these lift a BLOCKED item; unknown/acknowledged never do
+
+
+def next_action(d: dict | None, status: str, gates_open: list | None = None) -> str:
     """One truthful sentence for the instruction row, from the ack's own disposition. Never 'done'."""
     if not d:
         return ""
     c = d.get("category")
+    gate_txt = f"; owner gate still open per its ack: {gates_open[0][:120]}" + (f" (+{len(gates_open) - 1} more)" if len(gates_open) > 1 else "") if gates_open else ""
+    if status == "BLOCKED" and d.get("retained_block"):
+        return (f"BLOCKED (retained): a later edit of its ack (sha {str(d.get('sha', ''))[:7]}) was not recognised as a disposition, so the proven blocker stands "
+                f"until an explicit WORKING / COMPLETED / SUPERSEDED appears{gate_txt}")
     if c == "blocked":
         return f"BLOCKED per its ack: {d.get('blocked_reason') or d.get('stage_text') or 'reason not stated'}"
     if c == "coordination-completed":
         fu = f"; queued: {', '.join(d['followups'])}" if d.get("followups") else ""
         if d.get("not_implemented"):
-            return f"coordination step completed per its ack; the product change is NOT implemented (its own words){fu} — product result unknown until a worker receipt or PR appears"
+            return f"coordination step completed per its ack; the product change is NOT implemented (its own words){fu} — product result unknown until a worker receipt or PR appears{gate_txt}"
         if d.get("implementation") == "result linked (per the ack)":
             lv = {"verified": "verified live per the ack", "not live (pending)": "deployment/live verification still pending per the ack"}.get(d.get("live"), "live state not stated — unknown")
-            return f"coordination completed; implementation result linked ({len(d.get('links') or [])} link(s)); {lv}{fu}"
-        return f"coordination completed per its ack; implementation result not stated — unknown{fu}"
+            return f"coordination completed; implementation result linked ({len(d.get('links') or [])} link(s)); {lv}{fu}{gate_txt}"
+        return f"coordination completed per its ack; implementation result not stated — unknown{fu}{gate_txt}"
     if c == "superseded":
         return f"SUPERSEDED per its ack ({d.get('stage_text') or 'no detail'}); nothing further expected from it"
     if c == "working":

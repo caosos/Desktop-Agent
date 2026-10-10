@@ -23,7 +23,7 @@ import re
 import time
 
 from . import allowance
-from .ackfile import PARSER_VERSION, parse_ack
+from .ackfile import EXPLICIT_LIFT, PARSER_VERSION, parse_ack
 from .events import Actor, Event, EventType as ET, Provenance
 from .intake import gh_api, IntakeSource
 from .receipts import FAILED, VERIFIED, write_receipt
@@ -199,12 +199,12 @@ class Watchdog:
                           claim=f"ACKFILE {d['stage'] or 'UNRECOGNISED'}: {d['category']}; re-read with parser v{PARSER_VERSION} (same content)",
                           actor=Actor.CONTROL.value, source="watchdog:liaison-ack", result_label=VERIFIED, evidence=evidence,
                           before_state={"stage": cur.get("stage"), "category": cur.get("category")}, after_state={"stage": d["stage"], "category": d["category"]})
-            if d["category"] == "blocked" and item["status"] != "BLOCKED":
-                self.intake._set(item, "BLOCKED", f"BLOCKED per its ack file ({d['blocked_reason'][:160]})", evidence)
+            self._apply_block_rule(item, d, rec, evidence, key)
             return rec
         hist = (cur.get("history") or [])[-5:] + [{"sha": sha[:12], "at": now, "stage": d["stage"], "category": d["category"]}]
         rec = {**d, "sha": sha, "url": content.get("html_url") or meta.get("url", ""), "file": f"{ack_dir}/{name}", "observed_at": now,
-               "first_seen_at": cur.get("first_seen_at") or now, "history": hist, "parser_version": PARSER_VERSION}
+               "first_seen_at": cur.get("first_seen_at") or now, "history": hist, "parser_version": PARSER_VERSION,
+               "links_resolved": await self._resolve_links(src.repo, ack_branch, d.get("links") or [])}
         self.store.set_kv(key, rec)
         evidence = [rec["url"] or f"{ack_branch}:{ack_dir}/{name}", f"sha={sha[:12]}", f"stage={d['stage']}", f"implementation={d['implementation']}", f"live={d['live']}"]
         write_receipt(self.store, subject_type="instruction", subject_id=item["item_id"],
@@ -213,22 +213,67 @@ class Watchdog:
                       before_state={"sha": (cur.get("sha") or "")[:12], "stage": cur.get("stage")}, after_state={"sha": sha[:12], "stage": d["stage"], "category": d["category"]})
         self._emit(src.project, ET.CONTROL.value, {"action": "ack_disposition", "item_id": item["item_id"], "stage": d["stage"], "category": d["category"],
                                                    "implementation": d["implementation"], "live": d["live"]}, evidence)
-        if d["category"] == "blocked" and item["status"] != "BLOCKED":
-            self.intake._set(item, "BLOCKED", f"BLOCKED per its ack file ({d['blocked_reason'][:160]})", evidence)
-        elif d["category"] != "blocked" and item["status"] == "BLOCKED":
-            self.intake._set(item, "ACKNOWLEDGED", f"ack file amended: {d['stage']} ({d['category']}); not product DONE", evidence)
+        self._apply_block_rule(item, d, rec, evidence, key)
         self.store.set_intake_activity(item["item_id"], time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(now)))
         self.store.save_coordinator_ack(src.project, now)
         gates = self.store.get_kv("gates:" + src.project) or {"gates": [], "scanned": []}
         if f"{name}@{sha}" not in gates.get("scanned", []):
-            await self._scan_ack_for_gates(src, ack_branch, ack_dir, name, body=body, url=rec["url"], sha=sha)
+            await self._scan_ack_for_gates(src, ack_branch, ack_dir, name, body=body, url=rec["url"], sha=sha, category=d["category"])
         return rec
 
-    async def _scan_ack_for_gates(self, src: IntakeSource, ack_branch: str, ack_dir: str, name: str, body: str | None = None, url: str = "", sha: str = "") -> None:
+    def _apply_block_rule(self, item: dict, d: dict, rec: dict, evidence: list, key: str) -> None:
+        """BLOCKED is set by an explicit BLOCKED disposition and lifted ONLY by an explicit recognised one
+        (WORKING / COMPLETED / SUPERSEDED). An unrecognised or merely acknowledged later edit keeps the
+        proven blocker, records the observation, and says so on the row (`retained_block`)."""
+        if d["category"] == "blocked" and item["status"] != "BLOCKED":
+            rec.pop("retained_block", None); self.store.set_kv(key, rec)
+            self.intake._set(item, "BLOCKED", f"BLOCKED per its ack file ({d['blocked_reason'][:160]})", evidence)
+        elif item["status"] == "BLOCKED" and d["category"] in EXPLICIT_LIFT:
+            rec.pop("retained_block", None); self.store.set_kv(key, rec)
+            self.intake._set(item, "ACKNOWLEDGED", f"BLOCKED lifted by explicit {d['stage']} ({d['category']}) in its ack; not product DONE", evidence)
+        elif item["status"] == "BLOCKED":
+            rec["retained_block"] = {"since_sha": rec.get("sha", "")[:12], "edit_category": d["category"], "at": time.time(),
+                                     "note": "later ack edit not recognised as a disposition; the proven blocker stands"}
+            self.store.set_kv(key, rec)
+
+    async def _resolve_links(self, repo: str, ref: str, links: list) -> list:
+        """A cited link becomes clickable only when it resolves against the verified repo/branch: http(s)
+        links as given (external, not checked); relative repo paths → the file must exist on `ref`; commit
+        shas → the commit must exist. Otherwise the text is kept, unlinked and marked unverified. Never invented."""
+        out = []
+        for text in links[:8]:
+            if re.match(r"^https?://", text):
+                out.append({"text": text, "url": text, "verified": False, "kind": "external"}); continue
+            ck = f"linkres:{repo}:{ref}:{text}"
+            cached = self.store.get_kv(ck)
+            if cached:
+                out.append(cached); continue
+            res = {"text": text, "url": None, "verified": False, "kind": "commit" if re.fullmatch(r"[0-9a-f]{7,40}", text) else "path"}
+            try:
+                if res["kind"] == "commit":
+                    c = await gh_api(f"repos/{repo}/commits/{text}")
+                    if c and c.get("html_url"):
+                        res.update(url=c["html_url"], verified=True)
+                else:
+                    c = await gh_api(f"repos/{repo}/contents/{text}?ref={ref}")
+                    if c and c.get("html_url"):
+                        res.update(url=c["html_url"], verified=True)
+            except Exception as exc:
+                res["note"] = f"not found on {ref}: {str(exc)[:80]}"
+            if res["verified"]:
+                self.store.set_kv(ck, res)
+            out.append(res)
+        return out
+
+    async def _scan_ack_for_gates(self, src: IntakeSource, ack_branch: str, ack_dir: str, name: str, body: str | None = None, url: str = "", sha: str = "",
+                                  category: str | None = None) -> None:
         """Owner gates the coordinator wrote into its ack file (lines under an 'Owner decision(s)' heading or a
-        'Next single owner decision' bullet) are quoted, with their source, for the approval packet. Scanned
-        once per content SHA (an amended file is read again); duplicates by (source, text) are not re-added."""
+        'Next single owner decision' bullet) are quoted, with their source and SHA, for the approval packet.
+        Scanned once per content SHA. The CURRENT gates of a source are those present in its newest reading;
+        a gate absent from the newest reading, or any gate of a file whose disposition is explicitly SUPERSEDED,
+        moves to `history` marked retired — disappearance is never an approval and authorises nothing."""
         kv = self.store.get_kv("gates:" + src.project) or {"gates": [], "scanned": []}
+        kv.setdefault("history", [])
         if body is None:
             try:
                 content = await gh_api(f"repos/{src.repo}/contents/{ack_dir}/{name}?ref={ack_branch}")
@@ -236,23 +281,39 @@ class Watchdog:
                 url, sha = content.get("html_url", ""), content.get("sha", sha)
             except Exception:
                 return
-        seen = {(g.get("source"), g.get("gate")) for g in kv["gates"]}
+        source = f"{ack_dir}/{name}"
+        now = time.time()
+        found: list[dict] = []
         lines = body.splitlines()
         for i, line in enumerate(lines):
             low = line.lower()
             if re.match(r"^#+\s*owner decision", low):
                 for nxt in lines[i + 1:i + 6]:
                     if nxt.strip() and not nxt.startswith("#"):
-                        g = {"gate": nxt.strip()[:300], "source": f"{ack_dir}/{name}", "url": url}
-                        if (g["source"], g["gate"]) not in seen:
-                            kv["gates"].append(g)
+                        found.append({"gate": nxt.strip()[:300], "source": source, "url": url})
                         break
             elif "next single owner decision" in low or low.lstrip("-* ").startswith("owner decisions that only unlock"):
-                g = {"gate": line.strip().lstrip("-* ")[:300], "source": f"{ack_dir}/{name}", "url": url}
-                if (g["source"], g["gate"]) not in seen:
-                    kv["gates"].append(g)
+                found.append({"gate": line.strip().lstrip("-* ")[:300], "source": source, "url": url})
+        superseded = category == "superseded"
+        current_same, others = [g for g in kv["gates"] if g.get("source") == source], [g for g in kv["gates"] if g.get("source") != source]
+        new_current = []
+        for g in current_same:
+            still = any(f["gate"] == g["gate"] for f in found) and not superseded
+            if still:
+                new_current.append({**g, "sha": sha, "observed_at": now})
+            else:
+                kv["history"].append({**g, "retired_at": now, "retired_by": (f"explicit SUPERSEDED disposition of {source}@{sha[:7]}" if superseded
+                                                                                  else f"no longer present in {source}@{sha[:7]}"),
+                                      "approval": "none — disappearance is not an answer; nothing was authorised"})
+        for f in found:
+            if superseded:
+                kv["history"].append({**f, "sha": sha, "first_seen_at": now, "retired_at": now, "retired_by": f"explicit SUPERSEDED disposition of {source}@{sha[:7]}",
+                                      "approval": "none — the file superseded itself; nothing was authorised"})
+            elif not any(g["gate"] == f["gate"] for g in new_current):
+                new_current.append({**f, "sha": sha, "first_seen_at": now, "observed_at": now})
+        kv["gates"] = others + new_current
+        kv["history"] = kv["history"][-40:]
         kv["scanned"] = (kv.get("scanned") or [])[-200:] + [f"{name}@{sha}" if sha else name]
-        kv["gates"] = kv["gates"][-12:]
         self.store.set_kv("gates:" + src.project, kv)
 
     async def send_liaison(self, src: IntakeSource, item: dict) -> dict:

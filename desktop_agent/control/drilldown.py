@@ -145,7 +145,9 @@ class Drilldown:
                 nxt = ("awaiting Agent 01's ack file; it reads the liaison branch at its own sync — no cross-account wake exists" if i.get("kind") == "liaison"
                        else "delivered but not acknowledged; resend from the Shared inbox or check the coordinator session")
             elif i["status"] in ("WORKING", "ACKNOWLEDGED", "CLAIMED", "BLOCKED") and i.get("kind") == "liaison" and self.svc.store.get_kv("liaison_ack:" + i["item_id"]):
-                nxt = ack_next_action(self.svc.store.get_kv("liaison_ack:" + i["item_id"]), i["status"])
+                _d = self.svc.store.get_kv("liaison_ack:" + i["item_id"])
+                _open = [g["gate"] for g in (self.svc.store.get_kv("gates:" + name) or {}).get("gates") or [] if g.get("source") == _d.get("file")]
+                nxt = ack_next_action(_d, i["status"], _open)
             elif i["status"] in ("WORKING", "ACKNOWLEDGED", "CLAIMED"):
                 nxt = "in the coordinator's hands; DONE arrives by its comment or ack file"
             elif i["status"] in ("POSTED", "SENT"):
@@ -176,7 +178,8 @@ class Drilldown:
                 facts["coordination_completed_at"] = disp.get("observed_at")
             instr.append({"item_id": i["item_id"], "title": (i.get("title") or "")[:90], "status": i["status"], "age": age, "flagged": bool(i.get("flagged")),
                           "url": i.get("url", ""), "next": nxt, **facts, "evidence": facts["evidence"][-3:],
-                          "disposition": ({k: disp.get(k) for k in ("stage", "category", "implementation", "live", "links", "not_proven", "followups", "sha", "url", "observed_at", "first_seen_at", "history", "stage_line")}
+                          "disposition": ({**{k: disp.get(k) for k in ("stage", "category", "implementation", "live", "links", "links_resolved", "not_proven", "followups", "sha", "url", "observed_at", "first_seen_at", "history", "stage_line", "retained_block")},
+                                           "gates_open": [g["gate"] for g in (self.svc.store.get_kv("gates:" + name) or {}).get("gates") or [] if g.get("source") == disp.get("file")]}
                                           if disp else None)})
         unacked = [x for x in instr if x["flagged"] and x["status"] in ("RECEIVED", "DELIVERED")]
         finished_open = [f for f in workers.get("finished", []) if "open" in f["status"]]

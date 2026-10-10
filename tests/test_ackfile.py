@@ -76,6 +76,10 @@ def _harness(tmp_path: Path):
         if "contents/docs/messages/acks/ARYA" in path:
             state["content_fetches"] += 1
             return {"encoding": "base64", "sha": state["ack"][0], "html_url": "https://x/acks/f51", "content": base64.b64encode(state["ack"][1].encode()).decode()}
+        if path == "repos/x/mbos/contents/docs/handoff/F-51-amendment.md?ref=research/c":
+            return {"html_url": "https://github.com/x/mbos/blob/research/c/docs/handoff/F-51-amendment.md", "sha": "h1"}
+        if path == "repos/x/mbos/commits/9ab12cd4e":
+            return {"html_url": "https://github.com/x/mbos/commit/9ab12cd4e0000", "sha": "9ab12cd4e0000"}
         raise AssertionError(path)
     intake_mod.gh_api = gh; wd_mod.gh_api = gh
     src = IntakeSource(project="mbos", repo="x/mbos", issues=[], coordinator={"kind": "liaison", "liaison": {"branch": "liaison/x", "inbox_dir": "docs/messages/inbox", "ack_branch": "research/c", "ack_dir": "docs/messages/acks"}})
@@ -197,3 +201,99 @@ def test_parser_upgrade_reparses_same_sha_without_duplicate_receipts(tmp_path: P
     store.set_kv("liaison_ack:" + iid, {**kv2, "parser_version": 0, "stage": None, "category": "unknown"})
     asyncio.run(it.poll_once())
     assert len(_ackfile_receipts(store, iid)) == 2 and "re-read with parser" in _ackfile_receipts(store, iid)[-1]["claim"]
+
+
+GATE_LIVE_APPROVAL = """# ACK: ARYA-20261010-0433-f51-scope-handoff
+
+- **Stage:** COMPLETED (code complete; staging verified)
+- **Done by the coordinator (evidence):**
+  - commit `9ab12cd4e`, handoff `docs/handoff/F-51-amendment.md`
+
+## Owner decision(s)
+- approve the live reload of :8766 with build 9ab12cd4e (nothing goes live until you say so)
+"""
+UNRECOGNISED_EDIT = """# ACK: ARYA-20261010-0433-f51-scope-handoff
+
+- **Acked by:** Agent 01. Notes updated; see the receipt for details.
+"""
+SUPERSEDED = """# ACK: ARYA-20261010-0433-f51-scope-handoff
+
+- **Stage:** SUPERSEDED by ARYA-20261010-0610 (the F-52 plan replaces this handoff)
+"""
+
+
+def test_blocked_is_retained_on_unrecognised_edit_and_lifted_only_by_explicit_disposition(tmp_path: Path):
+    store, it, state = _harness(tmp_path)
+    state["ack"] = ("b1", BLOCKED_AMENDMENT); asyncio.run(it.poll_once())
+    iid = store.list_intake()[0]["item_id"]
+    assert store.get_intake(iid)["status"] == "BLOCKED"
+    # a later edit that is not a recognised disposition: the blocker stands, the observation is kept
+    state["ack"] = ("u1", UNRECOGNISED_EDIT); asyncio.run(it.poll_once())
+    kv = store.get_kv("liaison_ack:" + iid); item = store.get_intake(iid)
+    assert item["status"] == "BLOCKED" and "F-51 worker exited" in item["note"]
+    assert kv["category"] == "unknown" and kv["retained_block"]["since_sha"] == "u1" and [h["sha"] for h in kv["history"]] == ["b1", "u1"]
+    assert len(_ackfile_receipts(store, iid)) == 2 and "UNRECOGNISED" in _ackfile_receipts(store, iid)[-1]["claim"]
+    assert next_action(kv, "BLOCKED").startswith("BLOCKED (retained)") and "sha u1" in next_action(kv, "BLOCKED")
+    # replayed / unchanged SHA: nothing happens
+    asyncio.run(it.poll_once()); asyncio.run(it.poll_once())
+    assert state["content_fetches"] == 2 and len(_ackfile_receipts(store, iid)) == 2 and store.get_intake(iid)["status"] == "BLOCKED"
+    # an explicit recognised disposition lifts it
+    state["ack"] = ("c1", RESULT_LINKED); asyncio.run(it.poll_once())
+    item = store.get_intake(iid); kv = store.get_kv("liaison_ack:" + iid)
+    assert item["status"] == "ACKNOWLEDGED" and "lifted by explicit COMPLETED" in item["note"] and "retained_block" not in kv
+    # BLOCKED again, then an explicit SUPERSEDED lifts it too
+    state["ack"] = ("b2", BLOCKED_AMENDMENT); asyncio.run(it.poll_once()); assert store.get_intake(iid)["status"] == "BLOCKED"
+    state["ack"] = ("s9", SUPERSEDED); asyncio.run(it.poll_once())
+    assert store.get_intake(iid)["status"] == "ACKNOWLEDGED" and "lifted by explicit SUPERSEDED" in store.get_intake(iid)["note"]
+    assert "SUPERSEDED per its ack" in next_action(store.get_kv("liaison_ack:" + iid), "ACKNOWLEDGED")
+
+
+def test_gates_current_versus_historical_and_disappearance_is_not_approval(tmp_path: Path):
+    store, it, state = _harness(tmp_path)
+    state["ack"] = ("g1", GATE_LIVE_APPROVAL); asyncio.run(it.poll_once())
+    iid = store.list_intake()[0]["item_id"]
+    g = store.get_kv("gates:mbos")
+    assert [x["gate"] for x in g["gates"]] == ["- approve the live reload of :8766 with build 9ab12cd4e (nothing goes live until you say so)"]
+    assert g["gates"][0]["sha"] == "g1" and g["gates"][0]["source"] == "docs/messages/acks/ARYA-20261010-0433-f51-scope-handoff.md" and g.get("history", []) == []
+    # code is complete, yet the live-approval gate stays open and the row says so
+    kv = store.get_kv("liaison_ack:" + iid)
+    assert kv["category"] == "coordination-completed" and kv["implementation"] == "result linked (per the ack)"
+    na = next_action(kv, "ACKNOWLEDGED", [x["gate"] for x in g["gates"]])
+    assert "owner gate still open per its ack: - approve the live reload" in na and "done" not in na.lower()
+    # replayed SHA: gates untouched, no duplicates
+    asyncio.run(it.poll_once()); assert len(store.get_kv("gates:mbos")["gates"]) == 1 and state["content_fetches"] == 1
+    # the gate disappears from the next reading: retired to history, explicitly not an approval
+    state["ack"] = ("g2", RESULT_LINKED); asyncio.run(it.poll_once())
+    g2 = store.get_kv("gates:mbos")
+    assert g2["gates"] == [] and len(g2["history"]) == 1 and g2["history"][0]["retired_by"] == "no longer present in docs/messages/acks/ARYA-20261010-0433-f51-scope-handoff.md@g2"
+    assert "not an answer" in g2["history"][0]["approval"] and g2["history"][0]["sha"] == "g1"
+    # a gate retired by an explicit SUPERSEDED disposition
+    state["ack"] = ("g3", GATE_LIVE_APPROVAL); asyncio.run(it.poll_once()); assert len(store.get_kv("gates:mbos")["gates"]) == 1
+    state["ack"] = ("g4", SUPERSEDED); asyncio.run(it.poll_once())
+    g4 = store.get_kv("gates:mbos")
+    assert g4["gates"] == [] and g4["history"][-1]["retired_by"].startswith("explicit SUPERSEDED disposition") and "nothing was authorised" in g4["history"][-1]["approval"]
+
+
+def test_links_resolved_only_against_the_verified_branch(tmp_path: Path):
+    store, it, state = _harness(tmp_path)
+    state["ack"] = ("l1", GATE_LIVE_APPROVAL); asyncio.run(it.poll_once())
+    iid = store.list_intake()[0]["item_id"]
+    lr = {l["text"]: l for l in store.get_kv("liaison_ack:" + iid)["links_resolved"]}
+    assert lr["docs/handoff/F-51-amendment.md"]["verified"] and lr["docs/handoff/F-51-amendment.md"]["url"].endswith("/blob/research/c/docs/handoff/F-51-amendment.md")
+    assert lr["9ab12cd4e"]["verified"] and lr["9ab12cd4e"]["url"].endswith("/commit/9ab12cd4e0000") and lr["9ab12cd4e"]["kind"] == "commit"
+    state["ack"] = ("l2", RESULT_LINKED); asyncio.run(it.poll_once())
+    lr = {l["text"]: l for l in store.get_kv("liaison_ack:" + iid)["links_resolved"]}
+    assert lr["docs/receipts/2026-10-10-f51-amendment.md"]["verified"] is False and lr["docs/receipts/2026-10-10-f51-amendment.md"]["url"] is None   # not on the branch: no link invented
+    assert lr["https://github.com/x/mbos/pull/61"]["kind"] == "external" and lr["https://github.com/x/mbos/pull/61"]["url"] == "https://github.com/x/mbos/pull/61"
+    assert store.get_kv("linkres:x/mbos:research/c:9ab12cd4e")["verified"]                                                 # verified resolutions are cached
+
+
+def test_packet_separates_current_and_historical_gates(tmp_path: Path):
+    from tests.test_drilldown import _service
+    s = _service(tmp_path)
+    s.store.set_kv("gates:michael_business_os", {"gates": [{"gate": "approve the live reload", "source": "acks/f51.md", "url": "u", "sha": "g1"}],
+                                                 "history": [{"gate": "old question", "source": "acks/f40.md", "sha": "a1", "retired_at": time.time(), "retired_by": "no longer present in acks/f40.md@a2",
+                                                              "approval": "none — disappearance is not an answer; nothing was authorised"}], "scanned": []})
+    pk = s.approval_packet()
+    assert [g["gate"] for g in pk["external_gates"] if g["project"] == "michael_business_os"] == ["approve the live reload"]
+    assert pk["historical_gates"][0]["gate"] == "old question" and "not an answer" in pk["historical_gates"][0]["approval"]
