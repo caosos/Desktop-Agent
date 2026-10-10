@@ -1,5 +1,13 @@
 # Aria widget — one-time setup on the EliteDesk
 
+**You do not need the widget.** The browser panel at `http://127.0.0.1:8477/`
+(signed in with the token in `~/.config/desktop-agent/token`) is the complete
+owner interface: the three project cards with drilldowns, the approval packet,
+the Shared inbox, and **Ask Aria** (bottom-right bubble) with typed or dictated
+messages. The desktop widget is optional: it only adds a small always-available
+window in your GNOME session and push-to-talk through a separately metered
+provider. Everything below is for that optional window.
+
 The control plane runs as user `caoscare-1` (user systemd service
 `desktop-agent.service`, `http://127.0.0.1:8477`). The desktop session
 belongs to user `michaelos`, so the widget runs there and talks to the control

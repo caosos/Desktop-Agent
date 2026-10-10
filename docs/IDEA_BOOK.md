@@ -29,7 +29,6 @@ Sorted by utility and finishability: #1 is one answer that unlocks metered costs
 | What | Who | Since | Evidence so far |
 |---|---|---|---|
 | Michael Business OS liaison round trip: message `ARIA-20261008-2209-desktop-agent-central-monitor-now-reads` awaiting Agent 01's ack file | watchdog (free poll) | 2026-10-09 03:10Z | item `da-9284d4f259` SENT; 11/12 liaison messages ACKNOWLEDGED |
-| PR #11 (widget-is-optional wording in `docs/WIDGET_SETUP.md` and README, written by a Luna-class worker, verified) waits for a merge click: the coordinator's merge was refused by the Claude Code auto-mode classifier ("Merge Without Review") | Michael | 2026-10-09 18:10Z | https://github.com/caosos/Desktop-Agent/pull/11 |
 
 ## 3. Done (plain language, with evidence)
 
