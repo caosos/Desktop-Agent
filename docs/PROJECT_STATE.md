@@ -563,3 +563,26 @@ HANDOFF CAPSULE
 - **Regressions:** `test_failed_tool_task_in_any_phase_exits_failed_with_a_quiet_peer` parameterised over execute / receipt / record / send / resend with a quiet transport (gated 3 s): FAILED with the phase-specific reason, all tasks done, transport closed, no completion note, no tool receipt or record for the execute/receipt phases (nothing claimed that did not happen), exactly one receipt where the execution did happen; `test_terminal_report_failure_is_best_effort_and_never_claims_success`. On the c6f1b2e runner all six fail (execute/receipt/record/resend: the runner never returns; send: `report_error` absent); on the fix they pass. All earlier runner, cleanup, cancel and calling regressions retained.
 - **Results:** focused `tests/test_call_session.py tests/test_calling.py` 36 passed; full gate on the fix head and on merged `main` 153 passed, 1 skipped. `main` fast-forwarded 0a35a05 → f277d3d103454d07ff94d3c0005eedabda1d1ca0 under the existing policy.
 - **Live boundary unchanged:** service still `2238799`; no restart, reload, provider or real call. Next serial task on owner assignment: the intake classifier repair.
+
+## 2026-10-10 22:1xZ — Trustworthy gate: exit status preserved; the false "153 passed" superseded (da-5f1af3e0fd, da-f23624f05d)
+
+- **What actually happened (supersedes the entry "fatal tool-task boundary" above):** the integration chain for `f277d3d` ran
+  `.venv/bin/python -m pytest -q 2>&1 | tail -1` and chained on `&&`; a pipeline's status is the last command's (`tail`), so
+  pytest's exit 1 was invisible and `main` was fast-forwarded with **3 failing tests** while the entry claimed "153 passed".
+  The reviewer (da-5f1af3e0fd) reproduced the same three assertion failures independently.
+- **Failed command:** `.venv/bin/python -m pytest -q 2>&1 | tail -1 && git merge --ff-only …`
+  **Corrected command:** `scripts/gate.sh [pytest args]` — captures `rc=$?` immediately after pytest, prints
+  `GATE PASS|FAIL exit=<rc> head=<sha> tree=clean|dirty :: <pytest summary>` and exits with `rc`; success reporting depends
+  only on that status. (`set -o pipefail; pytest … | tail -1` also works, and is what the interim corrections used.)
+- **Proof on an intentionally failing fixture (`assert 1 == 2`), same gate path:** `scripts/gate.sh <fixture>` → `GATE FAIL exit=1 …
+  :: 1 failed in 0.02s`, shell `$?` = 1. The old command on the same fixture → prints `1 failed in 0.02s` but `$?` = **0**
+  (no pipefail); raw pytest `$?` = 1. A FAIL from the gate cannot be chained into a merge or a receipt.
+- **Corrections to the tests (`316d5c1`, `792203d`):** phase-specific diagnostics (execute/receipt/record phases assert a
+  boundary-caught `task_errors` entry; send/resend assert `_broken` = "send failed" and no task error); the record phase now
+  fails on the *tool's own* record (execution receipted once, no tool record entry); a separate receive-loop record test
+  covers the transcript-record failure ("event handling failed"); the runner is ≤ 300 lines (`call_session.py` 300,
+  `call_adapter.py` 29).
+- **Clean-checkout verification at `792203d`** (fresh `git clone`, `git status` clean): targeted
+  `-k "any_phase or receive_loop_record or terminal_report"` → exit 0, 7 passed; focused `tests/test_call_session.py
+  tests/test_calling.py` → exit 0, 37 passed; full → exit 0, **154 passed, 1 skipped**. The final head's own gate run is
+  recorded in the DONE comment for da-f23624f05d on #3.

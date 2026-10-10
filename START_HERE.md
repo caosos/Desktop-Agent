@@ -51,7 +51,9 @@ separate identity from CAOSCare's resident Aria; they share a name only.
   `~/.local/share/desktop-agent`; workspaces in `~/Desktop-Agent-work/<task>/`.
 - Panel: `http://127.0.0.1:8477/` with the token from
   `~/.config/desktop-agent/token`.
-- Tests: `.venv/bin/python -m pytest -q` (no Claude, no network).
+- Tests: `.venv/bin/python -m pytest -q` (no Claude, no network). For any verification that
+  feeds an integration or a receipt, run `scripts/gate.sh [pytest args]`: it reports PASS/FAIL
+  strictly from pytest's exit status (never pipe pytest into `tail` and read the last line).
 
 ## Operating the panel (owner)
 
