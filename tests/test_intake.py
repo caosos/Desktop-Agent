@@ -154,3 +154,23 @@ def test_control_plane_coordinator_acks_itself(tmp_path: Path):
     assert store.get_intake(iid)["status"] == "ACKNOWLEDGED" and gh.posted and gh.posted[0].startswith(f"ACK {iid}")
     text = delivery_text(store.get_intake(iid))
     assert f"ACK {iid}" in text and "Do the thing." in text and "DA-INTAKE item=" in text
+
+
+def test_session_pin_falls_back_to_working_directory(monkeypatch):
+    """The pinned session name dies with every restart; delivery must then resolve by the configured
+    working directory and say so, instead of queueing silently."""
+    from desktop_agent.control import intake_delivery as idm
+    live = {"name": "caoscare-1-05", "pid": 1, "cwd": "/home/caoscare-1", "status": "idle", "updatedAt": 1, "tmux": None}
+    def fake_find(cwd_prefix, exact=False, name=None):
+        if name:
+            return live if name == live["name"] else None
+        return live if (cwd_prefix.rstrip("/") == live["cwd"]) else None
+    monkeypatch.setattr(idm, "find_session", fake_find)
+    src = IntakeSource(project="desktop_agent", repo="x/y", issues=[3],
+                       coordinator={"kind": "claude_peer", "session_name": "caoscare-1-20", "session_cwd_exact": "/home/caoscare-1"})
+    s = idm.Deliverer.session_for(src)
+    assert s["name"] == "caoscare-1-05" and s["resolved_by"] == "cwd (exact)"
+    src.coordinator["session_name"] = "caoscare-1-05"
+    assert idm.Deliverer.session_for(src)["resolved_by"] == "name"
+    src.coordinator = {"kind": "claude_peer", "session_name": "caoscare-1-20"}
+    assert idm.Deliverer.session_for(src) is None

@@ -44,4 +44,7 @@ Pause, Resume and Stop never touch CAOSCare's or Business OS's own workers.
 
 ## Money
 
+**Allowance** (Owner view row; also under Coordinators and workers in Details) = the included Claude subscription windows for this host's shared account: 5-hour and 7-day used %, each with its reset time, the observation time and its source (the coordinator session's own status line, or the last worker run). A window shows **UNKNOWN** with the reason when the source did not report it or its reset time has passed; **STALE** when the last observation is older than 30 minutes. It is the same number for every session of the account — never a sum — and it is not a bill.
+
+
 Known dollars are token-equivalent list prices reported by the Claude CLI on the subscription, not an invoice. Anything the platform cannot price shows as **UNKNOWN**, never `$0`. Metered API invoices are impossible while OpenAI is DISABLED and no Anthropic key exists; both decisions are optional and stay unanswered until you submit them.

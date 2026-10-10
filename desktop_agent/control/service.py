@@ -18,6 +18,7 @@ from .integrator import Integrator
 from .launcher import Launcher
 from .llm import LLM
 from .planner import Planner
+from . import allowance
 from .project import load_projects
 from .receipts import FAILED, VERIFIED, write_receipt
 from .scheduler import Scheduler
@@ -94,6 +95,7 @@ class Service:
                              ask_owner=lambda **kw: self.ask_owner(question=kw["question"], options=kw["options"], why=kw["why"],
                                                                    source=kw["source"], recommendation=None))
         self.watchdog = Watchdog(self.store, self.intake, self.deliverer, self.scheduler)
+        self.watchdog.allowance_path = cfg.data_dir / allowance.ALLOWANCE_FILE
         self.intake.watchdog = self.watchdog
         from .intake import gh_api
         from .workers import WorkerMonitor
@@ -467,7 +469,7 @@ class Service:
             "budgets": self.budgets(),
             "llm": self.llm.status(),
             "intake": self.intake.summary(),
-            "quota": self.store.get_kv("quota"),
+            "quota": allowance.view(self.store.get_kv("quota")),
             "outcomes": [{"task_type": k[0], "model_class": k[1], **v} for k, v in metrics.outcomes(self.store).items()],
         }
 
@@ -490,7 +492,9 @@ class Service:
             s = Deliverer.session_for(IntakeSourceLite(coord))
             verified = bool(row.get("last_wake") and row.get("last_ack") and row["last_ack"] >= row["last_wake"])
             if s:
-                return base | {"connected": True, "detail": f"session {s['name']} ({s['status']})", "session": s["name"], "session_status": s["status"],
+                how = "" if s.get("resolved_by", "name") == "name" else f" — pinned name {coord.get('session_name')} is not live; resolved by {s['resolved_by']}"
+                return base | {"connected": True, "detail": f"session {s['name']} ({s['status']}){how}", "session": s["name"], "session_status": s["status"],
+                               "resolved_by": s.get("resolved_by", "name"),
                                "wake": "VERIFIED (delivery → ACK observed)" if verified else "delivered, ACK pending" if row.get("last_wake") else "untested"}
             return base | {"connected": False, "detail": "Disconnected: no live coordinator session; items queue until one appears",
                            "wake": "unavailable (no session)"}

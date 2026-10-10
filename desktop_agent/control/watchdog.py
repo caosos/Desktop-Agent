@@ -22,6 +22,7 @@ import os
 import re
 import time
 
+from . import allowance
 from .events import Actor, Event, EventType as ET, Provenance
 from .intake import gh_api, IntakeSource
 from .receipts import FAILED, VERIFIED, write_receipt
@@ -47,6 +48,7 @@ class Watchdog:
         self.store, self.intake, self.deliverer, self.scheduler = store, intake, deliverer, scheduler
         self.cooldown_sec = cooldown_sec
         self.workers = None                                      # WorkerMonitor, set by the service (feeds + open-PR refresh)
+        self.allowance_path = None                               # <data_dir>/allowance.json, set by the service
         self._last_wake: dict[str, tuple[float, str]] = {}      # project → (ts, reasons key)
 
     def _emit(self, project: str, etype: str, payload: dict, evidence: list) -> None:
@@ -72,6 +74,8 @@ class Watchdog:
                 entry["error"] = str(exc)[:300]
             self.store.save_coordinator_check(src.project, entry)
             report[src.project] = {k: v for k, v in entry.items() if k != "state"}
+        if self.allowance_path is not None:
+            report["allowance"] = allowance.ingest(self.store, self.allowance_path)
         self._resume_after_quota_reset()
         if self.workers is not None:
             try:

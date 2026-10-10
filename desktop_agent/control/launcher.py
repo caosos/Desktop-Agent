@@ -206,8 +206,10 @@ class Launcher:
             # utilization and reset times and the scheduler can resume after a reset. Not a bill.
             windows = rl.get("unifiedWindows") or {}
             self.store.set_kv("quota", {"provider": "claude_subscription", "status": rl.get("status"), "resets_at": rl.get("resetsAt"),
-                                        "limit_type": rl.get("rateLimitType"),
-                                        "windows": {k: {"utilization": v.get("utilization"), "resets_at": v.get("resetsAt")} for k, v in windows.items()},
+                                        "limit_type": rl.get("rateLimitType"), "source": "worker_run",
+                                        "windows": {k: {"utilization": v.get("utilization"), "resets_at": v.get("resetsAt"),
+                                                        "used_percentage": round(float(v["utilization"]) * 100, 1) if v.get("utilization") is not None else None}
+                                                    for k, v in windows.items()},
                                         "seen_at": time.time(), "task_id": run.task_id})
         if final:
             # Known dollars when the executor reports them; otherwise tokens with an UNKNOWN cost

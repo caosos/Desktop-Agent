@@ -115,12 +115,22 @@ class Deliverer:
 
     @staticmethod
     def session_for(src) -> dict | None:
+        """Pinned name first; when that session is gone (every restart renames it), fall back to the
+        configured working directory so delivery does not silently queue. The result says how it was found."""
         c = src.coordinator or {}
         if c.get("session_name"):
-            return find_session("", name=c["session_name"])
+            s = find_session("", name=c["session_name"])
+            if s:
+                return {**s, "resolved_by": "name"}
         if c.get("session_cwd_exact"):
-            return find_session(c["session_cwd_exact"], exact=True)
-        return find_session(c["session_cwd"]) if c.get("session_cwd") else None
+            s = find_session(c["session_cwd_exact"], exact=True)
+            if s:
+                return {**s, "resolved_by": "cwd (exact)"}
+        if c.get("session_cwd"):
+            s = find_session(c["session_cwd"])
+            if s:
+                return {**s, "resolved_by": "cwd (prefix)"}
+        return None
 
     async def _claude_peer(self, src, item: dict, backfill: bool, prebuilt_text: str | None = None) -> dict:
         c = src.coordinator or {}
@@ -128,6 +138,8 @@ class Deliverer:
         session = self.session_for(src)
         if not session:
             return {"ok": False, "note": f"no live Claude Code session at {where}; queued, awaiting connection", "evidence": [where]}
+        how = (f"; pinned name {c['session_name']} not live, resolved by {session['resolved_by']}"
+               if session.get("resolved_by", "name") != "name" and c.get("session_name") else "")
         text = prebuilt_text or delivery_text(item, backfill)
         prompt = ("You are a delivery relay. Use the ListAgents tool, then use the SendMessage tool to send EXACTLY the text between "
                   f"<<< and >>> (verbatim, no additions) to the agent named '{session['name']}'. Then reply with the single word SENT, "
@@ -156,7 +168,7 @@ class Deliverer:
         if result.upper().startswith("SENT") and not msg.get("is_error"):
             when = time.strftime("%Y-%m-%d %H:%M:%S %Z")
             return {"ok": True, "status": "DELIVERED",
-                    "note": f"peer message to session {session['name']} (pid {session['pid']}, cwd {session['cwd']}) at {when}; relay ${cost}",
+                    "note": f"peer message to session {session['name']} (pid {session['pid']}, cwd {session['cwd']}{how}) at {when}; relay ${cost}",
                     "evidence": [f"session={session['name']}", f"pid={session['pid']}", f"relay_cost_usd={cost}", f"relay_session={msg.get('session_id')}"],
                     "comment": f"DELIVERED {item['item_id']} to the running {src.project} coordinator session `{session['name']}` at {when} "
                                f"as a Claude Code peer message (automatic intake{', backfill' if backfill else ''}). Awaiting `ACK {item['item_id']}`."}

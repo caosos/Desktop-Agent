@@ -115,6 +115,7 @@ a { color:var(--accent); }
   <div class="orow"><b>Decisions</b><div><div id="o_decisions" class="tiny"></div><div class="ctl" style="margin-top:6px"><button id="o_openpacket">Open approval packet</button><span class="muted tiny">optional unless marked; nothing changes until you submit</span></div></div></div>
   <div class="orow next"><b>NEXT</b><div id="o_next"></div></div>
   <div class="orow"><b>Work</b><div id="o_work" class="tiny"></div></div>
+  <div class="orow"><b>Allowance</b><div id="o_allowance" class="tiny muted"></div></div>
   <details class="tiny" style="margin-top:10px"><summary>What the words mean</summary>
     <div class="muted" style="margin-top:4px">
       <b>Project</b> = the repo and its work. <b>Coordinator</b> = the Claude session (or liaison) that steers it; <i>idle</i> means it is waiting for a message, not down. <b>Dispatcher</b> (Business OS) = the loop that launches its workers. <b>Workers</b> = jobs running right now, counted from live processes and the project's own feed.<br>
@@ -219,6 +220,17 @@ const H = () => ({ "Authorization": "Bearer " + token, "Content-Type": "applicat
 let selected = null, lastSeq = 0;
 
 function esc(s){ return String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
+// Included Claude allowance: the shared subscription windows, never summed, UNKNOWN when absent or reset.
+function allowanceText(q, long) {
+  if (!q || !q.view) return "included Claude allowance: UNKNOWN — not observed yet (no status-line drop, no worker run)";
+  const v = q.view, lbl = {five_hour: "5h", seven_day: "7d"};
+  const win = Object.entries(v.windows).map(([k, w]) => w.state === "KNOWN"
+    ? `${lbl[k] || k} ${Math.round(w.used_percentage)}% used, resets ${new Date(w.resets_at * 1000).toLocaleString([], {weekday: "short", hour: "2-digit", minute: "2-digit"})}`
+    : `${lbl[k] || k} UNKNOWN (${w.reason})`).join(" · ");
+  const src = v.source === "claude_code_statusline" ? "coordinator session status line" : v.source === "worker_run" ? "last worker run" : v.source;
+  const fresh = v.freshness === "fresh" ? `observed ${ago(v.observed_at)} ago` : v.freshness === "stale" ? `STALE — last observed ${ago(v.observed_at)} ago` : "observation time unknown";
+  return `included Claude allowance (${v.account_alias}): ${win} · ${fresh} from ${src}` + (long ? " · not a bill; the same windows for every session of this account" : "");
+}
 function ago(ts){ if(!ts) return ""; const s = Math.max(0, Date.now()/1000 - ts); return s<60? Math.round(s)+"s" : s<3600? Math.round(s/60)+"m" : Math.round(s/3600)+"h"; }
 function dash(v, f = String){ return v == null ? "—" : f(v); }
 function stageChip(s){ const cls = s==="DONE"?"ok": (s==="BLOCKED"?"bad": (s==="WAITING_OWNER"?"warn":"")); return `<span class="chip ${cls}">${esc(s)}</span>`; }
@@ -464,6 +476,7 @@ function finishOwner(st) {
   // what can run now / needs you / waiting on others, from live sources: never a bare "nothing needs you"
   const wk = st.work || {can_run_now: [], needs_owner: [], waiting: []};
   const li = (items, empty) => items.length ? items.map(x => `<div>• <b>${esc(x.project)}</b> ${x.who ? `<span class="chip">${esc(x.who)}</span> ` : ""}${esc(x.text)}</div>`).join("") : `<div class="muted">${empty}</div>`;
+  $("o_allowance").textContent = allowanceText(st.quota, false);
   $("o_work").innerHTML = `<div><span class="ok-mark">▶ Can run now</span></div>${li(wk.can_run_now, "nothing is runnable right now: no queued task, no unblocked coordinator work, no approved rows")}` +
     `<div style="margin-top:6px"><span class="amber">● Needs you</span></div>${li(wk.needs_owner, "nothing")}` +
     `<div style="margin-top:6px"><span class="muted">◌ Waiting on others</span></div>${li(wk.waiting, "nothing")}`;
@@ -510,7 +523,7 @@ function render(st) {
       <span class="muted">${ex.open_items ? "open items " + ex.open_items.length + " · ready " + (ex.ready_unblocked||[]).length + " · waiting owner " + (ex.waiting_owner||[]).length + " · " : ""}${pr.verdict ? "probe " + esc(pr.verdict) + (pr.reasons && pr.reasons.length ? ": " + esc(pr.reasons.join("; ")).slice(0,80) : "") : ""}${c.check_error ? " · check error: " + esc(c.check_error).slice(0,80) : ""}</span><br>
       <span>WORKERS <span class="chip ${wCls}">${esc(w.status)}</span> <span class="muted">${esc(w.summary||"")}</span></span>${wrows}</span>
       <span class="chip ${wakeCls}">${esc(c.wake||"—")}</span></div>`; }).join("");
-  if (st.quota) { const q = st.quota, w = q.windows || {}; $("quota").textContent = `subscription windows (from the last worker run ${ago(q.seen_at)} ago, not a bill): ` + Object.entries(w).map(([k,v]) => `${k} ${v.utilization!=null ? Math.round(v.utilization*100)+"%" : "—"} resets ${v.resets_at ? new Date(v.resets_at*1000).toLocaleString() : "—"}`).join(" · "); }
+  $("quota").textContent = allowanceText(st.quota, true);
   const dsel = $("dir_project"); if (!dsel.options.length && st.intake) (st.intake.sources||[]).forEach(src => { const o = document.createElement("option"); o.value = src.project; o.textContent = `${src.project} → ${src.repo}#${src.issues.join(",")}`; dsel.appendChild(o); });
   const fb = st.feedback || {};
   // money(): a finite number renders as dollars, anything else as UNKNOWN (never "$0", never NaN)

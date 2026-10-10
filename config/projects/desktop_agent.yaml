@@ -53,7 +53,8 @@ intake:
   owner_logins: [caosos]
   coordinator:
     kind: claude_peer
-    session_name: caoscare-1-20                # this coordinator Claude session (pinned by name; shown on the card when it changes)
+    session_name: caoscare-1-05                # this coordinator Claude session (pinned by name; shown on the card when it changes)
+    session_cwd_exact: /home/caoscare-1        # fallback when the pinned name is gone (every restart renames the session)
 
 # Worker visibility: this control plane's own task records are the source; the sandbox command line names the task
 # workspace, which grounds each RUNNING record in a live process. Same subscription as the control plane.
