@@ -158,13 +158,18 @@ class WorkerMonitor:
         # read-only feed (fetched by the watchdog); operational alerts come only from what the feed states
         alerts: list[dict] = []
         feed = self.store.get_kv(f"feed:{pkg.name}") if cfg.get("feed_url") else None
+        feed_summary = None
         if feed:
             sources.append(f"project feed {cfg['feed_url']}")
             d = feed.get("data") or {}
             w = d.get("work") or {}
+            fage = now - float(feed.get("fetched_at") or 0)
             if w:
                 when = d.get("last_check") or feed.get("fetched_at")
                 rows = w.get("approved_ready_rows_for_specialist_lanes")
+                feed_summary = {"dispatcher_running": bool(w.get("dispatcher_running")), "ready_rows": rows or 0, "stalled": len(w.get("stalled_workers") or []),
+                                "quota_allows_turn": d.get("quota_allows_a_turn"), "self_time": d.get("last_check"), "read_at": feed.get("fetched_at"),
+                                "fresh": fage < 900, "session": (d.get("session") or None)}
                 notes.append(f"feed: dispatcher {'running' if w.get('dispatcher_running') else 'not running'}, stalled {len(w.get('stalled_workers') or [])}, "
                              f"ready rows {rows if rows is not None else '?'}, quota allows a turn: {d.get('quota_allows_a_turn', '?')} ({when})")
                 if not w.get("dispatcher_running"):
@@ -214,7 +219,7 @@ class WorkerMonitor:
         else:
             summary = f"{active} active now (verified at {time.strftime('%H:%M:%S', time.localtime(now))} from {', '.join(sources)})"
         return {"status": status, "active": active, "summary": summary, "workers": workers, "finished": finished[-5:],
-                "notes": notes, "alerts": alerts, "sources": sources, "verified_at": now if status != "UNKNOWN" else None,
+                "notes": notes, "alerts": alerts, "sources": sources, "feed": feed_summary, "verified_at": now if status != "UNKNOWN" else None,
                 "rule": "coordinator at rest ≠ workers at rest; counts come only from the sources listed"}
 
     # ---- remote refresh (watchdog tick; free calls only) ---------------------------------------

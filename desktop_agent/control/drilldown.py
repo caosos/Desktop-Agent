@@ -20,6 +20,8 @@ import time
 
 from .intake import gh_api
 
+FEED_TTL_SEC = 15 * 60      # a project feed older than this proves nothing about "now"
+
 
 def parse_active_work_table(text: str) -> list[dict]:
     """Rows of Agent 01's ACTIVE_WORK table: | **01** Coordinator (persistent) | WORKING | last | READY | blocker |"""
@@ -82,21 +84,35 @@ class Drilldown:
         if ro.get("coordinator_process_pattern"):
             rx = re.compile(ro["coordinator_process_pattern"])
             coord_proc = next((p for p in sorted(self.svc.workers.procs_fn(), key=lambda p: p["started_at"]) if rx.search(p["cmd"])), None)
+        # Evidence rules (owner finding da-bd13834bc7): absence of a match is never proof of "not running".
+        feed_age = (now - float(feed.get("fetched_at") or 0)) if feed else None
+        feed_fresh = feed_age is not None and feed_age < FEED_TTL_SEC
+        other_account = coord.get("kind") == "liaison"
         roster = []
         for r in roster_kv.get("rows", []):
             live = live_by_lane.get(r["lane"], [])
             if live:
                 actual, proof = "RUNNING", f"{', '.join(w['id'] for w in live)} — pid {live[0]['pid']} alive since {_ago(now - live[0]['started_at'])}"
-            elif r["lane"] in persistent and coord_proc:
-                actual = "SESSION ALIVE" + (f" ({fsess.get('status')})" if fsess.get("status") else "")
-                proof = (f"coordinator process pid {coord_proc['pid']} ({coord_proc['user']}) alive on this host since {_ago(now - coord_proc['started_at'])}; "
-                         + (f"its own feed says session {fsess.get('name', '?')} {fsess.get('status', '?')}; " if fsess else "its feed carries no session entry; ")
-                         + "not reachable from this account")
-            elif r["lane"] in persistent and fsess:
-                actual = "SESSION " + str(fsess.get("status", "?")).upper()
-                proof = f"per the project's own feed: session {fsess.get('name', '?')} {fsess.get('status', '?')} (pid {fsess.get('pid', '?')}, feed {((feed.get('data') or {}).get('last_check')) or ''}); not reachable from this account"
+            elif r["lane"] in persistent:
+                st = str(fsess.get("status") or "").lower() if fsess else ""
+                if coord_proc:
+                    actual = "SESSION ALIVE" + (f" ({st})" if st else "")
+                    proof = (f"coordinator process pid {coord_proc['pid']} ({coord_proc['user']}) alive on this host since {_ago(now - coord_proc['started_at'])}"
+                             + (f"; its own feed says session {fsess.get('name', '?')} {st}" if st else "; its feed carries no session entry")
+                             + "; a live process proves the session exists, not that it is working this minute")
+                elif fsess and feed_fresh and st in ("closed", "exited", "stopped"):
+                    actual, proof = "NOT RUNNING", f"its own feed reports session {fsess.get('name', '?')} {st} ({(feed.get('data') or {}).get('last_check') or ''}, read {_ago(feed_age)} ago)"
+                elif fsess and feed_fresh and st:
+                    actual = "SESSION " + st.upper()
+                    proof = f"per the project's own feed: session {fsess.get('name', '?')} {st} (pid {fsess.get('pid', '?')}, feed {(feed.get('data') or {}).get('last_check') or ''}, read {_ago(feed_age)} ago)"
+                elif fsess and st:
+                    actual, proof = "UNKNOWN (stale feed)", f"last feed record said session {st} but it is {_ago(feed_age)} old (TTL {FEED_TTL_SEC // 60} min)"
+                else:
+                    actual = "NOT VERIFIED"
+                    proof = ("no verified process match and no session record in its feed; " + ("the coordinator runs under a separate Linux account, so " if other_account else "")
+                             + "this control plane cannot see whether it is working — not evidence that it is stopped")
             else:
-                actual, proof = "NOT RUNNING", "no process for this lane on the host now (bounded worker per task; launched only by the project's own dispatcher)"
+                actual, proof = "NOT OBSERVED", f"no worker process for this lane observed on the host {('(' + _ago(now - (workers.get('verified_at') or now)) + ' ago) ') if workers.get('verified_at') else ''}— bounded workers run only while a task is in flight"
             roster.append({**r, "actual": actual, "proof": proof, "launched_by": "project dispatcher"})
         for w in workers.get("workers", []):
             if not any(w["id"] in x["proof"] for x in roster):
@@ -137,9 +153,10 @@ class Drilldown:
         else:
             primary = "nothing needed right now"
         return {"name": name, "mission": getattr(pkg, "mission", None) or "", "start_here": pkg.start_here, "integration_branch": pkg.integration_branch,
-                "coordinator": {**coord, "feed_session": fsess or None,
+                "coordinator": {**coord, "feed_session": fsess or None, "feed_fresh": feed_fresh, "feed_age_sec": feed_age,
                                 "feed_note": ("feed read, no session entry" if feed and not fsess else "no feed" if not feed and (getattr(pkg, "workers", None) or {}).get("feed_url") else ""),
-                                "process": ({"pid": coord_proc["pid"], "user": coord_proc["user"], "alive_since": coord_proc["started_at"]} if coord_proc else None)},
+                                "process": ({"pid": coord_proc["pid"], "user": coord_proc["user"], "alive_since": coord_proc["started_at"]} if coord_proc else None),
+                                "verdict": next((r["actual"] for r in roster if r["lane"] in persistent), None)},
                 "workers": workers, "roster": roster,
                 "roster_source": {k: roster_kv.get(k) for k in ("source", "url", "sha", "fetched_at")} if roster_kv else None,
                 "tasks": {"ready": [t["task_id"] for t in tasks if t["status"] == "READY"],

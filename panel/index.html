@@ -239,14 +239,20 @@ let lastState = null, lastPacket = null;
 // running now. The badge says ACTIVE when either is provably so (with its source), NO CURRENT ACTIVITY only when both
 // are verified idle, and "not verified" when the data cannot say. Zero workers is normal: bounded workers start only
 // for approved READY work and exit when done.
+// `verified` means we have fresh evidence either way; without it the card never claims idle or stopped (owner finding da-bd13834bc7).
 function coordLine(p) {
-  const c = p.coordinator || {}; const fs = ((p.workers || {}).feed_session) || null;
-  if (c.kind === "control_plane") return {state: "this control plane", busy: null, src: "self"};
-  if (c.kind === "liaison") return {state: "manual-only (other Linux account)", busy: null, src: "liaison branch; its own feed" };
-  if (c.kind === "claude_peer" && c.connected) return {state: c.session_status === "busy" ? "BUSY" : "IDLE", busy: c.session_status === "busy",
+  const c = p.coordinator || {}; const fd = (p.workers || {}).feed || null; const fs = fd && fd.session;
+  if (c.kind === "control_plane") return {state: "this control plane", busy: null, verified: true, src: "self"};
+  if (c.kind === "liaison") {
+    if (fs && fd.fresh && fs.status) { const st = String(fs.status).toLowerCase(); const closed = ["closed", "exited", "stopped"].includes(st);
+      return {state: closed ? "NOT RUNNING" : st.toUpperCase(), busy: closed ? false : st === "busy", verified: true,
+        detail: `session ${fs.name || ""} per its own feed`, src: `project feed ${fd.self_time || ""}, read ${fd.read_at ? ago(fd.read_at) + " ago" : "now"}`}; }
+    return {state: "STATUS NOT VERIFIED", busy: null, verified: false, detail: "separate Linux account; no session record in its feed" + (fd && !fd.fresh ? " (feed stale)" : ""), src: "cannot be observed from this account — not evidence that it is stopped"};
+  }
+  if (c.kind === "claude_peer" && c.connected) return {state: c.session_status === "busy" ? "BUSY" : "IDLE", busy: c.session_status === "busy", verified: true,
     detail: `Claude session ${c.session}${c.session_status === "busy" ? ", working" : ", waiting for a message"}`, src: `live session registry, checked ${c.last_check_at ? ago(c.last_check_at) + " ago" : "now"}`};
-  if (c.kind === "claude_peer") return {state: "DOWN", busy: false, detail: "no live coordinator session; instructions queue", src: "live session registry"};
-  return {state: "not verified", busy: null, src: "no coordinator integration"};
+  if (c.kind === "claude_peer") return {state: "DOWN", busy: false, verified: true, detail: "no live coordinator session in this account's registry; instructions queue", src: "live session registry"};
+  return {state: "not verified", busy: null, verified: false, src: "no coordinator integration"};
 }
 function ocard(p, st) {
   const c = p.coordinator || {}, w = p.workers || {};
@@ -265,15 +271,18 @@ function ocard(p, st) {
   const openPrs = (w.finished || []).filter(f => f.status.includes("open"));
   const queued = (p.open_tasks || 0) > (w.active || 0);
   const activeNow = (cl.busy === true) || w.status === "RUNNING";
-  const idleKnown = (cl.busy === false || cl.busy === null && cl.kind !== "none") && (w.status === "IDLE" || w.status === "FINISHED" || w.status === "WAITING");
+  const workersIdleKnown = (w.status === "IDLE" || w.status === "FINISHED" || w.status === "WAITING");
+  const idleKnown = cl.verified && cl.busy !== true && workersIdleKnown;        // both halves verified: only then "no current activity"
   const activity = activeNow ? `<span class="chip ok"><span class="spin"></span> ACTIVE · ${cl.busy ? "coordinator" : ""}${cl.busy && w.status === "RUNNING" ? " + " : ""}${w.status === "RUNNING" ? "workers" : ""}</span>`
-    : (cl.state === "not verified" || w.status === "UNKNOWN") ? '<span class="chip">activity not verified</span>'
-    : idleKnown ? `<span class="chip">${queued ? "NO CURRENT ACTIVITY · work queued" : "NO CURRENT ACTIVITY · waiting for instructions"}</span>` : '<span class="chip">activity not verified</span>';
+    : idleKnown ? `<span class="chip">${queued ? "NO CURRENT ACTIVITY · work queued" : "NO CURRENT ACTIVITY · waiting for instructions"}</span>`
+    : `<span class="chip">${cl.verified ? "workers not verified" : "coordinator not verified"}${!cl.verified && workersIdleKnown ? " · 0 specialists observed" : ""}</span>`;
+  const fd = w.feed || null;
+  const dispatcher = fd ? `<div class="tiny"><span class="muted">DISPATCHER:</span> <b>${fd.dispatcher_running ? "running" : "stopped"}</b> · ${fd.ready_rows} approved row(s) · ${fd.stalled} stalled <span class="muted">(its own feed ${esc(fd.self_time || "")}, read ${fd.read_at ? ago(fd.read_at) + " ago" : "now"}${fd.fresh ? "" : " — STALE"})</span></div>` : "";
   const chip = activity + (alerts.length ? ' <span class="chip warn">▲ attention</span>' : "");
   const open = drillOpen === p.name;
   return `<div class="ocard${open ? " open" : ""}" role="button" tabindex="0" data-p="${esc(p.name)}" aria-expanded="${open}" aria-label="Open ${esc(p.name)} details"><h3>${esc(p.name)} <span style="display:flex;gap:4px;flex-wrap:wrap;justify-content:flex-end">${chip}</span></h3>` +
     `<div class="tiny"><span class="muted">COORDINATOR:</span> ${cl.busy ? '<span class="spin"></span> ' : ""}<b>${esc(cl.state)}</b>${cl.detail ? " · " + esc(cl.detail) : ""} <span class="muted">(${esc(cl.src)})</span></div>` +
-    `<div class="tiny"><span class="muted">SPECIALIST WORKERS:</span> ${wtext}</div>` +
+    `<div class="tiny"><span class="muted">SPECIALIST WORKERS:</span> ${wtext}</div>` + dispatcher +
     openPrs.map(f => `<div class="tiny muted">✓ ${esc(f.id).slice(0, 34)} finished, awaiting your merge · <a href="${esc(f.pr_url)}">PR</a> · ${evidenceLink(f.id)}</div>`).join("") +
     alerts.map(a => `<div class="tiny amber">▲ ${esc(a)}</div>`).join("") + `<div class="tiny muted" style="margin-top:auto">${open ? "▴ close" : "▾ click for coordinator, agents, tasks, instructions"}</div></div>`;
 }
@@ -291,10 +300,10 @@ async function openDrill(name) {
   if (drillOpen !== name) return;                                             // the owner moved on while this loaded
   $("drill").removeAttribute("aria-busy");
   const c = d.coordinator || {}, w = d.workers || {}, fr = d.freshness || {};
-  const live = c.kind === "control_plane" ? "this control plane" : c.kind === "liaison" ? `liaison on another Linux account; ${c.process ? `coordinator process pid ${c.process.pid} (${esc(c.process.user)}) alive since ${ago(c.process.alive_since)} ago; ` : ""}${c.feed_session ? `its own feed reports session ${esc(c.feed_session.name)} <b>${esc(c.feed_session.status)}</b> (${esc(fr.feed_self_time||"")})` : esc(c.feed_note||"")}; manual-only, no cross-account wake`
+  const live = c.kind === "control_plane" ? "this control plane" : c.kind === "liaison" ? `<b>${esc(c.verdict || "STATUS NOT VERIFIED")}</b> — separate Linux account; ${c.process ? `coordinator process pid ${c.process.pid} (${esc(c.process.user)}) alive since ${ago(c.process.alive_since)} ago; ` : ""}${c.feed_session ? `its own feed reports session ${esc(c.feed_session.name)} <b>${esc(c.feed_session.status)}</b> (${esc(fr.feed_self_time||"")}${c.feed_fresh ? "" : ", stale"})` : esc(c.feed_note||"no session record")}; manual-only, no cross-account wake; absence of a record is not evidence of being stopped`
     : c.connected ? `session ${esc(c.session)} <b>${esc(c.session_status)}</b> (live session registry)` : "DOWN — no live coordinator session";
   const act = a => ({RUNNING: "ok", STALE: "warn", "NOT RUNNING": "", UNKNOWN: "bad"}[a] || (a.startsWith("SESSION") ? "ok" : ""));
-  const roster = (d.roster||[]).length ? `<table class="tiny" style="width:100%;border-collapse:collapse"><tr class="muted"><th style="text-align:left">lane · role</th><th style="text-align:left">declared</th><th style="text-align:left">actual now</th><th style="text-align:left">proof / last result</th></tr>` +
+  const roster = (d.roster||[]).length ? `<table class="tiny" style="width:100%;border-collapse:collapse"><tr class="muted"><th style="text-align:left">lane · role</th><th style="text-align:left">declared <span class="amber">(historical, as of ${esc(fr.roster_declared_as_of || "unknown date")})</span></th><th style="text-align:left">actual now (live evidence only)</th><th style="text-align:left">proof / last result</th></tr>` +
     d.roster.map(r => `<tr><td style="vertical-align:top"><b>${esc(r.lane)}</b> ${esc(r.role)}${r.id ? " · " + esc(r.id) : ""}</td><td style="vertical-align:top">${esc(r.declared_state||"—")}${r.blocker && r.blocker !== "none" ? `<br><span class="amber">blocker: ${esc(r.blocker)}</span>` : ""}</td><td style="vertical-align:top"><span class="chip ${act(r.actual)}">${esc(r.actual)}</span><br><span class="muted">${esc(r.launched_by)}</span></td><td style="vertical-align:top">${esc(r.proof)}${r.last_result ? `<br><span class="muted">last: ${esc(r.last_result)}</span>` : ""}${r.ready && r.ready !== "none" ? `<br><span class="muted">ready: ${esc(r.ready)}</span>` : ""}</td></tr>`).join("") + "</table>"
     + (d.roster_source ? `<div class="muted tiny">declared roster from <a href="${esc(d.roster_source.url)}">${esc(d.roster_source.source)}</a> @${esc(d.roster_source.sha)} (read ${ago(d.roster_source.fetched_at)} ago; the table itself says "as of ${esc(fr.roster_declared_as_of||"?")}"); live columns from host processes and the feed only</div>` : "")
     : '<span class="muted tiny">no declared roster; live workers only</span>';
@@ -416,8 +425,15 @@ function openEvidence(tid) { setMode("details"); showTask(tid).then(() => $("det
 function renderOwner() {
   const st = lastState; if (!st) return;
   const cardsHtml = st.projects.map(p => ocard(p, st)).join("");
-  if ($("o_projects").dataset.html === cardsHtml) return finishOwner(st);       // unchanged: keep the DOM nodes (hover, focus, in-flight clicks)
-  $("o_projects").dataset.html = cardsHtml; $("o_projects").innerHTML = cardsHtml;
+  const norm = h => h.replace(/\d+[smhd] ago/g, "T ago").replace(/\d+[smhd]\)/g, "T)");   // relative times change every second
+  const box = $("o_projects");
+  if (box.dataset.html === norm(cardsHtml) && box.children.length === st.projects.length) {
+    // same facts, only clocks moved: refresh text inside each card, keep the card elements (hover, focus, in-flight clicks)
+    const tmp = document.createElement("div"); tmp.innerHTML = cardsHtml;
+    [...box.children].forEach((el, i) => { const n = tmp.children[i]; if (n && el.innerHTML !== n.innerHTML) el.innerHTML = n.innerHTML; el.setAttribute("aria-expanded", n.getAttribute("aria-expanded")); el.className = n.className; });
+    return finishOwner(st);
+  }
+  box.dataset.html = norm(cardsHtml); box.innerHTML = cardsHtml;
   document.querySelectorAll("#o_projects .ocard").forEach(el => {
     el.onclick = ev => { if (ev.target.closest("a")) return; openDrill(el.dataset.p); };
     el.onkeydown = ev => { if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); openDrill(el.dataset.p); } };

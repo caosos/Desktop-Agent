@@ -28,6 +28,8 @@ def _seed(tmp_path: Path, monkeypatch) -> Service:
         "quiet": "intake:\n  issues: [1]\n  coordinator: {kind: claude_peer, session_name: sess-quiet}\nworkers:\n  process_patterns: ['never-(?P<id>x)']\n",            # both idle
         "stale": "workers:\n  feed_url: http://127.0.0.1:1/\n  feed_project: stale\n",                                                                                  # feed says stalled
         "blind": "",                                                                                                                                                      # no telemetry at all
+        "extq": "workers:\n  feed_url: http://127.0.0.1:1/\n  feed_project: extq\nintake:\n  issues: []\n  coordinator:\n    kind: liaison\n    liaison: {branch: l, inbox_dir: i, ack_branch: a, ack_dir: d}\n",   # other account, 0 specialists, no session record
+        "extbusy": "workers:\n  feed_url: http://127.0.0.1:1/\n  feed_project: extbusy\nintake:\n  issues: []\n  coordinator:\n    kind: liaison\n    liaison: {branch: l, inbox_dir: i, ack_branch: a, ack_dir: d}\n",   # feed says session busy, 0 workers
     }
     for name, extra in specs.items():
         repo = tmp_path / name; repo.mkdir(); (repo / "S").write_text("s"); (repo / "A").write_text("a")
@@ -41,6 +43,8 @@ def _seed(tmp_path: Path, monkeypatch) -> Service:
         {"pid": 12, "ppid": 1, "user": "c", "cmd": 'bash -c claude "$(cat /x/IDLE2/rq-2.prompt)"', "ticks": 5, "started_at": now - 200},
         {"pid": 13, "ppid": 1, "user": "m", "cmd": "python -I tools/worker.py F-45 --lane 06", "ticks": 9, "started_at": now - 100}]
     s.store.set_kv("feed:ext", {"fetched_at": now, "url": "u", "data": {"work": {"dispatcher_running": True, "stalled_workers": [], "approved_ready_rows_for_specialist_lanes": 0}, "last_check": "t"}})
+    s.store.set_kv("feed:extq", {"fetched_at": now, "url": "u", "data": {"work": {"dispatcher_running": True, "stalled_workers": [], "approved_ready_rows_for_specialist_lanes": 0}, "session": None, "last_check": "t"}})
+    s.store.set_kv("feed:extbusy", {"fetched_at": now, "url": "u", "data": {"work": {"dispatcher_running": True, "stalled_workers": [], "approved_ready_rows_for_specialist_lanes": 0}, "session": {"name": "agent-01-coordinator-17", "status": "busy", "pid": 14005}, "last_check": "t"}})
     s.store.set_kv("feed:stale", {"fetched_at": now, "url": "u", "data": {"work": {"dispatcher_running": True, "stalled_workers": ["C-9"], "approved_ready_rows_for_specialist_lanes": 0}, "last_check": "t"}})
     return s
 
@@ -67,14 +71,19 @@ def test_cards_state_coordinator_and_workers_separately(served):
             pytest.skip(f"no Chrome: {exc}")
         page = browser.new_page(viewport={"width": 1648, "height": 1000})
         page.goto(f"http://127.0.0.1:{PORT}/?access_token=tok")
-        page.wait_for_function("document.querySelectorAll('#o_projects .ocard').length === 6", timeout=15000)
+        page.wait_for_function("document.querySelectorAll('#o_projects .ocard').length === 8", timeout=15000)
         card = lambda n: " ".join(page.inner_text(f"#o_projects .ocard[data-p='{n}']").split())      # spinner glyphs render as whitespace
         b = card("busy0"); assert "COORDINATOR: BUSY" in b and "sess-busy0, working" in b and "SPECIALIST WORKERS: 0 running" in b and "ACTIVE · coordinator" in b and "normal: bounded workers" in b
         i = card("idle2"); assert "COORDINATOR: IDLE" in i and "waiting for a message" in i and "2 running: rq-1, rq-2" in i and "ACTIVE · workers" in i and "host process list" in i
-        e = card("ext"); assert "COORDINATOR: manual-only (other Linux account)" in e and "1 running: F-45" in e and "ACTIVE · workers" in e and "project feed" in e
+        e = card("ext"); assert "COORDINATOR: STATUS NOT VERIFIED" in e and "1 running: F-45" in e and "ACTIVE · workers" in e and "project feed" in e and "DISPATCHER: running" in e
+        # other account, 0 specialists, no session record: never "NO CURRENT ACTIVITY", never "NOT RUNNING"
+        q2 = card("extq"); assert "COORDINATOR: STATUS NOT VERIFIED" in q2 and "not evidence that it is stopped" in q2 and "0 running" in q2 and "coordinator not verified · 0 specialists observed" in q2
+        assert "NO CURRENT ACTIVITY" not in q2 and "NOT RUNNING" not in q2
+        # the project feed carries a fresh busy session record: coordinator BUSY per its own feed, card ACTIVE with 0 workers
+        eb = card("extbusy"); assert "COORDINATOR: BUSY" in eb and "per its own feed" in eb and "0 running" in eb and "ACTIVE · coordinator" in eb
         q = card("quiet"); assert "COORDINATOR: IDLE" in q and "0 running" in q and "NO CURRENT ACTIVITY · waiting for instructions" in q and "ACTIVE" not in q
         st = card("stale"); assert "alive but not progressing: C-9" in st and "attention" in st and "ACTIVE" not in st
-        bl = card("blind"); assert "COORDINATOR: not verified" in bl and "SPECIALIST WORKERS: not verified" in bl and "activity not verified" in bl and "NO CURRENT ACTIVITY" not in bl
+        bl = card("blind"); assert "COORDINATOR: not verified" in bl and "SPECIALIST WORKERS: not verified" in bl and "coordinator not verified" in bl and "NO CURRENT ACTIVITY" not in bl
         assert "no Desktop-Agent decisions waiting" in page.inner_text("#o_decisions")
         assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth + 1")
         page.screenshot(path=str(Path(s.cfg.data_dir) / "cards-1648.png"), full_page=True)

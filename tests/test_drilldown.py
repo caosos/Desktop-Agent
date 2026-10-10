@@ -59,9 +59,9 @@ def test_drilldown_roster_live_vs_declared_and_instructions(tmp_path: Path, monk
     d = s.drill.build("mbos")
     assert d["mission"] == "Deal Sniffer test mission" and d["coordinator"]["feed_session"]["name"] == "agent-01-coordinator-17"
     by = {r["lane"]: r for r in d["roster"]}
-    assert by["01"]["actual"] == "SESSION IDLE" and "not reachable from this account" in by["01"]["proof"]
+    assert by["01"]["actual"] == "SESSION IDLE" and "per the project's own feed" in by["01"]["proof"]
     assert by["06"]["actual"] == "RUNNING" and "F-39" in by["06"]["proof"] and by["06"]["declared_state"] == "CLOSED"       # declared ≠ live, both shown
-    assert by["02"]["actual"] == "NOT RUNNING" and by["07"]["actual"] == "NOT RUNNING" and "no process for this lane" in by["02"]["proof"]
+    assert by["02"]["actual"] == "NOT OBSERVED" and by["07"]["actual"] == "NOT OBSERVED" and "no worker process for this lane observed" in by["02"]["proof"]
     assert all(r["launched_by"] == "project dispatcher" for r in d["roster"]) and d["roster_source"]["sha"] == "abc123def456"
     assert d["unacknowledged"] == 1 and d["instructions"][0]["item_id"] == "da-ack0000000" and d["instructions"][1]["flagged"]
     assert "no cross-account wake" in d["instructions"][1]["next"] and d["instructions"][1]["age"].endswith("ago")
@@ -73,7 +73,7 @@ def test_drilldown_roster_live_vs_declared_and_instructions(tmp_path: Path, monk
     d = s.drill.build("mbos"); by = {r["lane"]: r for r in d["roster"]}
     assert by["01"]["actual"] == "SESSION ALIVE" and "pid 14005 (michaelos)" in by["01"]["proof"] and "no session entry" in by["01"]["proof"]
     assert d["coordinator"]["process"]["pid"] == 14005 and d["coordinator"]["feed_note"] == "feed read, no session entry"
-    assert by["06"]["actual"] == "NOT RUNNING"
+    assert by["06"]["actual"] == "NOT OBSERVED"
     # a stopped dispatcher with queued rows outranks the unacknowledged instruction
     s.store.set_kv("feed:mbos", {"fetched_at": time.time(), "url": "u", "data": {"work": {"dispatcher_running": False, "stalled_workers": [], "approved_ready_rows_for_specialist_lanes": 2}, "last_check": "t"}})
     assert s.drill.build("mbos")["primary_action"].startswith("dispatcher stopped")
@@ -102,3 +102,30 @@ def test_work_summary_three_lists(tmp_path: Path):
     assert any("instruction da-1 in its coordinator's hands" in t for t in wait) and any("2 instruction(s) delivered, not acknowledged: Agent 01 reads the liaison branch" in t for t in wait)
     w2 = work_summary(projects, tasks, [], intake, SimpleNamespace(paused=True, hold_reason="paused: provider limit"), {"free": 0}, store)
     assert any("held: scheduler paused (paused: provider limit)" in t for t in [x["text"] for x in w2["waiting"]])
+
+
+def test_persistent_coordinator_absence_is_not_verified_not_stopped(tmp_path: Path, monkeypatch):
+    """Owner finding da-bd13834bc7: no process match and no session record → NOT VERIFIED; explicit fresh closed → NOT RUNNING;
+    stale feed → UNKNOWN; fresh busy session → SESSION BUSY; a live process → SESSION ALIVE (not "working")."""
+    s = _service(tmp_path)
+    s.store.set_kv("roster:mbos", {"fetched_at": time.time(), "source": "b:docs/status/ACTIVE_WORK.md", "url": "u", "sha": "abc",
+                                   "rows": [{"lane": "01", "role": "Coordinator (persistent)", "declared_state": "WORKING", "last_result": "", "ready": "", "blocker": "", "declared_as_of": "2026-10-08"}]})
+    s.workers.procs_fn = lambda: []
+    lane01 = lambda: next(r for r in s.drill.build("mbos")["roster"] if r["lane"] == "01")
+    # (a) feed read, no session entry, no process → NOT VERIFIED, with the reason
+    s.store.set_kv("feed:mbos", {"fetched_at": time.time(), "url": "u", "data": {"work": {"dispatcher_running": True, "stalled_workers": [], "approved_ready_rows_for_specialist_lanes": 0}, "session": None, "last_check": "t"}})
+    r = lane01(); assert r["actual"] == "NOT VERIFIED" and "separate Linux account" in r["proof"] and "not evidence that it is stopped" in r["proof"]
+    assert s.drill.build("mbos")["coordinator"]["verdict"] == "NOT VERIFIED"
+    # (b) fresh feed says the session is busy → SESSION BUSY
+    s.store.set_kv("feed:mbos", {"fetched_at": time.time(), "url": "u", "data": {"work": {"dispatcher_running": True, "stalled_workers": []}, "session": {"name": "agent-01-coordinator-17", "status": "busy", "pid": 14005}, "last_check": "t"}})
+    assert lane01()["actual"] == "SESSION BUSY"
+    # (c) explicitly verified closed → NOT RUNNING
+    s.store.set_kv("feed:mbos", {"fetched_at": time.time(), "url": "u", "data": {"work": {}, "session": {"name": "agent-01-coordinator-17", "status": "closed"}, "last_check": "t"}})
+    assert lane01()["actual"] == "NOT RUNNING" and "its own feed reports" in lane01()["proof"]
+    # (d) stale feed → UNKNOWN (stale feed), never a claim
+    s.store.set_kv("feed:mbos", {"fetched_at": time.time() - 3600, "url": "u", "data": {"work": {}, "session": {"name": "x", "status": "busy"}, "last_check": "t"}})
+    assert lane01()["actual"].startswith("UNKNOWN") and "stale" in lane01()["actual"]
+    # (e) a live process proves the session exists, not that it is working
+    s.projects["mbos"].roster["coordinator_process_pattern"] = "AGENT 01 — COORDINATOR"
+    s.workers.procs_fn = lambda: [{"pid": 14005, "ppid": 1, "user": "michaelos", "cmd": "claude MICHAEL BUSINESS OS — ROUND TWO AGENT 01 — COORDINATOR", "ticks": 1, "started_at": time.time() - 100}]
+    r = lane01(); assert r["actual"].startswith("SESSION ALIVE") and "not that it is working this minute" in r["proof"]
