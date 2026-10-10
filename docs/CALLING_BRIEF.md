@@ -166,3 +166,106 @@ calls (the transcript note is the only owner-visible surface in this slice); cos
 calls; CAOSCare's voice work stays parked and untouched (its `call_lifecycle.advance` compare-and-set,
 `TRANSITIONS` table, terminal-outcome receipts and `spoken_call_state` were read as pattern references
 only).
+
+## 11. Conversation-control runner behind CallService (owner item da-c929322b10; coordinator spec)
+
+Gap: `SimulatedAdapter` only walks canned states. This slice adds the **session runner**: a
+provider-injectable transport interface and an asynchronous event pump that consumes conversation events,
+executes contract-bounded local tools, returns their receipted results to the session and finishes the
+existing status/result/receipt chain. The fake transport lives on the test/synthetic path only. Nothing here
+proves audio or a real call works. Care's `phone_aria_sideband.py` / `phone_aria_tools.py` / `FakeWS` were
+read as references (injected socket, transcript events, tool-result round trip, requested-vs-connected truth);
+no Care import, data, service or credential is used.
+
+### 11.1 Files
+
+| File | Content | Limit |
+|---|---|---|
+| `desktop_agent/control/call_session.py` (new) | `SessionTransport` protocol, `FakeTransport`, `CallContract`, `SessionRunner`, `SessionAdapter`, `DEFAULT_FIXTURE_SCRIPT` | ≤ 300 lines |
+| `desktop_agent/control/calling.py` | `SimulatedAdapter` becomes a thin constructor over `SessionAdapter` + `FakeTransport` (same signature `delay_sec`, `outcome`, so existing callers and tests keep working); `CallService.record(call_id, entry)` appends a transcript/tool entry to the call record without a receipt; `CallService.apply` unchanged | stays ≤ 300 |
+| `tests/test_call_session.py` (new) | acceptance in 11.5 | — |
+| `docs/CALLING_BRIEF.md` §9b, §10 | worker evidence; code-complete vs unimplemented | — |
+| `docs/BLUEPRINT.md` §8 | update the calling row (session runner, fake transport) | one row |
+
+Untouched: `aria.py`, `api.py`, `service.py`, `calling_api.py`, shared contracts, panel, config.
+
+### 11.2 Transport interface (provider-neutral event shapes)
+
+```python
+class SessionTransport(Protocol):
+    def events(self) -> AsyncIterator[dict]: ...     # provider → runner; iterator end without session.ended = disconnect
+    async def send(self, obj: dict) -> None: ...     # runner → provider
+    async def close(self) -> None: ...
+```
+Inbound: `speech.started {turn}` · `speech.stopped {turn}` · `transcript.user {turn, text}` (may be late or
+out of order) · `response.text {turn, text}` · `response.cancelled {turn}` (interrupted speech) ·
+`tool.call {turn, tool_call_id, name, args}` · `session.ended {outcome: completed|failed, summary}` (terminal).
+Outbound: `tool.result {tool_call_id, output}` · `response.create {}` · `session.close {}`.
+`FakeTransport(script, delay_sec=0)` yields the scripted events in order (optionally with a per-event delay or
+an explicit `{"type": "disconnect"}` marker that ends the iterator) and records everything sent.
+
+### 11.3 Contract and authority
+
+`CallContract(call_id, allowed_tools)`; the only tool in this slice is `lookup_fixture_status {alias}`: local,
+read-only, synthetic (returns a canned dict containing the word SIMULATED). `tool.call` is validated by name
+and args; an unknown or out-of-scope name (including `request_call`, `submit_goal`, `send_direction`,
+anything not in `allowed_tools`) is **refused** with one `simulated` receipt ("refused: outside the call
+contract") and a `tool.result {ok: false}` sent back; refusals never raise and never widen authority. The
+runner holds no reference to `CallService.request`, the planner, the inbox or the scheduler: conversation
+text cannot start another call or dispatch work. Duplicate `tool_call_id` (including a replayed event) →
+the stored output is re-sent, **no second execution and no second receipt**.
+
+### 11.4 Runner
+
+`SessionRunner(call, contract, transport, apply, record)`; `await runner.run()`:
+- `apply(STARTED)` once the transport is open; `apply(IN_PROGRESS)` on the first inbound event.
+- The **receive loop never blocks on a transcript**: each `tool.call` is handled in its own asyncio task; that
+  handler waits (bounded, `TRANSCRIPT_WAIT_SEC = 0.9`) on the per-turn `asyncio.Event` that `transcript.user`
+  sets, so a delayed transcript stays consumable while the tool waits for its turn's evidence; the handler
+  then executes the tool, writes one `simulated` receipt (evidence: `call_id`, `turn`, `tool_call_id`,
+  `name`), records `{"turn", "tool_call_id", "name", "output"}` and sends `tool.result` + `response.create`.
+- `transcript.user` / `response.text` → `record({"turn", "role", "text"})`; `response.cancelled` →
+  `record({"turn", "event": "response.cancelled"})`; no completion or state change from these.
+- `session.ended` → `apply(COMPLETED|FAILED, result={summary, turns, tools, outcome: "SIMULATED: …"})`, then
+  `session.close`. Completion follows **only** this terminal event, never elapsed time. Iterator end without
+  `session.ended` → `apply(FAILED, "transport disconnected")`.
+- `runner.cancel()` (called by `CallService.cancel` through the adapter): sets the cancelled flag, cancels
+  pending tool tasks, closes the transport; after it no send, no tool execution, no `apply` happens (the
+  existing terminal rule in `CallService.apply` is the second guard). Provenance is per runner instance;
+  two runners never share state.
+
+`SessionAdapter(transport_factory)`: `run(call, apply)` builds the transport, contract and runner; keeps the
+runner per `call_id` so `cancel` reaches it. `CallService` keeps its default adapter SIMULATED-only:
+`SimulatedAdapter(delay_sec=0, outcome="COMPLETED")` = `SessionAdapter` over `FakeTransport(DEFAULT_FIXTURE_SCRIPT)`
+(a two-turn fixture conversation with one `lookup_fixture_status` call), so the existing
+request → ACCEPTED → STARTED → IN_PROGRESS → COMPLETED chain now runs through the runner.
+
+### 11.5 Acceptance (`tests/test_call_session.py`)
+
+1. Two-turn fixture conversation through `CallService.request` with the default adapter: per-call/per-turn
+   correlation in the record, one allowed tool request executed with a receipt (`tool_call_id` in evidence),
+   its result sent back to the session, COMPLETED only after `session.ended`, the summary note in the Ask Aria
+   transcript (existing `note` path), receipt chain in order.
+2. Unknown / out-of-scope tools (`request_call`, `submit_goal`, an unlisted name, bad args) → refused, one
+   receipt each, `tool.result {ok: false}` sent, no call created, no task created, state unchanged.
+3. Duplicate `tool_call_id` and a replayed `tool.call` event → one execution, one receipt, the same output
+   re-sent.
+4. Interrupted speech (`response.cancelled`) recorded, conversation continues to completion.
+5. Delayed and out-of-order transcripts: `tool.call` arrives before its turn's `transcript.user`; the tool
+   result still carries the transcript (within the wait) and a later `transcript.user` for an earlier turn is
+   recorded without blocking anything.
+6. Transport failure/disconnect (iterator ends without `session.ended`) → FAILED with "transport
+   disconnected", no completion note.
+7. Cancellation with late events: cancel mid-session → CANCELLED; later `tool.call` / `session.ended` from the
+   script produce no send, no execution, no receipt beyond the existing "late result ignored" rule, no false
+   completion.
+8. Two overlapping sessions (two calls, two transports, interleaved events): each record and receipt chain
+   contains only its own `call_id`/`turn`s; no cross-session send.
+9. The four command-identity/replay regressions in `tests/test_calling.py` keep passing unchanged.
+
+### 11.6 Still unimplemented after this slice
+
+Any real transport or provider; model selection; outbound telephone origin/bridge; the approved
+identity/destination/data/action contract; budget and secure connection setup; audio; panel surface beyond
+the transcript note. Care's Asterisk/SIP design is source-only and hardware-unverified and is not assumed to
+be a usable Desktop phone connection.
