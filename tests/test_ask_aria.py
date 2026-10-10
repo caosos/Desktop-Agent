@@ -140,7 +140,12 @@ def test_dictation_states_and_send_in_browser(served):
             page.evaluate(sr + ".say(0, 'Second session sentence.', true)")                  # new session: indices start at 0 again, text must append
             assert page.input_value("#aria_text").strip() == "What is agent six doing right now? And is anything blocked on lane six? Aria Aria Second session sentence."
             page.click("#mic"); page.wait_for_function("document.querySelector('#mic').getAttribute('aria-pressed') === 'false'", timeout=5000)
-            assert "Text ready" in page.inner_text("#mic_state") and page.locator("#aria_log .turn").count() == 0      # nothing sent by itself
+            ms = page.inner_text("#mic_state")
+            assert "Text ready" in ms and "first words" in ms and "4 segments" in ms and "after Stop" in ms and page.locator("#aria_log .turn").count() == 0   # nothing sent by itself
+            page.click("#aria summary:has-text('Dictation log')")
+            log = page.inner_text("#dict_log")
+            assert "first words heard after" in log and "segment 1 committed" in log and "segment 4 committed" in log and "engine paused after silence; restarted" in log and "Stop clicked" in log and "session closed" in log
+            assert log.count("committed") == 4, log                                                           # the re-delivered final did not count twice
             page.fill("#aria_text", "What is F-39 doing right now?")                              # the owner corrects the text
             page.click("#aria_send")
             page.wait_for_function("document.querySelectorAll('#aria_log .turn.aria').length === 1", timeout=20000)
