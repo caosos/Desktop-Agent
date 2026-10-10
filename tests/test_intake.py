@@ -230,3 +230,57 @@ def test_coordinator_card_wording_when_no_name_is_pinned(monkeypatch, tmp_path):
     assert c["connected"] and "pinned name None" not in c["detail"] and "resolved by cwd (prefix) (no name pinned" in c["detail"]
     Pkg.intake = {"coordinator": {"kind": "claude_peer", "session_name": "gone-20", "session_cwd": "/home/caoscare-1/CAOSCARE-INTEGRATION"}}
     assert "pinned name gone-20 is not live; resolved by cwd (prefix)" in svc.coordinator_state(Pkg())["detail"]
+
+
+# --- da-86ba627f42: owner prose containing status words is an instruction, never a coordinator reply ------------------
+
+def test_owner_prose_with_status_words_is_ingested_not_swallowed(tmp_path: Path):
+    """The exact comment that was swallowed on 2026-10-10 (issue #3, 6102526623): its phrase "the acknowledged reporting
+    contract da-6ecf88242a" matched the old prose regex, classified the whole instruction as a coordinator reply and
+    (because ACKNOWLEDGED ranks below DONE) silently dropped it."""
+    store = Store(tmp_path); gh = FakeGH(); delivered = []
+    async def deliver(src, item):
+        delivered.append(item["item_id"]); return {"ok": True, "status": "DELIVERED", "note": "peer", "evidence": ["s"], "comment": f"DELIVERED {item['item_id']}"}
+    it = make(store, gh, deliver)
+    asyncio.run(it.poll_once())
+    prose = (Path(__file__).parent / "fixtures" / "issue3_comment_6102526623.md").read_text()
+    assert "acknowledged reporting contract da-6ecf88242a" in prose
+    # the referenced item exists and is DONE, as it was live
+    ref = {"item_id": "da-6ecf88242a", "project": "caoscare", "repo": "x/y", "issue": 117, "kind": "comment", "gh_id": 77, "author": "caosos",
+           "title": "reporting contract", "body": "x", "url": "u", "posted_at": "2026-10-09T00:50:00Z", "status": "DONE", "coordinator": "claude_peer"}
+    store.save_intake(ref)
+    gh.comments.append(comment(100, "caosos", prose, "2026-10-09T03:00:00Z"))
+    r = asyncio.run(it.poll_once())
+    new_id = item_id_for("x/y", 117, "comment", 100)
+    assert r["found"] == 1 and r["acked"] == 0 and store.get_intake(new_id)["status"] == "DELIVERED" and delivered[-1] == new_id
+    assert store.get_intake("da-6ecf88242a")["status"] == "DONE" and not store.receipts("instruction", "da-6ecf88242a")
+    # repeated polling and a restart deliver once and write no second status receipt
+    n_receipts = len(store.receipts("instruction", new_id))
+    asyncio.run(it.poll_once()); asyncio.run(make(store, gh, deliver).poll_once())
+    assert delivered.count(new_id) == 1 and len(store.receipts("instruction", new_id)) == n_receipts
+
+
+def test_narrative_with_status_words_and_ids_is_an_instruction_and_explicit_replies_still_advance(tmp_path: Path):
+    store = Store(tmp_path); gh = FakeGH(); delivered = []
+    async def deliver(src, item):
+        delivered.append(item["item_id"]); return {"ok": True, "status": "DELIVERED", "note": "peer", "evidence": ["s"], "comment": f"DELIVERED {item['item_id']}"}
+    it = make(store, gh, deliver)
+    asyncio.run(it.poll_once())
+    iid = item_id_for("x/y", 117, "issue", 9001)
+    gh.comments += [
+        # leading narrative word, status words and the id in prose: an instruction
+        comment(201, "caosos", f"Done means nothing here: please keep working on {iid}; it is not DONE and {iid} stays blocked until I say.", "2026-10-09T04:00:00Z"),
+        # unmarked but explicit first-line status reply (established format): advances the item, is not new work
+        comment(202, "caosos", f"WORKING {iid} — branch pushed, tests running", "2026-10-09T04:01:00Z"),
+        # marked reply with the status on its second line: advances the item
+        comment(203, "caosos", f"<!-- caos:coordinator -->\nDONE {iid}: merged; see VERIFIED da-000000beef in prose (not a line)", "2026-10-09T04:02:00Z"),
+        # marked reply with no anchored status line: activity only
+        comment(204, "caosos", "<!-- caos:coordinator -->\nCoordinator report: all quiet; the DONE items are listed in the ledger", "2026-10-09T04:03:00Z"),
+    ]
+    r = asyncio.run(it.poll_once())
+    narrative = item_id_for("x/y", 117, "comment", 201)
+    assert r["found"] == 1 and store.get_intake(narrative)["status"] == "DELIVERED" and delivered[-1] == narrative
+    assert store.get_intake(iid)["status"] == "DONE" and r["acked"] == 2
+    for cid in (202, 203, 204):
+        assert store.get_intake(item_id_for("x/y", 117, "comment", cid)) is None
+    assert it.summary()["coordinator_activity"]["caoscare"] == "2026-10-09T04:03:00Z"

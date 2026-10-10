@@ -24,10 +24,21 @@ STATUSES = ["DRAFT", "SENT", "POSTED", "RECEIVED", "DELIVERED", "ACKNOWLEDGED", 
 TERMINAL_OWNER = ["DENIED", "DEFERRED"]          # set only by the owner from the panel / Aria
 _DIRECTION_TAG_RE = re.compile(r"<!--\s*da:direction\s+(da-[0-9a-f]{6,12})\s*-->")
 _ASK_OWNER_RE = re.compile(r"ASK-OWNER:\s*(.+?)(?:\n|$)", re.I)
-_ACK_RE = re.compile(r"\b(ACK|ACKNOWLEDGED|WORKING|BLOCKED|DONE|VERIFIED)\b[^\n]{0,40}?\b(da-[0-9a-f]{6,12})\b", re.I)
+# A status report is an explicit, anchored line: the status token at the start of a line, followed by the item id.
+# Prose that merely contains a status word and an id (an owner instruction quoting an item) never matches.
+_STATUS_LINE_RE = re.compile(r"^[ \t]*(ACK|ACKNOWLEDGED|WORKING|BLOCKED|DONE|VERIFIED)[ \t]+(da-[0-9a-f]{6,12})\b", re.I | re.M)
 _AUTOMATION_TAG = "<!-- desktop-agent-intake -->"
 _COORD_TAG_RE = re.compile(r"<!--\s*[\w-]+:coordinator\s*-->", re.I)      # e.g. <!-- caos:coordinator -->
-_COORD_PREFIX_RE = re.compile(r"^\s*(ACK|Coordinator report|WORKING|BLOCKED|DONE|VERIFIED)\b", re.I)
+
+
+def is_coordinator_reply(text: str) -> bool:
+    """A comment is a coordinator reply only when it carries the coordinator marker or its first non-empty line is an
+    explicit status line (`<STATUS> <da-id>`). Anything else from an owner login is an instruction (da-86ba627f42:
+    a prose status-word match used to classify — and swallow — owner instructions)."""
+    if _COORD_TAG_RE.search(text):
+        return True
+    first = next((ln for ln in text.splitlines() if ln.strip()), "")
+    return bool(_STATUS_LINE_RE.match(first))
 
 
 @dataclass
@@ -213,8 +224,8 @@ class Intake:
             text = c.get("body") or ""
             if _AUTOMATION_TAG in text:
                 continue                          # our own automatic comments
-            is_coord = bool(_COORD_TAG_RE.search(text)) or bool(_COORD_PREFIX_RE.match(text))
-            for m in _ACK_RE.finditer(text):     # a coordinator reporting status on one or more items
+            is_coord = is_coordinator_reply(text)
+            for m in (_STATUS_LINE_RE.finditer(text) if is_coord else ()):   # anchored status lines of a coordinator reply only
                 item = self.store.get_intake(m.group(2).lower())
                 if item:
                     status = {"ACK": "ACKNOWLEDGED", "ACKNOWLEDGED": "ACKNOWLEDGED", "WORKING": "WORKING", "BLOCKED": "BLOCKED",
@@ -225,7 +236,6 @@ class Intake:
                         self.store.set_intake_activity(item["item_id"], created)
                         self.store.save_coordinator_ack(src.project, time.time())
                         acked += 1
-                    is_coord = True
             dm = _DIRECTION_TAG_RE.search(text)
             if dm:                                # a direction the owner sent from the panel: link, do not duplicate
                 item = self.store.get_intake(dm.group(1).lower())
