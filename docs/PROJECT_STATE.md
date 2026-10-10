@@ -518,3 +518,14 @@ HANDOFF CAPSULE
 - **Accepted by the owner's reviewer** (da-046c147d49) at exactly `915dda6`; integration released under the 2026-10-08 evening policy (coordinator merges short-lived branches one at a time after the suite passes on the merged result, recorded here).
 - **Merge:** `main` fast-forwarded from `4b9371c` to `915dda6` (ancestry: 4b9371c → 018309b → 2a8f052 → 915dda6, all on the fix branch); suite on the merged result **129 passed, 1 skipped**. Records: this entry.
 - **Live boundary unchanged:** the running `desktop-agent.service` is still the `2238799` code; nothing restarted, reloaded, no provider, no real call, no spend beyond the included allowance. Source integration is not live acceptance.
+
+
+## 2026-10-10 — task `implement-docs-calling-brief-md--dfac57` verified (recorded by the control plane)
+
+- **Objective:** Implement docs/CALLING_BRIEF.md section 11 exactly: the conversation-control session runner behind CallService (owner item da-c929322b10). Read docs/CALLING_BRIEF.md section 11 FIRST (then sections 1-8), then desktop_agent/control/calling.py, tests/test_calling.py, tests/test_ask_aria.py (_service, 
+- **Why now:** Owner instruction da-c929322b10 on caosos/Desktop-Agent#3: next executable dependency after the integrated command/lifecycle prototype (main 5d04d85); synthetic path only.
+- **Model class:** cloud_strong; attempt 1; adapter claude_headless
+- **Worker head:** `d09a8bee568ebdb6fed0bf9a4a2107ef238da926` on `agent/implement-docs-calling-brief-md--dfac57` from `5e7bd48a8a35`
+- **Verifier (clean checkout):** `/home/caoscare-1/Desktop-Agent/.venv/bin/python -m pytest -q` exit 0
+- **Files:** desktop_agent/control/call_session.py, desktop_agent/control/calling.py, docs/BLUEPRINT.md, docs/CALLING_BRIEF.md, tests/test_call_session.py
+- **Receipts:** worker claim unverified → verifier verified; integration follows this entry.
