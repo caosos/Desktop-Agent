@@ -84,8 +84,18 @@ def test_owner_view_states_and_evidence_on_demand(served):
         except Exception as exc:
             pytest.skip(f"no Chrome for Playwright: {exc}")
         page = browser.new_page(viewport={"width": 1648, "height": 900})
+        # a page load must not fan out into a state-fetch storm (the event stream replays history; 505 fetches once)
+        state_requests = []
+        page.on("request", lambda r: state_requests.append(r.url) if r.url.endswith("/v0/state") else None)
         page.goto(f"http://127.0.0.1:{PORT}/?access_token=tok")
         page.wait_for_function("document.querySelectorAll('#o_projects .ocard').length === 3 && document.querySelector('#o_decisions').textContent.includes('pilot')", timeout=15000)
+        page.wait_for_timeout(2500)
+        assert len(state_requests) <= 3, f"{len(state_requests)} state fetches after one page load"
+        assert page.evaluate("document.querySelectorAll('#events .ev').length") >= 1          # replayed history still shows in Live events
+        # unchanged cards keep their DOM nodes across a refresh (hover, focus and clicks survive)
+        page.evaluate("window.__card = document.querySelector('#o_projects .ocard')")
+        page.evaluate("refresh()"); page.wait_for_timeout(600)
+        assert page.evaluate("window.__card.isSameNode(document.querySelector('#o_projects .ocard'))")
         for w, h in ((1648, 900), (1280, 900), (390, 844)):
             page.set_viewport_size({"width": w, "height": h}); page.wait_for_timeout(250)
             cards = page.inner_text("#o_projects")
@@ -110,7 +120,8 @@ def test_owner_view_states_and_evidence_on_demand(served):
         # roster rows that say NOT RUNNING instead of inventing sessions, instructions with age and next action, freshness
         page.set_viewport_size({"width": 1648, "height": 900})
         page.click("#o_projects .ocard[data-p='alpha']")
-        page.wait_for_function("!document.querySelector('#drill').hidden && document.querySelector('#drill').textContent.includes('Agents')", timeout=15000)
+        assert not page.evaluate("document.querySelector('#drill').hidden")                     # opens at once (loading line), then fills
+        page.wait_for_function("!document.querySelector('#drill').hidden && document.querySelector('#drill').textContent.includes('Agents') && !document.querySelector('#drill').hasAttribute('aria-busy')", timeout=15000)
         drill = page.inner_text("#drill")
         assert "alpha" in drill and "DOWN" in drill and "coordinator session" in drill and "NOT RUNNING" in drill          # the DOWN coordinator row
         assert "t-run" in drill and "RUNNING" in drill and "this control plane" in drill and "rq-050-claim" in drill and "project coordinator" in drill

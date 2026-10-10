@@ -281,7 +281,14 @@ let drillOpen = null;
 async function openDrill(name) {
   if (drillOpen === name) { drillOpen = null; $("drill").hidden = true; renderOwner(); return; }
   drillOpen = name; renderOwner();
-  const d = await api(`/v0/projects/${encodeURIComponent(name)}/drilldown`);
+  // immediate feedback: the pane opens at once with a loading line, then fills (the drilldown is one ~150 ms call)
+  $("drill").innerHTML = `<div class="row" style="border:none;padding:0"><span><b style="font-size:16px">${esc(name)}</b> <span class="muted tiny"><span class="spin"></span> loading coordinator, agents, tasks and instructions…</span></span></div>`;
+  $("drill").hidden = false; $("drill").setAttribute("aria-busy", "true");
+  let d;
+  try { d = await api(`/v0/projects/${encodeURIComponent(name)}/drilldown`); }
+  catch (e) { $("drill").innerHTML = `<div class="amber">Could not load ${esc(name)}: ${esc(String(e))}. The control plane may be busy or down; try again.</div>`; $("drill").removeAttribute("aria-busy"); return; }
+  if (drillOpen !== name) return;                                             // the owner moved on while this loaded
+  $("drill").removeAttribute("aria-busy");
   const c = d.coordinator || {}, w = d.workers || {}, fr = d.freshness || {};
   const live = c.kind === "control_plane" ? "this control plane" : c.kind === "liaison" ? `liaison on another Linux account; ${c.process ? `coordinator process pid ${c.process.pid} (${esc(c.process.user)}) alive since ${ago(c.process.alive_since)} ago; ` : ""}${c.feed_session ? `its own feed reports session ${esc(c.feed_session.name)} <b>${esc(c.feed_session.status)}</b> (${esc(fr.feed_self_time||"")})` : esc(c.feed_note||"")}; manual-only, no cross-account wake`
     : c.connected ? `session ${esc(c.session)} <b>${esc(c.session_status)}</b> (live session registry)` : "DOWN — no live coordinator session";
@@ -395,11 +402,16 @@ const evidenceLink = tid => `<a href="#detail" class="evidence" data-t="${esc(ti
 function openEvidence(tid) { setMode("details"); showTask(tid).then(() => $("detail").scrollIntoView({behavior: "smooth", block: "start"})); }
 function renderOwner() {
   const st = lastState; if (!st) return;
-  $("o_projects").innerHTML = st.projects.map(p => ocard(p, st)).join("");
+  const cardsHtml = st.projects.map(p => ocard(p, st)).join("");
+  if ($("o_projects").dataset.html === cardsHtml) return finishOwner(st);       // unchanged: keep the DOM nodes (hover, focus, in-flight clicks)
+  $("o_projects").dataset.html = cardsHtml; $("o_projects").innerHTML = cardsHtml;
   document.querySelectorAll("#o_projects .ocard").forEach(el => {
     el.onclick = ev => { if (ev.target.closest("a")) return; openDrill(el.dataset.p); };
     el.onkeydown = ev => { if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); openDrill(el.dataset.p); } };
   });
+  finishOwner(st);
+}
+function finishOwner(st) {
   const done = (st.glance || {}).done_today || [];
   $("o_done").innerHTML = done.slice(-3).reverse().map(d => `<span class="ok-mark">✓</span> ${esc(d.objective)} ${mergeBadge(d.task_id)} ${evidenceLink(d.task_id)}`).join("<br>") + (done.length > 3 ? `<br><span class="muted">+ ${done.length - 3} more in Details</span>` : "") || '<span class="muted">nothing verified yet today</span>';
   document.querySelectorAll("#owner a.evidence").forEach(a => a.onclick = ev => { ev.preventDefault(); openEvidence(a.dataset.t); });
@@ -550,9 +562,21 @@ $("packet_submit").onclick = async () => {
   $("packetmsg").textContent = `${r.recorded.length} recorded (one receipt each), ${r.deferred.length} deferred, ${r.remaining.length} still open` + (r.errors.length ? `, ${r.errors.length} errors` : "");
   loadPacket(); refresh();
 };
-async function refresh() { try { render(await api("/v0/state")); } catch(e) {} }
+// One state fetch at a time: events arriving during a refresh schedule exactly one more, never a storm.
+let refreshing = false, refreshAgain = false, initialSeq = null;
+async function refresh() {
+  if (refreshing) { refreshAgain = true; return; }
+  refreshing = true;
+  try { const st = await api("/v0/state"); if (initialSeq === null) { initialSeq = st.last_seq || 0; lastSeq = Math.max(lastSeq, initialSeq); } render(st); } catch (e) {}
+  refreshing = false;
+  if (refreshAgain) { refreshAgain = false; setTimeout(refresh, 500); }
+}
 
-function connect() {
+async function connect() {
+  // Replay only the last few events for the Live events card; a page load must not re-stream the whole history
+  // (one load used to trigger 500+ state fetches). Replayed events never trigger a refresh; live ones do, coalesced.
+  if (initialSeq === null) { try { const st = await api("/v0/state"); initialSeq = st.last_seq || 0; render(st); } catch (e) {} }
+  lastSeq = Math.max(0, (initialSeq || 0) - 40);
   const es = new EventSource(`/v0/events?since=${lastSeq}&access_token=${encodeURIComponent(token)}`);
   es.onopen = () => { $("conn").textContent = "live"; $("conn").className = "chip ok"; };
   es.onerror = () => { $("conn").textContent = "reconnecting"; $("conn").className = "chip warn"; };
@@ -562,6 +586,7 @@ function connect() {
     const box = $("events"); const row = document.createElement("div"); row.className = "ev";
     row.innerHTML = `<span class="mono muted">${new Date(d.ts*1000).toLocaleTimeString([], {hour:"2-digit",minute:"2-digit",second:"2-digit"})}</span><span><span class="chip">${esc(d.type)}</span> ${esc(d.task_id||"")} ${esc(d.text)}</span>`;
     box.prepend(row); while (box.children.length > 300) box.removeChild(box.lastChild);
+    if (initialSeq !== null && (d.seq || 0) <= initialSeq) return;                       // replayed history: display only
     refresh(); if (selected && d.task_id === selected && ["VERIFY_PASSED","VERIFY_FAILED","WORKER_FINISHED","TASK_DONE","PUSHED"].includes(d.type)) showTask(selected);
   }));
 }
@@ -590,7 +615,7 @@ if (!token) {
   const t = window.prompt("Desktop-Agent API token (from ~/.config/desktop-agent/token):");
   if (t) { token = t.trim(); try { localStorage.setItem("da_token", token); } catch(e) {} }
 }
-refresh(); loadPacket(); connect(); setInterval(refresh, 15000); setInterval(loadPacket, 60000);
+connect(); loadPacket(); setInterval(refresh, 15000); setInterval(loadPacket, 60000);
 </script>
 </body>
 </html>
