@@ -195,7 +195,8 @@ class Watchdog:
                    "links_resolved": await self._resolve_links(src.repo, ack_branch, d.get("links") or [])}
             self.store.set_kv(key, rec)
             gates = self.store.get_kv("gates:" + src.project) or {"gates": [], "scanned": []}
-            if f"{name}@{sha}" not in gates.get("scanned", []):
+            unversioned = any(g.get("source") == f"{ack_dir}/{name}" and not g.get("sha") for g in gates.get("gates") or [])
+            if f"{name}@{sha}" not in gates.get("scanned", []) or unversioned:        # gates recorded before SHA tracking get reconciled once
                 await self._scan_ack_for_gates(src, ack_branch, ack_dir, name, body=body, url=rec.get("url", ""), sha=sha, category=d["category"])
             if (cur.get("stage"), cur.get("category")) == (d["stage"], d["category"]):
                 return rec

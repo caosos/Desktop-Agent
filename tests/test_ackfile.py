@@ -297,3 +297,18 @@ def test_packet_separates_current_and_historical_gates(tmp_path: Path):
     pk = s.approval_packet()
     assert [g["gate"] for g in pk["external_gates"] if g["project"] == "michael_business_os"] == ["approve the live reload"]
     assert pk["historical_gates"][0]["gate"] == "old question" and "not an answer" in pk["historical_gates"][0]["approval"]
+
+
+def test_gates_recorded_before_sha_tracking_are_reconciled_on_reread(tmp_path: Path):
+    from desktop_agent.control import ackfile
+    store, it, state = _harness(tmp_path)
+    state["ack"] = ("g1", GATE_LIVE_APPROVAL); asyncio.run(it.poll_once())
+    iid = store.list_intake()[0]["item_id"]
+    g = store.get_kv("gates:mbos"); src = g["gates"][0]["source"]
+    # simulate the pre-SHA store: a gate without sha for this source, plus one that the file no longer contains
+    store.set_kv("gates:mbos", {"gates": [{"gate": g["gates"][0]["gate"], "source": src, "url": "u"}, {"gate": "- an older question", "source": src, "url": "u"}],
+                                "history": [], "scanned": [f"ARYA-20261010-0433-f51-scope-handoff.md@g1"]})
+    store.set_kv("liaison_ack:" + iid, {**store.get_kv("liaison_ack:" + iid), "parser_version": ackfile.PARSER_VERSION - 1})
+    asyncio.run(it.poll_once())
+    g2 = store.get_kv("gates:mbos")
+    assert [x.get("sha") for x in g2["gates"]] == ["g1"] and g2["history"][0]["gate"] == "- an older question" and "not an answer" in g2["history"][0]["approval"]

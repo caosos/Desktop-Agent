@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import re
 
-PARSER_VERSION = 3            # bump when parse_ack learns a format; stored readings are re-parsed (no new receipt unless the category changes)
+PARSER_VERSION = 4            # bump when parse_ack learns a format; stored readings are re-parsed (no new receipt unless the category changes)
 
 STAGE_RX = re.compile(r"\*\*stage:?\*\*:?\s*([A-Za-z_-]+)\s*(.*)$", re.I)          # anywhere in the line: Agent 01 also writes "**Acked by:** … **Stage:** COMPLETED (…)"
 LINK_RX = re.compile(r"\((https?://[^)\s]+)\)|(?<![\w/])(docs/(?:receipts|reports|handoff|status)/[\w./-]+)|\b(?:commit|sha)\s+`?([0-9a-f]{7,40})`?", re.I)
