@@ -51,7 +51,6 @@ class AriaBrain:
         self.service = service
         self.llm = llm or service.llm
         self.history: list[dict] = list((service.store.get_kv(HISTORY_KV) or {}).get("turns") or [])   # recoverable: {"role", "text", "ts"}
-        self._turn: str | None = None                  # id of the owner turn being answered: the stable command identity for its actions
         self.system = (PROMPT_FILE.read_text() if PROMPT_FILE.exists() else "You are Aria.") + \
             "\n\nYou answer with a JSON object: {\"reply\": <one or two sentences for Michael>, \"action\": null | {\"name\", \"args\"}}. " \
             "Available actions:\n" + "\n".join(f"- {k}: {v}" for k, v in ACTIONS.items()) + \
@@ -61,7 +60,8 @@ class AriaBrain:
             "A submitted direction or goal is not finished work: say what will happen next and how the owner will see the result. You have no web access and no knowledge beyond these actions. " \
             "Calls are SIMULATED: no real call is ever placed, destinations are fixture labels ('fixture:…'), and a call result is a SIMULATED result."
 
-    async def run_action(self, name: str, args: dict) -> dict:
+    async def run_action(self, name: str, args: dict, turn: str | None = None) -> dict:
+        """`turn` is the owner turn id the action belongs to (request-local: concurrent chats never share it)."""
         s = self.service
         try:
             if name == "get_state":
@@ -92,7 +92,7 @@ class AriaBrain:
             if name == "answer_decision":
                 return await s.answer_decision(str(args.get("decision_id", "")), str(args.get("answer", "")), "aria")
             if name == "request_call":
-                return s.calling.request(None, str(args.get("destination_alias", "")), str(args.get("purpose", "")), self._turn, "aria")
+                return s.calling.request(None, str(args.get("destination_alias", "")), str(args.get("purpose", "")), turn, "aria")
             if name == "call_status":
                 return s.calling.get(str(args.get("call_id", ""))) or {"error": "no such call"}
             if name == "control":
@@ -139,8 +139,8 @@ class AriaBrain:
         tokens_in = tokens_out = 0
         actions_taken: list[dict] = []
         pending = text
-        self._turn = "turn-" + uuid.uuid4().hex[:12]          # new owner turn = new command identity; repeated actions inside it share it
-        self.history.append({"role": "owner", "text": text, "ts": started, "turn_id": self._turn})
+        turn = "turn-" + uuid.uuid4().hex[:12]                # new owner turn = new command identity; repeated actions inside it share it (local to this call)
+        self.history.append({"role": "owner", "text": text, "ts": started, "turn_id": turn})
         reply = ""
         if not self.status()["available"]:
             reply = self._deterministic(text)
@@ -166,7 +166,7 @@ class AriaBrain:
             action = comp.data.get("action")
             if not action or not action.get("name"):
                 break
-            result = await self.run_action(action["name"], action.get("args") or {})
+            result = await self.run_action(action["name"], action.get("args") or {}, turn)
             evidence = {k: result.get(k) for k in ("item_id", "status", "url", "task_ids", "decision_id", "note", "call_id") if isinstance(result, dict) and result.get(k)}
             actions_taken.append({"name": action["name"], "args": action.get("args") or {}, "ok": "error" not in result, "evidence": evidence})
             self.history.append({"role": "aria_step", "text": reply, "ts": time.time()})

@@ -206,3 +206,39 @@ def test_identical_rejected_late_completion_twice_is_one_receipt(tmp_path):
     cid2 = s.calling.request("cmd-ooo", ALIAS, "p", None, "test")["call_id"]
     s.calling.apply(cid2, 3, "IN_PROGRESS"); s.calling.apply(cid2, 3, "IN_PROGRESS"); s.calling.apply(cid2, 4, "COMPLETED")
     assert [r["claim"][:40] for r in chain(s.store, "call", cid2)][1:] == ["SIMULATED out-of-order event rejected: R", "SIMULATED out-of-order event rejected: R"]
+
+
+def test_overlapping_owner_turns_keep_their_own_identity(tmp_path):
+    """da-37dac6c840: the first chat is held inside llm.complete while a second identical chat starts and finishes;
+    each turn must get its own call with its own provenance, and the repeated action inside each turn stays one call."""
+    from desktop_agent.control.llm import Completion
+    s = _svc(tmp_path)
+    act = {"name": "request_call", "args": {"destination_alias": ALIAS, "purpose": "check hours"}}
+    gate = asyncio.Event()
+
+    class GatedLLM(FakeLLM):
+        calls = 0
+        async def complete(self, prompt, schema, model_class="cloud_cheap", system=None, timeout=0):
+            GatedLLM.calls += 1
+            if GatedLLM.calls == 1:
+                await gate.wait()                          # first chat parks here; the second runs start to finish meanwhile
+            return await super().complete(prompt, schema, model_class, system, timeout)
+    s.aria.llm = GatedLLM([{"reply": "a", "action": act}, {"reply": "a", "action": act}, {"reply": "done", "action": None}] * 2)
+
+    async def go():
+        first = asyncio.create_task(s.aria.chat("Call the front desk and check their hours"))
+        await asyncio.sleep(0.05)
+        second = await s.aria.chat("Call the front desk and check their hours")
+        gate.set()
+        first = await first
+        for r in (first, second):
+            await s.calling.wait(r["actions"][0]["evidence"]["call_id"])
+        return first, second
+    first, second = asyncio.run(go())
+    ids = {first["actions"][0]["evidence"]["call_id"], second["actions"][0]["evidence"]["call_id"]}
+    assert len(ids) == 2 and s.calling.adapter_starts == 2 and len(s.calling.list()) == 2
+    for r in (first, second):                               # repeated identical action inside one turn: one call
+        assert r["actions"][0]["evidence"]["call_id"] == r["actions"][1]["evidence"]["call_id"]
+    owners = [h for h in s.aria.history if h["role"] == "owner"]
+    assert len(owners) == 2 and len({o["turn_id"] for o in owners}) == 2
+    assert {c["conversation_ref"] for c in s.calling.list()} == {o["turn_id"] for o in owners}
