@@ -55,6 +55,7 @@ class SessionRunner:
         self._broken: str | None = None                  # a failed send / tool task: the session can no longer succeed
         self._fatal: asyncio.Event | None = None         # set when the session cannot continue: wakes the receive wait
         self.cleanup_error: str | None = None            # recorded, never allowed to replace the primary outcome
+        self.report_error: str | None = None             # the terminal outcome itself could not be persisted
         self.task_errors: list[str] = []                 # exceptions retrieved from finished tool/resend tasks
         self._outputs: dict[str, dict] = {}
         self._tasks: dict[str, asyncio.Task] = {}
@@ -74,6 +75,15 @@ class SessionRunner:
         if not applied:
             self._cancelled = True                       # the service refused (cancelled / terminal): stop everything
         return applied
+
+    def _terminal(self, state: str, detail: str, result: dict | None) -> bool:
+        """Terminal reporting is best effort: if persisting the outcome itself fails, the failure is recorded on the
+        runner (report_error) and nothing is claimed; the exception never escapes the runner."""
+        try:
+            return self._step(state, detail, result)
+        except Exception as exc:
+            self.report_error = f"terminal report failed: {exc!r}"
+            return False
 
     async def _send(self, obj: dict) -> bool:
         if self._cancelled or self._broken:
@@ -126,7 +136,7 @@ class SessionRunner:
                     t.cancel()
         if tasks:
             for r in await asyncio.gather(*tasks, return_exceptions=True):
-                if isinstance(r, Exception):
+                if isinstance(r, Exception) and repr(r) not in self.task_errors:   # the boundary normally saw it first
                     self.task_errors.append(repr(r))
 
     # ---- the session ---------------------------------------------------------------------------------------
@@ -149,7 +159,13 @@ class SessionRunner:
                 if ev.get("type") == "session.ended":
                     ended = ev
                     break
-                await self._handle(ev)
+                try:
+                    await self._handle(ev)
+                except asyncio.CancelledError:
+                    raise
+                except Exception as exc:                 # a record callback failing inside the receive loop is fatal too
+                    read_error = f"event handling failed: {exc!r}"
+                    break
         except asyncio.CancelledError:
             raise
         except Exception as exc:
@@ -163,7 +179,7 @@ class SessionRunner:
             if self._cancelled:
                 return
             reason = read_error or self._broken or "transport disconnected"
-            self._step("FAILED", f"SIMULATED {reason}", self._result("failed", f"SIMULATED call failed: {reason}; no real call was placed.", t0))
+            self._terminal("FAILED", f"SIMULATED {reason}", self._result("failed", f"SIMULATED call failed: {reason}; no real call was placed.", t0))
         finally:
             await self._close_quietly()                           # cleanup errors are recorded, never the outcome
 
@@ -204,10 +220,26 @@ class SessionRunner:
             self._rec({"turn": turn, "event": "response.cancelled", "note": "SIMULATED interrupted speech"})
         elif kind == "tool.call":
             tid = ev.get("tool_call_id")
+            loop = asyncio.get_running_loop()
             if tid in self._tasks:                       # replayed or duplicate id: re-send the stored output, execute nothing
-                self._tasks[f"resend:{id(ev)}"] = asyncio.get_running_loop().create_task(self._resend(tid))
+                self._tasks[f"resend:{id(ev)}"] = loop.create_task(self._guarded(self._resend(tid), f"resend {tid}"))
             else:
-                self._tasks[tid] = asyncio.get_running_loop().create_task(self._tool(ev))
+                self._tasks[tid] = loop.create_task(self._guarded(self._tool(ev), f"tool {tid}"))
+
+    async def _guarded(self, coro, label: str) -> None:
+        """One exception boundary for a whole tool/resend task (execute, receipt, record, send): any failure makes
+        the session fatal at once (reason set, receive wait woken) so a quiet peer cannot leave it pending.
+        Cancellation is not a failure and passes through untouched."""
+        try:
+            await coro
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            reason = f"tool task failed ({label}): {exc!r}"
+            self.task_errors.append(reason)
+            if not self._broken:
+                self._broken = reason
+            self._wake()
 
     def _turn_event(self, turn) -> asyncio.Event:
         return self._turn_events.setdefault(turn, asyncio.Event())
@@ -256,7 +288,7 @@ class SessionRunner:
         alias, purpose = self.call["destination_alias"], self.call["purpose"]
         failure = self._broken or (f"tool task failed: {self.task_errors[0]}" if self.task_errors else None)
         if failure:
-            self._step("FAILED", f"SIMULATED {failure}", self._result("failed", f"SIMULATED call to {alias} failed: {failure}; no real call was placed.", t0))
+            self._terminal("FAILED", f"SIMULATED {failure}", self._result("failed", f"SIMULATED call to {alias} failed: {failure}; no real call was placed.", t0))
             return
         ok = ev.get("outcome", "completed") == "completed"
         summary = ev.get("summary") or (f"SIMULATED call to {alias} about '{purpose}' completed with a fixture answer; no real call was placed." if ok
@@ -264,32 +296,8 @@ class SessionRunner:
         if "SIMULATED" not in summary:
             summary = "SIMULATED: " + summary
         result = self._result("completed" if ok else "failed", summary, t0)
-        if self._step("COMPLETED" if ok else "FAILED", "SIMULATED call completed" if ok else "SIMULATED call failed", result):
+        if self._terminal("COMPLETED" if ok else "FAILED", "SIMULATED call completed" if ok else "SIMULATED call failed", result):
             try:
                 await self.transport.send({"type": "session.close"})
             except Exception as exc:
                 self.cleanup_error = f"close message failed: {exc!r}"
-
-
-class SessionAdapter:
-    """Builds one transport and one runner per call; keeps the runner so a cancel can reach it."""
-    name = "simulated"
-
-    def __init__(self, transport_factory):
-        self.transport_factory = transport_factory
-        self.runners: dict[str, SessionRunner] = {}
-
-    async def run(self, call: dict, apply) -> None:
-        svc = getattr(apply, "__self__", None)
-        record = getattr(svc, "record", None) or (lambda call_id, entry: None)
-        runner = SessionRunner(call, CallContract(call["call_id"]), self.transport_factory(call), apply, record, getattr(svc, "tool_receipt", None))
-        self.runners[call["call_id"]] = runner
-        try:
-            await runner.run()
-        finally:
-            self.runners.pop(call["call_id"], None)
-
-    def cancel(self, call_id: str) -> None:
-        runner = self.runners.get(call_id)
-        if runner:
-            runner.cancel()

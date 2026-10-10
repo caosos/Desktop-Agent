@@ -1,6 +1,8 @@
 """SIMULATED session runner (docs/CALLING_BRIEF.md section 11.5, points 1-8). Scripted transports, zero delays."""
 import asyncio
 
+import pytest
+
 from desktop_agent.control.call_session import FakeTransport, fixture_script
 from desktop_agent.control.calling import SimulatedAdapter
 from desktop_agent.control.receipts import chain
@@ -326,4 +328,86 @@ def test_send_failure_with_a_quiet_peer_exits_failed_without_another_event(tmp_p
     assert call["state"] == "FAILED" and "send failed" in call["history"][-1]["detail"] and "OSError" in call["result"]["summary"]
     assert all(t.done() for t in runner._tasks.values()) and transport.closed
     assert len(_tools(s, cid)) == 1 and transport.sent == []       # the one execution is receipted; nothing was delivered
+    assert "completed" not in " ".join(t["text"] for t in s.aria.transcript())
+
+
+# --- correction da-19d3a61535: a failed tool/resend task (any phase) ends a quiet session ------------------------
+
+class QuietTransport(FakeTransport):
+    """Yields its script, then waits forever; sends succeed unless `send_raises`."""
+    send_raises = False
+
+    async def events(self):
+        async for ev in super().events():
+            yield ev
+        await asyncio.Event().wait()
+
+    async def send(self, obj):
+        if self.send_raises:
+            raise OSError("SIMULATED socket send error")
+        await super().send(obj)
+
+
+@pytest.mark.parametrize("phase", ["execute", "receipt", "record", "send", "resend"])
+def test_failed_tool_task_in_any_phase_exits_failed_with_a_quiet_peer(tmp_path, phase, monkeypatch):
+    from desktop_agent.control import call_session
+    from desktop_agent.control.call_session import CallContract, SessionRunner
+    s = _service(tmp_path)
+    rec = s.calling.request("c", ALIAS, "p", 0, "test")
+    cid = rec["call_id"]
+    script = [{"type": "transcript.user", "turn": 1, "text": "hi"}, tc(1, "t")] + ([tc(1, "t")] if phase == "resend" else [])
+    transport = QuietTransport(script)
+    receipt, record = s.calling.tool_receipt, s.calling.record
+    if phase == "execute":
+        monkeypatch.setattr(call_session, "lookup_fixture_status", lambda alias: (_ for _ in ()).throw(OSError("fixture execute failed")))
+    elif phase == "receipt":
+        def receipt(call_id, claim, evidence): raise OSError("fixture receipt write failed")
+    elif phase == "record":
+        def record(call_id, entry): raise OSError("fixture record write failed")
+    elif phase == "send":
+        transport.send_raises = True
+    elif phase == "resend":
+        sends = {"n": 0}
+        async def flaky_send(obj):                                  # first delivery works, the replayed one fails
+            sends["n"] += 1
+            if sends["n"] > 2:
+                raise OSError("fixture resend failed")
+            transport.sent.append(dict(obj))
+        transport.send = flaky_send
+    runner = SessionRunner(_kv(s, cid), CallContract(cid), transport, s.calling.apply, record, receipt)
+
+    async def go():
+        await asyncio.wait_for(runner.run(), 3.0)                  # the previous runner stays pending for every phase but send
+        await asyncio.sleep(0.05)
+    asyncio.run(go())
+    call = _kv(s, cid)
+    assert call["state"] == "FAILED" and "SIMULATED" in call["history"][-1]["detail"] and "OSError" in call["result"]["summary"]
+    expected = {"execute": "tool task failed", "receipt": "tool task failed", "record": "event handling failed",   # the transcript record fails first, in the receive loop
+                "send": "send failed", "resend": "send failed"}[phase]
+    assert expected in call["history"][-1]["detail"]
+    assert runner.task_errors and all(t.done() for t in runner._tasks.values()) and transport.closed and runner.report_error is None
+    assert "completed" not in " ".join(t["text"] for t in s.aria.transcript())
+    receipts = _tools(s, cid)
+    if phase in ("execute", "receipt"):
+        assert receipts == [] and not [e for e in call.get("transcript", []) if e.get("tool_call_id")]   # nothing claimed that did not happen
+    else:
+        assert len(receipts) == 1                                  # the execution that did happen is receipted once
+
+
+def test_terminal_report_failure_is_best_effort_and_never_claims_success(tmp_path):
+    from desktop_agent.control.call_session import CallContract, SessionRunner
+    s = _service(tmp_path)
+    rec = s.calling.request("c", ALIAS, "p", 0, "test")
+    cid = rec["call_id"]
+    transport = FakeTransport([{"type": "transcript.user", "turn": 1, "text": "hi"}, END])
+    real_apply = s.calling.apply
+
+    def apply(call_id, seq, state, detail=None, result=None):
+        if state in ("COMPLETED", "FAILED"):
+            raise OSError("SIMULATED outcome store unavailable")
+        return real_apply(call_id, seq, state, detail, result)
+    runner = SessionRunner(_kv(s, cid), CallContract(cid), transport, apply, s.calling.record, s.calling.tool_receipt)
+    asyncio.run(asyncio.wait_for(runner.run(), 3.0))               # nothing escapes
+    assert runner.report_error and "outcome store unavailable" in runner.report_error
+    assert _kv(s, cid)["state"] == "IN_PROGRESS" and not [m for m in transport.sent if m["type"] == "session.close"]
     assert "completed" not in " ".join(t["text"] for t in s.aria.transcript())

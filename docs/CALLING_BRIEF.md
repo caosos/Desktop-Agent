@@ -301,6 +301,12 @@ request → ACCEPTED → STARTED → IN_PROGRESS → COMPLETED chain now runs th
 - A fatal send (da-e50c8a9f1c) also wakes the receive wait (`_events_until_fatal` races the next event against the
   runner's fatal signal), so a peer that then stays silent cannot keep the session pending: the runner settles its
   tasks and writes FAILED without another provider event. Cancel uses the same wake.
+- Tool-task boundary (da-19d3a61535): every tool/resend task runs inside one exception boundary covering execute,
+  receipt, record and send; any failure sets the fatal reason (`tool task failed (…)`), wakes the receive wait, and
+  the runner drains the other tasks and writes FAILED at once. A record failure inside the receive loop is `event
+  handling failed`. Cancellation passes through the boundary untouched. Terminal reporting is best effort: if the
+  outcome write itself raises, `runner.report_error` records it and nothing is claimed. `SessionAdapter` lives in
+  `call_adapter.py` (split to keep the runner under 300 lines).
 - Regressions (`tests/test_call_session.py`): raising read; raising send; pending tool at disconnect (task
   cancelled, `_outputs` empty after the wait window); read failure + raising close (primary outcome kept,
   cleanup error recorded, pending task cancelled); cancel leaves no running task.

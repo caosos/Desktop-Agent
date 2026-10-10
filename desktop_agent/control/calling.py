@@ -15,7 +15,8 @@ import time
 import uuid
 
 from . import receipts as rc
-from .call_session import FakeTransport, SessionAdapter, fixture_script
+from .call_adapter import SessionAdapter
+from .call_fixture import FakeTransport, fixture_script
 
 FIXTURE_PREFIX = "fixture:"
 TERMINAL = {"COMPLETED", "FAILED", "CANCELLED"}
