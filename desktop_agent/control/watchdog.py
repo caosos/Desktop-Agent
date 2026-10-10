@@ -23,7 +23,7 @@ import re
 import time
 
 from . import allowance
-from .ackfile import parse_ack
+from .ackfile import PARSER_VERSION, parse_ack
 from .events import Actor, Event, EventType as ET, Provenance
 from .intake import gh_api, IntakeSource
 from .receipts import FAILED, VERIFIED, write_receipt
@@ -178,7 +178,8 @@ class Watchdog:
         key = "liaison_ack:" + item["item_id"]
         cur = self.store.get_kv(key) or {}
         sha = meta.get("sha") or ""
-        if cur.get("sha") == sha:
+        reparse = bool(cur) and cur.get("sha") == sha and cur.get("parser_version") != PARSER_VERSION
+        if cur.get("sha") == sha and not reparse:
             return None
         try:
             content = await gh_api(f"repos/{src.repo}/contents/{ack_dir}/{name}?ref={ack_branch}")
@@ -187,9 +188,23 @@ class Watchdog:
             return {"error": str(exc)[:120]}
         now = time.time()
         d = parse_ack(body)
+        if reparse:
+            # same content, newer parser: refresh the reading in place; a receipt only if the parse now says something else
+            rec = {**cur, **d, "parser_version": PARSER_VERSION, "reparsed_at": now}
+            self.store.set_kv(key, rec)
+            if (cur.get("stage"), cur.get("category")) == (d["stage"], d["category"]):
+                return rec
+            evidence = [rec.get("url") or f"{ack_branch}:{ack_dir}/{name}", f"sha={sha[:12]}", f"stage={d['stage']}", f"parser_version={PARSER_VERSION}"]
+            write_receipt(self.store, subject_type="instruction", subject_id=item["item_id"],
+                          claim=f"ACKFILE {d['stage'] or 'UNRECOGNISED'}: {d['category']}; re-read with parser v{PARSER_VERSION} (same content)",
+                          actor=Actor.CONTROL.value, source="watchdog:liaison-ack", result_label=VERIFIED, evidence=evidence,
+                          before_state={"stage": cur.get("stage"), "category": cur.get("category")}, after_state={"stage": d["stage"], "category": d["category"]})
+            if d["category"] == "blocked" and item["status"] != "BLOCKED":
+                self.intake._set(item, "BLOCKED", f"BLOCKED per its ack file ({d['blocked_reason'][:160]})", evidence)
+            return rec
         hist = (cur.get("history") or [])[-5:] + [{"sha": sha[:12], "at": now, "stage": d["stage"], "category": d["category"]}]
         rec = {**d, "sha": sha, "url": content.get("html_url") or meta.get("url", ""), "file": f"{ack_dir}/{name}", "observed_at": now,
-               "first_seen_at": cur.get("first_seen_at") or now, "history": hist}
+               "first_seen_at": cur.get("first_seen_at") or now, "history": hist, "parser_version": PARSER_VERSION}
         self.store.set_kv(key, rec)
         evidence = [rec["url"] or f"{ack_branch}:{ack_dir}/{name}", f"sha={sha[:12]}", f"stage={d['stage']}", f"implementation={d['implementation']}", f"live={d['live']}"]
         write_receipt(self.store, subject_type="instruction", subject_id=item["item_id"],

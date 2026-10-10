@@ -158,6 +158,17 @@ class Intake:
 
     # ---- polling ----------------------------------------------------------------
     async def poll_once(self) -> dict:
+        """One pass over every source. Serialized: the periodic loop and the panel's Poll button must not
+        overlap, or the same new ack reading would be fetched and receipted twice."""
+        lock = getattr(self, "_poll_lock", None)
+        if lock is None:
+            lock = self._poll_lock = asyncio.Lock()
+        if lock.locked():
+            return {"found": 0, "delivered": 0, "acked": 0, "error": self.last_error, "note": "poll already in progress; nothing repeated"}
+        async with lock:
+            return await self._poll_all()
+
+    async def _poll_all(self) -> dict:
         found, delivered, acked = 0, 0, 0
         for src in self.sources:
             if (src.coordinator or {}).get("kind") == "liaison" and self.watchdog:

@@ -138,3 +138,62 @@ def test_instruction_row_shows_disposition_facts_and_truthful_next_action(tmp_pa
     assert row["disposition"]["category"] == "coordination-completed" and row["disposition"]["implementation"] == "not implemented (per the ack)" and row["disposition"]["live"].startswith("not applicable")
     assert row["next"].startswith("coordination step completed per its ack; the product change is NOT implemented") and "F-52" in row["next"]
     assert "start it" not in row["next"] and "restart" not in row["next"]
+
+
+F49_MIDLINE = """# ACK: ARYA-20261010-0328-f49-verification
+
+- **Acked by:** Agent 01, 2026-10-10. **Stage:** COMPLETED (code complete and staging verified; live acceptance pending owner reload gate, see receipt)
+- **Safety:** no live reload, restart, spend, purchase, seller contact, database or worker change.
+- **Receipt:** docs/receipts/2026-10-10-f49-verification.md
+"""
+OLD_DISPOSITION = """# ACK: 2026-10-09-aria-owner-dispatcher-stopped-recover-existing-system
+
+- **Acked by:** Agent 01, 2026-10-09. **Disposition:** INCORPORATED. Recovered through the existing dispatcher: stop cause fixed, not bypassed.
+- **Receipt:** commit b2fbd95 (dispatcher --reset-task receipt in var/dispatcher.jsonl)
+"""
+OLD_NEEDS_OWNER = """# ACK: 2026-10-08-aria-owner-agent-watchdog
+
+- **Classification:** OWNER_INPUT + TASK_REQUEST. **Disposition: INCORPORATED (what is safe) + NEEDS_OWNER_DECISION (the self-wake).** Acked by Agent 01, 2026-10-09.
+"""
+
+
+def test_parse_ack_real_formats():
+    f49 = parse_ack(F49_MIDLINE)
+    assert f49["stage"] == "COMPLETED" and f49["category"] == "coordination-completed"
+    assert f49["implementation"] == "result linked (per the ack)" and "docs/receipts/2026-10-10-f49-verification.md" in f49["links"]
+    assert f49["live"] == "not live (pending)" and "deployment/live verification still pending" in next_action(f49, "ACKNOWLEDGED")
+    old = parse_ack(OLD_DISPOSITION)
+    assert old["stage"] == "INCORPORATED" and old["category"] == "coordination-completed" and "b2fbd95" in old["links"]
+    gate = parse_ack(OLD_NEEDS_OWNER)
+    assert gate["stage"] == "INCORPORATED+NEEDS_OWNER_DECISION" and gate["category"] == "blocked" and gate["blocked_reason"] == "needs an owner decision (per the ack)"
+    assert parse_ack("- **Stage:** SUPERSEDED by ARYA-0610\n")["category"] == "superseded"
+
+
+def test_concurrent_polls_do_not_duplicate_ack_receipts(tmp_path: Path):
+    store, it, state = _harness(tmp_path)
+    async def both():
+        return await asyncio.gather(it.poll_once(), it.poll_once())
+    r1, r2 = asyncio.run(both())
+    assert (r1["found"], r2["found"]) in ((1, 0), (0, 1))                                # serialized: the second pass saw nothing new
+    iid = store.list_intake()[0]["item_id"]
+    assert state["content_fetches"] == 1 and len(_ackfile_receipts(store, iid)) == 1
+
+
+def test_parser_upgrade_reparses_same_sha_without_duplicate_receipts(tmp_path: Path):
+    from desktop_agent.control import ackfile
+    store, it, state = _harness(tmp_path)
+    asyncio.run(it.poll_once())
+    iid = store.list_intake()[0]["item_id"]
+    kv = store.get_kv("liaison_ack:" + iid)
+    assert kv["parser_version"] == ackfile.PARSER_VERSION and len(_ackfile_receipts(store, iid)) == 1
+    # simulate an older stored reading (same sha, older parser): re-read once, in place, no receipt when the verdict is unchanged
+    store.set_kv("liaison_ack:" + iid, {**kv, "parser_version": kv["parser_version"] - 1})
+    asyncio.run(it.poll_once())
+    kv2 = store.get_kv("liaison_ack:" + iid)
+    assert state["content_fetches"] == 2 and kv2["parser_version"] == ackfile.PARSER_VERSION and kv2.get("reparsed_at") and len(kv2["history"]) == 1
+    assert len(_ackfile_receipts(store, iid)) == 1
+    asyncio.run(it.poll_once()); assert state["content_fetches"] == 2
+    # an older reading whose verdict changes under the new parser gets one receipt
+    store.set_kv("liaison_ack:" + iid, {**kv2, "parser_version": 0, "stage": None, "category": "unknown"})
+    asyncio.run(it.poll_once())
+    assert len(_ackfile_receipts(store, iid)) == 2 and "re-read with parser" in _ackfile_receipts(store, iid)[-1]["claim"]
