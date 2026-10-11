@@ -16,6 +16,12 @@
 - **Next engineering checkpoint:** independently review PR #14 against its brief, integrate only after the gate and receipt, then prove a real research request and report readback. In parallel, reconcile the PDF branch and the local Ask Aria/dictation candidate without racing the coordinator's files.
 - **Needs Michael now:** no decision identified for the research code review. A real microphone/dictation acceptance and optional GTK widget acceptance require Michael at his desktop. Web retrieval and real calling remain separate owner gates.
 
+## Reconciliation 2026-10-11 06:1xZ (host evidence; the snapshot above is kept as written)
+
+- [PR #14](https://github.com/caosos/Desktop-Agent/pull/14) research jobs v1, [PR #16](https://github.com/caosos/Desktop-Agent/pull/16) (`claude_cli --max-turns 3`, interim dictation) and [PR #15](https://github.com/caosos/Desktop-Agent/pull/15) are **merged**; the PDF publish path is on `main` (`347c162`); the first live research job `rj-fd023afe99` is VERIFIED end to end with its PDF served ([PROJECT_STATE](PROJECT_STATE.md) 04:4x–05:5xZ). Michael's exact multi-step question answered live at 04:36Z.
+- Lost first Send: cause proven and fixed in [`de3b979`](https://github.com/caosos/Desktop-Agent/commit/de3b979406a57134a07b2f02291d6800573c4f87) (focus before fetch; owner turn persisted on arrival), loaded 06:03:50Z, verified in real Chrome on the host. Michael's own-browser re-check and the microphone timing remain his.
+- **Loaded revision now:** `de3b979` (MainPID 313008). **Next item:** DA-REBOOT-CONTINUITY-001 (`da-588ba1951a`), then the Phase 2 microphone/owner-UX gap when Michael is at his desk.
+
 ## Status key and timing
 
 A row can have four evidence columns: **I** implemented in a branch or `main`; **T** a passing test run is recorded (the evidence names who ran it); **S** integrated/staging path accepted; **L** live path observed on Michael's host or by Michael. `✓` means evidence linked; `·` means still open; `n/a` means that gate does not apply. A partial phase can contain completed rows. No invented percentage.
@@ -41,8 +47,9 @@ All durations below are **focused engineering effort after the dependency is ava
 | Check | I | T | S | L | Evidence / next action |
 |---|:---:|:---:|:---:|:---:|---|
 | Ask Aria text, project-grounded status, clear blocked/owner answer | ✓ | ✓ | ✓ | ✓ | [`a42f4e3`](https://github.com/caosos/Desktop-Agent/commit/a42f4e399561bde394643af8014714705f2693df) passed gate and Chrome question; retain source names and current freshness in replies. |
-| Multi-step Ask Aria question avoids `claude_cli` maximum-turns failure | ✓ | ✓ | · | · | Owner's observed failure: “Reached maximum number of turns (1).” Local `1abee06` changes this path; focused tests reported passing, browser/EliteDesk retest open. Publish/review without duplicating another worker's change. |
-| Dictation shows interim words promptly and final words remain editable | ✓ | ✓ | · | · | Current panel waits for final recognition segments; local `1abee06` adds interim display. No Chrome microphone test here; measure capture → interim → final → Send on Michael's machine. |
+| Multi-step Ask Aria question avoids `claude_cli` maximum-turns failure | ✓ | ✓ | ✓ | ✓ | Owner's observed failure: “Reached maximum number of turns (1).” Local `1abee06` changes this path; focused tests reported passing, browser/EliteDesk retest open. Publish/review without duplicating another worker's change. |
+| Dictation shows interim words promptly and final words remain editable | ✓ | ✓ | ✓ | · | Current panel waits for final recognition segments; local `1abee06` adds interim display. No Chrome microphone test here; measure capture → interim → final → Send on Michael's machine. |
+| First Send after a page load always reaches the control plane; the request is in the store on arrival | ✓ | ✓ | ✓ | ✓ | [`de3b979`](https://github.com/caosos/Desktop-Agent/commit/de3b979406a57134a07b2f02291d6800573c4f87): focus race proven with real keyboard input, regressions fail-before/pass-after, live probes on the loaded service (PROJECT_STATE 2026-10-11 05:4x–06:1xZ). Michael's browser over the tunnel not re-driven yet. |
 | Panel is understandable while work runs; statuses and receipts are truthful | ✓ | ✓ | ✓ | ✓ | [`adee737`](https://github.com/caosos/Desktop-Agent/commit/adee73730536f76c6c4986ddbf0bb494a240d219) corrected blocked labels and was checked in Chrome. Michael reports the panel still feels busy; get a task-driven owner walk-through before closing usability. |
 | Optional GTK widget and push-to-talk path from Michael's desktop | ✓ | ✓ | · | · | [Widget setup](WIDGET_SETUP.md) and unit tests exist; an actual display/voice acceptance receipt remains open. The browser panel is the usable owner surface meanwhile. |
 
