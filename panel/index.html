@@ -419,12 +419,13 @@ $("aria_send").onclick = async () => {
   ariaPending.push(p);
   $("aria_log").insertAdjacentHTML("beforeend", turnHtml({role: "owner", text, ts: p.ts})); $("aria_text").value = ""; $("aria_log").scrollTop = $("aria_log").scrollHeight;
   $("aria_send").disabled = true; $("aria_send").textContent = "thinking…";
-  const t0 = performance.now(); let recorded = false, tick = 0;
+  const t0 = performance.now(); let recorded = false, tick = 0, checking = false;
   const secs = () => Math.round((performance.now() - t0) / 1000);
   ariaState("Sending…");
-  const timer = setInterval(async () => {
-    tick++; if (!recorded && tick % 3 === 0) recorded = await ariaRecorded(id);
+  const timer = setInterval(() => {                    // the counter never waits on the recorded-check (a slow history must not freeze it)
+    tick++;
     ariaState(`Waiting for Aria's reply · ${secs()} s · ${recorded ? "request recorded by the control plane" : "not yet confirmed as recorded"}`);
+    if (!recorded && !checking && tick % 3 === 0) { checking = true; ariaRecorded(id).then(ok => { recorded = recorded || ok; checking = false; }); }
   }, 1000);
   const fail = async (what, detail) => {             // network / service / control-plane failure: say which, and whether the message was recorded
     recorded = recorded || await ariaRecorded(id);

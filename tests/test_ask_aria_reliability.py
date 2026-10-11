@@ -90,6 +90,7 @@ def test_late_history_response_never_removes_a_sent_message_and_reload_shows_it_
         assert "claude-haiku-5-5" in log and "claude_cli" in log and "$0.119 token-equivalent, not an invoice" in log and "1 round" in log
         assert "Reply received in" in page.inner_text("#aria_state")
         assert "about a cent" not in page.inner_text("#aria_model")
+        assert "about a cent" not in page.inner_text("#aria_model")
         page.reload(); _open(page); page.click("#aria_bubble")
         page.wait_for_function(f"document.querySelector('#aria_log').innerText.includes({text!r})", timeout=15000)
         page.wait_for_timeout(3600)                                           # even with the delayed history on reload
@@ -136,3 +137,25 @@ def test_failures_are_classified_and_say_whether_the_message_was_recorded(served
         state = send(page, "model case")
         assert "Model failure" in state and "received your message" in state and "Model call failed twice" in page.inner_text("#aria_log"); ctx.close()
         browser.close()
+
+
+def test_elapsed_counter_keeps_counting_while_history_is_slow(served):
+    s = served
+    s.aria.llm = TokenEquivalentLLM([{"reply": "ok", "action": None}])
+    class Slow(TokenEquivalentLLM):
+        async def complete(self, *a, **k):
+            await asyncio.sleep(6); return await super().complete(*a, **k)
+    s.aria.llm = Slow([{"reply": "ok", "action": None}])
+    playwright = pytest.importorskip("playwright.sync_api")
+    with playwright.sync_playwright() as p:
+        try:
+            browser = p.chromium.launch(channel="chrome", headless=True)
+        except Exception as exc:
+            pytest.skip(f"no Chrome: {exc}")
+        ctx = browser.new_context(viewport={"width": 1648, "height": 900}); ctx.add_init_script(INIT_DELAY.replace("3000", "20000"))   # history check never returns in time
+        page = ctx.new_page(); _open(page); page.click("#aria_bubble"); page.fill("#aria_text", "slow one"); page.click("#aria_send")
+        page.wait_for_timeout(5200)
+        state = page.inner_text("#aria_state")
+        secs = int(state.split("·")[1].strip().split(" ")[0])
+        assert "Waiting for Aria's reply" in state and secs >= 4 and "not yet confirmed as recorded" in state, state   # honest: it could not confirm
+        ctx.close(); browser.close()
