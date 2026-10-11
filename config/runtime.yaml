@@ -120,4 +120,4 @@ intake:
   unacked_sec: 300        # undelivered or unacknowledged instruction → BLOCKED + NEED receipt (owner protocol: five minutes)
 
 research:
-  web_enabled: false     # owner switch (decision d-c3f29691 answered yes): true lets a web research job allowlist WebSearch/WebFetch for its one worker at a $3 ceiling
+  web_enabled: true      # owner switch (decision d-c3f29691 answered yes; flipped 2026-10-11 on owner direction da-b00a65f88f): true lets a web research job allowlist WebSearch/WebFetch for its one worker at a $3 ceiling
