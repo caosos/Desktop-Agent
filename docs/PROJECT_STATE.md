@@ -785,3 +785,16 @@ Work in four pa
 - **Observation:** the full gate took 240 s (`18f9845`) and 267 s (durations run) against the usual 80 s, with no suite change beyond two small tests.
 - **Measured:** `pytest --durations=12` — slowest test 8.5 s (`test_owner_view_states_and_evidence_on_demand`), top twelve sum to about 56 s; no test hangs. Host at the same time: load average 5.19 on 8 threads, one process of the other account at 109 % CPU (not this lane's), memory 6.8 GB used of 14.9 GB. The suite slowed uniformly under contention; nothing in the tests needs fixing.
 - **Change:** `scripts/gate.sh` prints the 1-minute load average on its PASS/FAIL line (`load=`), so a long gate is read against the host, not blamed on the code. Pass/fail logic unchanged.
+
+
+## 2026-10-11 — task `research-job-rj-8f9dab85fd-for-p-2ccf49` verified (recorded by the control plane)
+
+- **Objective:** Research job rj-8f9dab85fd for project desktop_agent. QUESTION: What do the Playwright and Claude Code CLI documentation say about running headless Chrome and about the --allowedTools and --disallowedTools flags? Cite public URLs with access dates.
+
+Sources: this repository checkout on disk AND the 
+- **Why now:** research job rj-8f9dab85fd confirmed by the owner in Ask Aria
+- **Model class:** cloud_strong; attempt 1; adapter claude_headless
+- **Worker head:** `710ac223aeceacb3781d8b24589e7fd9c2220b53` on `agent/research-job-rj-8f9dab85fd-for-p-2ccf49` from `0b7ea45dbc1a`
+- **Verifier (clean checkout):** `python3 scripts/research_check.py docs/research/rj-8f9dab85fd.md` exit 0
+- **Files:** docs/research/rj-8f9dab85fd.md
+- **Receipts:** worker claim unverified → verifier verified; integration follows this entry.
