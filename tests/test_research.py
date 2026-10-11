@@ -178,3 +178,29 @@ def test_routes(tmp_path):
 
 async def _noop():
     return {}
+
+
+def test_reconcile_follows_a_scheduler_retry_instead_of_failing_the_job(tmp_path):
+    """The scheduler retries a failed attempt as a new task that `supersedes` the old one (seen live: rj-3dba7e19b7
+    was marked FAILED while attempt 2 was still running). The job must move to the retry task and stay RUNNING."""
+    s = _service(tmp_path)
+    job = s.research.request("t-retry", Q, "mbos")
+    first = s.store.get_task(job["task_id"])
+    s.store.set_task_status(first["task_id"], "FAILED", {"reason": "1 acceptance test command(s) failed"})
+    c2 = dict(first["contract"]); c2.update(task_id=first["task_id"] + "-r2", attempt=2, supersedes=first["task_id"])
+    s.store.save_task(c2["task_id"], first.get("goal_id"), "mbos", "READY", c2, "h2")
+    s.research.reconcile()
+    j = s.research.get(job["job_id"])
+    assert j["state"] == "RUNNING" and j["task_id"] == first["task_id"] + "-r2" and "supersedes" in j["history"][-1]["note"]
+    s.research.reconcile()                                  # idempotent: no second hop, no second receipt
+    rs = chain(s.store, "research", job["job_id"])
+    assert sum("retry attempt 2" in r["claim"] for r in rs) == 1 and all(r["result_label"] == "verified" for r in rs)
+    assert any("retrying as task" in t["text"] for t in s.aria.transcript() if t.get("kind") == "research")
+    s.store.set_task_status(first["task_id"] + "-r2", "DONE", {"integration": {"pr_url": "https://example.test/pr/2"}})
+    s.research.reconcile()
+    assert s.research.get(job["job_id"])["state"] == "VERIFIED"
+    # a FAILED attempt without a retry, or a BLOCKED task, still fails the job
+    other = s.research.request("t-final", Q + " again", "mbos")
+    s.store.set_task_status(other["task_id"], "BLOCKED", {"reason": "attempt 2 failed: checker"})
+    s.research.reconcile()
+    assert s.research.get(other["job_id"])["state"] == "FAILED"

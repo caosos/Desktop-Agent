@@ -200,8 +200,26 @@ class ResearchService:
         res = self.apply(job_id, "CANCELLED", "cancelled by the owner side; the worker was stopped", source)
         return self._view(self.store.get_kv(self._key(job_id))) | {"cancelled": res["applied"]}
 
+    def _retry_of(self, task_id: str) -> dict | None:
+        """The scheduler retries a failed attempt as a NEW task whose contract `supersedes` the old one."""
+        return next((t for t in self.store.list_tasks() if (t.get("contract") or {}).get("supersedes") == task_id), None)
+
+    def _follow_retry(self, job: dict, new_task: dict) -> None:
+        with self._lock:
+            cur = self.store.get_kv(self._key(job["job_id"])) or job
+            before = {"task_id": cur["task_id"]}
+            cur["task_id"] = new_task["task_id"]
+            cur["history"].append({"ts": time.time(), "state": cur["state"],
+                                   "note": f"attempt {(new_task.get('contract') or {}).get('attempt')} as task {new_task['task_id']} (supersedes {before['task_id']})"})
+            cur["updated_at"] = time.time()
+            self.store.set_kv(self._key(job["job_id"]), cur)
+            job.update(cur)
+            self._receipt(job, f"RUNNING: retry attempt {(new_task.get('contract') or {}).get('attempt')} as task {new_task['task_id']}", rc.VERIFIED, "reconcile", before)
+        self._note(job, f"Research job {job['job_id']}: attempt 1 failed verification; the scheduler is retrying as task {new_task['task_id']}.")
+
     def reconcile(self) -> None:
-        """Follow each RUNNING job's task once: DONE -> VERIFIED, FAILED/ARCHIVED -> FAILED. Idempotent."""
+        """Follow each RUNNING job's task once: DONE -> VERIFIED; a FAILED attempt that the scheduler retried moves the
+        job to the retry task (still RUNNING); FAILED without a retry, BLOCKED or ARCHIVED -> FAILED. Idempotent."""
         for job_id in (self.store.get_kv(INDEX_KV) or {}).get("ids", []):
             job = self.store.get_kv(self._key(job_id))
             if not job or job["state"] != "RUNNING" or not job["task_id"]:
@@ -214,6 +232,10 @@ class ResearchService:
                 self.apply(job_id, "VERIFIED", f"task {job['task_id']} verified; report {job['report_path']}", "reconcile",
                            pr_url=_find(result, "pr_url"))
             elif task["status"] in ("FAILED", "ARCHIVED", "BLOCKED"):
+                retry = self._retry_of(job["task_id"]) if task["status"] != "BLOCKED" else None
+                if retry:
+                    self._follow_retry(job, retry)
+                    continue
                 why = _find(result, "reason") or _find(result, "error") or _find(result, "detail") or f"task {task['status'].lower()}"
                 self.apply(job_id, "FAILED", f"task {job['task_id']} {task['status']}: {str(why)[:200]}", "reconcile")
 
