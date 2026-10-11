@@ -52,7 +52,7 @@ Rationale and what not to build: review
 | Component | Label | Citation |
 |---|---|---|
 | Control plane / widget / worker user split over local HTTP | VERIFIED-IMPLEMENTED | PROJECT_STATE "Stage 1 control plane built"; [`tests/test_widget.py`](../tests/test_widget.py) `test_http_client_against_live_api` |
-| Desktop control ("second set of hands") | PROPOSED | [`START_HERE.md`](../START_HERE.md) intro; review [§11](ARCHITECTURE_REVIEW_2026-10-08.md) |
+| Desktop control ("second set of hands") | PROPOSED — contract designed 2026-10-11, nothing implemented or granted | [`OPERATOR_TOOLS_CONTRACT.md`](OPERATOR_TOOLS_CONTRACT.md); review [§11](ARCHITECTURE_REVIEW_2026-10-08.md) |
 
 ## 2. Control plane core — `desktop_agent/control/`
 

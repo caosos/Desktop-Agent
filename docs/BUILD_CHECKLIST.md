@@ -85,7 +85,7 @@ All durations below are **focused engineering effort after the dependency is ava
 
 **Milestone:** Aria can inspect and act on the approved desktop and SSH resources Michael names, show the proposed action and live outcome, honor pause/stop/change direction, and leave a receipt for each action.
 
-- [ ] Define governed tool contracts, target allowlists, visible action preview and exact authority for desktop, browser, file and SSH operations.
+- [x] Define governed tool contracts, target allowlists, visible action preview and exact authority for desktop, browser, file and SSH operations — [OPERATOR_TOOLS_CONTRACT](OPERATOR_TOOLS_CONTRACT.md) (2026-10-11, DESIGN; grounded in host facts: GNOME on Wayland, at-spi reachable, no ydotool, desktop session owned by the other account). Item 2 waits on the three owner answers in its §9.
 - [ ] Build one narrow end-to-end desktop action and one SSH action with independent result observation and cancellation.
 - [ ] Prove the path on Michael's EliteDesk and Deal Desk use case; verify mistakes, denials and recovery without claiming an action happened when it did not.
 - [ ] Expand coverage only after each tool's acceptance. Current general desktop/SSH operator: **not verified**.
