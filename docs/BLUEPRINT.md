@@ -71,6 +71,7 @@ Entry points: [`__main__.py`](../desktop_agent/__main__.py) (service and
 | Task contracts (shared contract) | [`contracts.py`](../desktop_agent/control/contracts.py) | VERIFIED-IMPLEMENTED | `tests/test_core.py` `test_project_loader_and_contract` |
 | Project loader (descriptor → package) | [`project.py`](../desktop_agent/control/project.py) | VERIFIED-IMPLEMENTED | `tests/test_core.py` `test_project_loader_and_contract`, `test_project_loader_missing_field` |
 | Runtime config (scheduler policy, scope limits, providers) | [`config.py`](../desktop_agent/control/config.py) | VERIFIED-IMPLEMENTED | [`tests/test_class_labels.py`](../tests/test_class_labels.py); [`tests/test_providers.py`](../tests/test_providers.py) `test_key_from_file_and_status` |
+| Project drilldown pane and the owner's can-run / needs-you / waiting lists | [`drilldown.py`](../desktop_agent/control/drilldown.py), [`work_summary.py`](../desktop_agent/control/work_summary.py) | VERIFIED-IMPLEMENTED | [`tests/test_drilldown.py`](../tests/test_drilldown.py), `tests/test_owner_states.py` |
 | Governed MCP tool server for workers (`tools/mcp_server.py`) | none | PROPOSED | [`IMPLEMENTATION_PLAN.md` §6](IMPLEMENTATION_PLAN.md); PROJECT_STATE "Stage 1 control plane built (steps 1–6, 8)" records it as deferred |
 
 ## 3. Scheduler, admission and feedback
