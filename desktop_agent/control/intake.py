@@ -16,7 +16,8 @@ import re
 import time
 from dataclasses import dataclass, field
 
-from .intake_need import need_for
+from . import intake_owner
+from .intake_need import flag_unacked, redeliver_pending
 from .events import Actor, Event, EventType as ET, Provenance
 from .receipts import FAILED, VERIFIED, write_receipt
 from .store import Store
@@ -87,73 +88,11 @@ class Intake:
 
     # ---- owner → coordinator directions (sent from the panel or Aria) ---------------------
     async def send_direction(self, project: str, text: str, source: str) -> dict:
-        """Create a DRAFT item, post it to the project's intake issue as the owner's direction
-        (durable, visible), mark SENT; the poller then ingests it (RECEIVED) and delivers it."""
-        src = self.source_for(project)
-        if not src:
-            raise ValueError(f"project {project!r} has no coordinator configured")
-        if (src.coordinator or {}).get("kind") == "liaison":
-            if not self.watchdog:
-                raise ValueError("liaison transport unavailable")
-            item_id = "da-" + hashlib.sha1(f"direction:{project}:{time.time_ns()}".encode()).hexdigest()[:10]
-            item = {"item_id": item_id, "project": project, "repo": src.repo, "issue": 0, "kind": "direction", "gh_id": 0, "author": source,
-                    "title": text.strip().splitlines()[0][:120], "body": text, "url": "", "posted_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-                    "status": "DRAFT", "coordinator": "liaison"}
-            self.store.save_intake(item)
-            self._set(item, "DRAFT", f"direction composed via {source}", [source])
-            res = await self.watchdog.send_liaison(src, item)
-            self.store.set_intake_github(item_id, 0, res.get("url", ""), item["posted_at"])
-            item["url"] = res.get("url", "")
-            self._set(item, res["status"], res["note"], res["evidence"])
-            return self.store.get_intake(item_id)
-        if not src.issues:
-            raise ValueError(f"project {project!r} has no owner-dispatch issue configured")
-        issue = src.issues[0]
-        item_id = "da-" + hashlib.sha1(f"direction:{project}:{time.time_ns()}".encode()).hexdigest()[:10]
-        item = {"item_id": item_id, "project": project, "repo": src.repo, "issue": issue, "kind": "direction", "gh_id": 0,
-                "author": source, "title": text.strip().splitlines()[0][:120], "body": text, "url": f"https://github.com/{src.repo}/issues/{issue}",
-                "posted_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "status": "DRAFT", "coordinator": src.coordinator.get("kind")}
-        self.store.save_intake(item)
-        self._set(item, "DRAFT", f"direction composed via {source}", [source])
-        body = f"## Owner direction via Aria Mission Control\n\n{text}\n\n<!-- da:direction {item_id} -->"
-        try:
-            posted = await gh_api(f"repos/{src.repo}/issues/{issue}/comments", method="POST", fields={"body": body})
-        except Exception as exc:
-            self._set(item, "DRAFT", f"posting to GitHub failed: {exc}"[:200], [str(exc)[:200]], label=FAILED)
-            return self.store.get_intake(item_id)
-        self.store.set_intake_github(item_id, int(posted.get("id") or 0), posted.get("html_url", ""), posted.get("created_at", ""))
-        item.update(url=posted.get("html_url", ""))
-        self._set(item, "SENT", f"posted to GitHub {posted.get('html_url','')}", [posted.get("html_url", "")])
-        return self.store.get_intake(item_id)
+        return await intake_owner.send_direction(self, project, text, source)
 
     async def owner_action(self, item_id: str, action: str, note: str, source: str) -> dict:
-        """Transfer/Send, Deny, Defer, Revise on an item, each a receipted state change."""
-        item = self.store.get_intake(item_id)
-        if not item:
-            raise KeyError(item_id)
-        if action == "deny":
-            self._set(item, "DENIED", f"owner denied via {source}: {note}", [source, note[:100]])
-        elif action == "defer":
-            self._set(item, "DEFERRED", f"owner deferred via {source}: {note}", [source, note[:100]])
-        elif action in ("transfer", "send", "resend"):
-            src = self.source_for(item["project"])
-            if not src:
-                raise ValueError("project has no coordinator configured")
-            self._emit(item, ET.CONTROL.value, {"action": "owner_transfer", "note": note[:200]}, [source])
-            if (src.coordinator or {}).get("kind") == "liaison" and self.watchdog and item["kind"] in ("direction", "liaison"):
-                res = await self.watchdog.send_liaison(src, item)
-                self._set(item, res["status"], res["note"], res["evidence"])
-            else:
-                await self._deliver(src, item)
-        elif action == "revise":
-            if not note.strip():
-                raise ValueError("revise needs the revised text")
-            self.store.update_intake_body(item_id, note)
-            item["body"] = note
-            self._set(item, "DRAFT", f"revised via {source}", [source])
-        else:
-            raise ValueError("action must be transfer|send|resend|deny|defer|revise")
-        return self.store.get_intake(item_id)
+        return await intake_owner.owner_action(self, item_id, action, note, source)
+
 
     # ---- events / receipts ---------------------------------------------------
     def _emit(self, item: dict, etype: str, payload: dict, evidence: list, source: str = "intake") -> None:
@@ -197,27 +136,10 @@ class Intake:
                     self.last_error = None
                 except Exception as exc:          # a GitHub hiccup must not stop the loop
                     self.last_error = f"{src.repo}#{issue}: {exc}"[:300]
-        delivered += await self._redeliver_pending()
+        delivered += await redeliver_pending(self)
         self.last_poll_at = time.time()
-        self._flag_unacked()
+        flag_unacked(self)
         return {"found": found, "delivered": delivered, "acked": acked, "error": self.last_error}
-
-    async def _redeliver_pending(self) -> int:
-        """An item that could not be handed to a Claude peer (no live session, relay failure) is tried again on every
-        poll once a session resolves — the same item row, so no duplicate; the free session check gates the relay call."""
-        probe = getattr(self.deliver, "session_for", None)
-        by_project = {s.project: s for s in self.sources}
-        n = 0
-        for item in self.store.list_intake():
-            src = by_project.get(item["project"])
-            if not src or item["status"] != "RECEIVED" or (src.coordinator or {}).get("kind") != "claude_peer":
-                continue
-            if item["note"].startswith("ingested from"):
-                continue                                # brand new: delivered by the ingest path of this same poll
-            if probe is not None and probe(src) is None:
-                continue                                # still nobody to hand it to; the flag/NEED path says so
-            n += await self._deliver(src, item)
-        return n
 
     async def _poll_issue(self, src: IntakeSource, issue: int) -> tuple[int, int, int]:
         cursor = self.store.intake_cursor(src.repo, issue)
@@ -341,16 +263,6 @@ class Intake:
             return 1
         self._set(item, "RECEIVED", result.get("note", "delivery not possible"), result.get("evidence", []), label=FAILED)
         return 0
-
-    def _flag_unacked(self) -> None:
-        now = time.time()
-        for item in self.store.list_intake():
-            if item["status"] in ("RECEIVED", "DELIVERED") and now - item["updated_at"] > self.unacked_after_sec and not item.get("flagged"):
-                self.store.flag_intake(item["item_id"])
-                need = need_for(item, self.sources, self.poll_sec)
-                self._emit(item, ET.BLOCKED.value, {"reason": f"instruction unacknowledged for {int((now - item['updated_at']) / 60)} min",
-                                                     "project": item["project"], "url": item["url"], "need": need},
-                           [item["url"], need["classification"], need["action"]])
 
     async def run_forever(self) -> None:
         while True:

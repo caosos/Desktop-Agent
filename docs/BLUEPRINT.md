@@ -178,8 +178,10 @@ backends in [`llm.py`](../desktop_agent/control/llm.py). Keys come from a
 ## 10. Owner-instruction intake and Shared Inbox
 
 Direction: [`OWNER_DIRECTIVES.md`](OWNER_DIRECTIVES.md) (not restated).
-Code: [`intake.py`](../desktop_agent/control/intake.py) (poll, ingest,
-status, actions), [`intake_delivery.py`](../desktop_agent/control/intake_delivery.py)
+Code: [`intake.py`](../desktop_agent/control/intake.py) (sources, poll, ingest,
+delivery, read-back), [`intake_owner.py`](../desktop_agent/control/intake_owner.py) (owner directions and item actions),
+[`intake_need.py`](../desktop_agent/control/intake_need.py) (redelivery once a session resolves, 300 s flag with NEED body),
+[`intake_delivery.py`](../desktop_agent/control/intake_delivery.py)
 (delivery to the project's coordinator). Items persist in the store, so
 restarts do not duplicate.
 
