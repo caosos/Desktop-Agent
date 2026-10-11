@@ -79,11 +79,18 @@ def test_claude_cli_structured_call_has_room_to_complete(tmp_path: Path, monkeyp
             return json.dumps({"structured_output": {"reply": "ready", "action": None}, "total_cost_usd": 0.001}).encode(), b""
     async def fake_spawn(*argv, **kwargs):
         seen["turns"] = int(argv[argv.index("--max-turns") + 1])
+        seen["cwd"] = kwargs.get("cwd")
         assert "--tools" in argv and argv[argv.index("--tools") + 1] == ""
         return FakeProcess()
     monkeypatch.setattr(llm_mod.asyncio, "create_subprocess_exec", fake_spawn)
-    result = asyncio.run(LLM(_cfg(tmp_path, "llm_backend_order: [claude_cli]\n")).complete("status?", {"type": "object"}))
+    cfg = _cfg(tmp_path, "llm_backend_order: [claude_cli]\n"); cfg.data_dir = tmp_path / "data"
+    result = asyncio.run(LLM(cfg).complete("status?", {"type": "object"}))
     assert result.data["reply"] == "ready" and seen["turns"] > 1
+    # measured 2026-10-11: from the repo directory Claude Code auto-loads CLAUDE.md → the 218 KB PROJECT_STATE.md
+    # (96 480 vs 4 366 cache tokens for an identical call), so structured calls run from a neutral, empty directory
+    cwd = Path(seen["cwd"])
+    assert cwd == cfg.data_dir / "llm-cwd" and cwd.is_dir() and not list(cwd.iterdir())
+    assert not (cwd / "CLAUDE.md").exists() and not str(cwd).startswith(str(Path(__file__).resolve().parents[1]))
 
 
 def test_pilot_dry_run_is_offline_and_truthful(tmp_path: Path, monkeypatch):

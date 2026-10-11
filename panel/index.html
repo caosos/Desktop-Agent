@@ -128,6 +128,7 @@ a { color:var(--accent); }
 <section id="aria" hidden aria-label="Ask Aria" role="dialog">
   <div class="row" style="border:none;padding:0 0 6px"><span><b style="font-size:16px">Ask Aria</b> <span id="aria_model" class="muted tiny"></span></span><button class="tiny" id="aria_close">close</button></div>
   <div id="aria_log" aria-live="polite"></div>
+  <div id="aria_state" class="tiny muted" aria-live="polite"></div>
   <div class="tiny muted" id="aria_hint">Questions are answered read-only. A direction goes to a project's coordinator through the Shared inbox. New work and decisions are confirmed before anything runs. Every action leaves a receipt.</div>
   <div id="interim" aria-live="polite"></div>
   <textarea id="aria_text" placeholder="Type, or click the microphone and speak in complete thoughts. You can edit before you Send." aria-label="Message to Aria"></textarea>
@@ -371,15 +372,41 @@ async function loadAria() {
     $("aria_model").textContent = ariaStatus.available ? `model ${ariaStatus.model} via ${ariaStatus.backend} · ${ariaStatus.cost_note}` : `no model permitted: ${ariaStatus.reason}`;
     const dct = ariaStatus.dictation || {};
     $("aria_disclosure").innerHTML = `<b>Dictation:</b> ${esc(dct.disclosure||"")}<br><b>Needs:</b> ${esc(dct.requirements||"")}<br><b>On-device alternative:</b> ${esc(dct.on_device_alternative||"")}<br><b>Metered alternative:</b> ${esc(dct.metered_alternative||"")}<br><b>Aria's model:</b> ${ariaStatus.available ? esc(ariaStatus.cost_note) : esc(ariaStatus.reason||"")}`;
+    const seq = ++ariaLoadSeq;
     const h = await api("/v0/aria/history");
-    $("aria_log").innerHTML = (h.turns || []).map(turnHtml).join("") || '<div class="muted tiny">No conversation yet. Ask about a project, an agent, a task, or give a direction.</div>';
-    $("aria_log").scrollTop = $("aria_log").scrollHeight;
+    if (seq !== ariaLoadSeq) return;                    // a newer load already drew the log
+    ariaRender(h.turns || []);
   } catch (e) { $("aria_model").textContent = "Aria status unavailable: " + e; }
+}
+const BASIS_SHORT = {"token-equivalent": "token-equivalent, not an invoice", "metered": "metered API", "unknown": "cost unknown", "none": ""};
+// What the exchange actually used, from the persisted reply: model, backend, cost and its kind, rounds, time.
+function usageLine(t) {
+  const u = t.usage;
+  if (!u) return t.cost_usd != null ? ` · $${Number(t.cost_usd).toFixed(3)} (older reply: cost kind not recorded)` : "";
+  if (u.cost_basis === "none") return " · no model call";
+  const cost = u.cost_usd != null ? ` · $${Number(u.cost_usd).toFixed(3)} ${esc(BASIS_SHORT[u.cost_basis] || "")}` : " · cost unknown";
+  return ` · ${esc(u.model || "model unknown")}${u.backend ? " · " + esc(u.backend) : ""}${cost}${u.rounds ? ` · ${u.rounds} round${u.rounds === 1 ? "" : "s"}` : ""}${u.duration_ms ? ` · ${Math.round(u.duration_ms / 1000)}s` : ""}`;
+}
+// Messages sent from this page that the server's history response may not contain yet (a history request can be
+// answered late with content built before the send). They are re-drawn after every history render until the server
+// shows them (matched by client_id), so a late refresh can never remove a sent message or its reply.
+let ariaPending = [], ariaTurns = [], ariaLoadSeq = 0;
+function ariaRender(turns) {
+  ariaTurns = turns;
+  const known = new Set(turns.filter(t => t.role === "owner" && t.client_id).map(t => t.client_id));
+  ariaPending = ariaPending.filter(p => !known.has(p.id));
+  $("aria_log").innerHTML = turns.map(turnHtml).join("") + ariaPending.map(p => turnHtml({role: "owner", text: p.text, ts: p.ts}) + (p.reply ? turnHtml(p.reply) : "")).join("")
+    || '<div class="muted tiny">No conversation yet. Ask about a project, an agent, a task, or give a direction.</div>';
+  $("aria_log").scrollTop = $("aria_log").scrollHeight;
+}
+const ariaState = (text, cls) => { $("aria_state").textContent = text; $("aria_state").className = "tiny " + (cls || "muted"); };
+async function ariaRecorded(id) {                      // has the control plane stored this send? (read from its own history)
+  try { const h = await api("/v0/aria/history"); return (h.turns || []).some(t => t.client_id === id); } catch (e) { return false; }
 }
 function turnHtml(t) {
   if (t.role === "owner") return `<div class="turn owner">${esc(t.text)}<div class="meta">you · ${t.ts ? ago(t.ts) + " ago" : ""}</div></div>`;
   const acts = (t.actions || []).map(a => `${esc(a.name)}${a.ok ? " ✓" : " ✗"}${a.evidence && Object.keys(a.evidence).length ? " " + esc(Object.entries(a.evidence).map(([k, v]) => `${k}=${String(v).slice(0, 60)}`).join(", ")) : ""}`).join("; ");
-  return `<div class="turn aria">${esc(t.text)}<div class="meta">Aria · <span class="chip ${t.kind === "question" || !t.kind ? "" : t.kind && t.kind.startsWith("status") ? "warn" : "ok"}">${esc(t.kind || "question")}</span>${acts ? " · " + acts : ""}${t.cost_usd != null ? ` · $${Number(t.cost_usd).toFixed(3)}` : ""}${t.ts ? " · " + ago(t.ts) + " ago" : ""}</div></div>`;
+  return `<div class="turn aria">${esc(t.text)}<div class="meta">Aria · <span class="chip ${t.kind === "question" || !t.kind ? "" : t.kind && t.kind.startsWith("status") ? "warn" : "ok"}">${esc(t.kind || "question")}</span>${acts ? " · " + acts : ""}${usageLine(t)}${t.ts ? " · " + ago(t.ts) + " ago" : ""}</div></div>`;
 }
 $("aria_bubble").onclick = () => openAria();
 $("aria_close").onclick = () => { stopDictation(); $("aria").hidden = true; $("aria_bubble").setAttribute("aria-expanded", "false"); $("aria_bubble").focus(); };
@@ -387,14 +414,48 @@ $("aria_send").onclick = async () => {
   const text = $("aria_text").value.trim();
   if (!text) { micState("Nothing to send yet: type or dictate a message first.", "amber"); $("aria_text").focus(); return; }
   stopDictation();
-  $("aria_log").insertAdjacentHTML("beforeend", turnHtml({role: "owner", text, ts: Date.now() / 1000})); $("aria_text").value = ""; $("aria_log").scrollTop = $("aria_log").scrollHeight;
+  const id = (window.crypto && crypto.randomUUID ? crypto.randomUUID() : "c" + Date.now() + Math.random().toString(16).slice(2)).slice(0, 36);
+  const p = {id, text, ts: Date.now() / 1000, reply: null};
+  ariaPending.push(p);
+  $("aria_log").insertAdjacentHTML("beforeend", turnHtml({role: "owner", text, ts: p.ts})); $("aria_text").value = ""; $("aria_log").scrollTop = $("aria_log").scrollHeight;
   $("aria_send").disabled = true; $("aria_send").textContent = "thinking…";
+  const t0 = performance.now(); let recorded = false, tick = 0;
+  const secs = () => Math.round((performance.now() - t0) / 1000);
+  ariaState("Sending…");
+  const timer = setInterval(async () => {
+    tick++; if (!recorded && tick % 3 === 0) recorded = await ariaRecorded(id);
+    ariaState(`Waiting for Aria's reply · ${secs()} s · ${recorded ? "request recorded by the control plane" : "not yet confirmed as recorded"}`);
+  }, 1000);
+  const fail = async (what, detail) => {             // network / service / control-plane failure: say which, and whether the message was recorded
+    recorded = recorded || await ariaRecorded(id);
+    if (recorded) ariaState(`${what} after ${secs()} s. Your message WAS recorded by the control plane; Aria's reply will appear when you reload or reopen this drawer. ${detail}`, "amber");
+    else {
+      ariaPending = ariaPending.filter(x => x.id !== id); ariaRender(ariaTurns);
+      if (!$("aria_text").value) $("aria_text").value = text;
+      ariaState(`${what} after ${secs()} s. Your message was NOT recorded and is back in the box so you can send it again. ${detail}`, "amber");
+    }
+  };
   try {
-    const r = await api("/v0/aria/chat", {method: "POST", body: JSON.stringify({text})});
-    $("aria_log").insertAdjacentHTML("beforeend", turnHtml({role: "aria", text: r.reply, kind: r.kind, actions: r.actions, cost_usd: r.cost_usd, ts: Date.now() / 1000}));
-    if ((r.actions || []).length) refresh();
-  } catch (e) { $("aria_log").insertAdjacentHTML("beforeend", turnHtml({role: "aria", text: "Request failed: " + e, kind: "error"})); }
-  $("aria_send").disabled = false; $("aria_send").textContent = "Send"; $("aria_log").scrollTop = $("aria_log").scrollHeight; $("aria_text").focus();
+    let r;
+    try { r = await fetch("/v0/aria/chat", {method: "POST", headers: H(), body: JSON.stringify({text, client_id: id})}); }
+    catch (e) { await fail("Could not reach the control plane (network or tunnel)", ""); return; }
+    if (r.status === 401) { ariaState("Token rejected: the panel is not signed in to the control plane.", "amber"); $("conn").textContent = "token rejected"; return; }
+    let body = null; try { body = await r.json(); } catch (e) { /* not JSON */ }
+    if (!r.ok || !body) {
+      const unavailable = [502, 503, 504].includes(r.status) || !body;
+      await fail(unavailable ? `Service unavailable (HTTP ${r.status})` : "The control plane reported an error", body && body.detail ? String(body.detail) : "");
+      return;
+    }
+    const turn = {role: "aria", text: body.reply, kind: body.kind, actions: body.actions, usage: body.usage, cost_usd: body.cost_usd, ts: Date.now() / 1000};
+    p.reply = turn;
+    $("aria_log").insertAdjacentHTML("beforeend", turnHtml(turn));
+    if (body.kind === "error") ariaState(`Model failure after ${secs()} s: the control plane received your message but the model call failed. Nothing was changed.`, "amber");
+    else ariaState(`Reply received in ${secs()} s.`);
+    if ((body.actions || []).length) refresh();
+  } finally {
+    clearInterval(timer);
+    $("aria_send").disabled = false; $("aria_send").textContent = "Send"; $("aria_log").scrollTop = $("aria_log").scrollHeight; $("aria_text").focus();
+  }
 };
 // Dictation state machine: Ready → Listening → (Transcribing while interim results arrive) → Text ready | Error.
 // The browser engine ends a session after silence; while the owner has not clicked Stop we restart it, so long

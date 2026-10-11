@@ -15,6 +15,7 @@ from .intake_api import source
 class ChatIn(BaseModel):
     text: str = Field(min_length=1, max_length=4000)
     reset: bool = False
+    client_id: str | None = Field(default=None, max_length=64)      # the browser's id for this send: the persisted owner turn carries it, so a reload shows it once
 
 
 class AnswerIn(BaseModel):
@@ -96,6 +97,9 @@ def aria_routes(service, auth, token: str) -> APIRouter:
     async def aria_chat(body: ChatIn, _: str = Depends(auth)):
         if body.reset:
             service.aria.reset()
-        return await service.aria.chat(body.text)
+        try:
+            return await service.aria.chat(body.text, body.client_id)
+        except Exception as exc:          # the owner turn and an error turn are already in the store; the client gets a classified, readable failure
+            raise HTTPException(500, f"Ask Aria failed inside the control plane: {type(exc).__name__}: {str(exc)[:200]}")
 
     return router

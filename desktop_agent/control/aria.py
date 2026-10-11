@@ -13,6 +13,7 @@ import uuid
 from pathlib import Path
 
 from .llm import LLM, LLMError
+from .aria_usage import status_cost_note, usage_record
 
 PROMPT_FILE = Path(__file__).resolve().parents[2] / "widget" / "aria_prompt.md"
 MAX_STEPS = 4
@@ -154,8 +155,7 @@ class AriaBrain:
         backend = self.llm.refresh_backend() if hasattr(self.llm, "refresh_backend") else getattr(self.llm, "backend", "fake")
         ok = bool(self.llm.available(backend)) if hasattr(self.llm, "available") else True
         model = self.llm.model_for("cloud_cheap") if ok else None
-        cost_note = ("subscription (Claude CLI): about a cent per exchange, recorded as token-equivalent, not an invoice" if backend == "claude_cli"
-                     else "metered API: recorded per token at the configured price, UNKNOWN if unpriced" if ok else "")
+        cost_note = status_cost_note(backend, ok)
         return {"available": ok, "backend": backend if ok else None, "model": model, "cost_note": cost_note,
                 "reason": None if ok else "conversation requires a configured and permitted model; status answers stay deterministic",
                 "turns": len(self.history), "actions": list(ACTIONS)}
@@ -174,19 +174,20 @@ class AriaBrain:
                 f"Projects: {proj}. Running control-plane tasks: {len(running)}. Open decisions: {len(st['inbox'])}. "
                 f"Unacknowledged instructions: {len(ik.get('unacknowledged') or [])}. Open a project card for its roster, instructions and evidence.")
 
-    async def chat(self, text: str) -> dict:
+    async def chat(self, text: str, client_id: str | None = None) -> dict:
         """One owner message → reply, after at most MAX_STEPS model/action rounds."""
         started = time.time()
         turn = "turn-" + uuid.uuid4().hex[:12]                # new owner turn = new command identity; repeated actions inside it share it (local to this call)
-        self.history.append({"role": "owner", "text": text, "ts": started, "turn_id": turn})
+        self.history.append({"role": "owner", "text": text, "ts": started, "turn_id": turn, **({"client_id": client_id} if client_id else {})})
         self._persist()                                       # the request is in the store the moment it arrives, before any model call
         reply = ""
         if not self.status()["available"]:
             reply = self._deterministic(text)
-            self.history.append({"role": "aria", "text": reply, "ts": time.time(), "kind": "status (no model)"})
+            usage = usage_record(backend=None, model=None, cost_usd=0.0, rounds=0, tokens_in=0, tokens_out=0, duration_ms=int((time.time() - started) * 1000))
+            self.history.append({"role": "aria", "text": reply, "ts": time.time(), "kind": "status (no model)", "usage": usage})
             self._persist()
             return {"reply": reply, "actions": [], "kind": "status (no model)", "model": None, "cost_usd": 0.0, "tokens": {"in": 0, "out": 0},
-                    "duration_ms": int((time.time() - started) * 1000)}
+                    "duration_ms": usage["duration_ms"], "usage": usage}
         try:
             return await self._converse(text, turn, started)
         except Exception as exc:                              # anything the loop did not handle: the failure is recorded, never silently lost
@@ -199,6 +200,9 @@ class AriaBrain:
         cost = 0.0
         unknown_cost = False
         tokens_in = tokens_out = 0
+        rounds = retries = 0
+        backend = model = None
+        failed = False
         actions_taken: list[dict] = []
         pending = text
         reply = ""
@@ -206,11 +210,15 @@ class AriaBrain:
             try:
                 comp = await self.llm.complete(self._prompt(pending), SCHEMA, "cloud_cheap", system=self.system, timeout=90)
             except LLMError as first:
+                retries += 1
                 try:                                           # one bounded retry: the CLI occasionally returns an empty error
                     comp = await self.llm.complete(self._prompt(pending), SCHEMA, "cloud_cheap", system=self.system, timeout=90)
                 except LLMError as exc:
                     reply = f"Model call failed twice: {first}; {exc}. Nothing was changed."
+                    failed = True
                     break
+            rounds += 1
+            backend, model = comp.backend, comp.model
             if comp.cost_usd is None:
                 unknown_cost = True
             else:
@@ -225,15 +233,18 @@ class AriaBrain:
             self.history.append({"role": "aria_step", "text": reply, "ts": time.time()})
             self.history.append({"role": "action", "text": f"{action['name']} → {json.dumps(result, default=str)[:ACTION_RESULT_CHARS]}", "ts": time.time()})
             pending = "(continue: use the action result above to answer the owner)"
-        kind = next((KIND_BY_ACTION[a["name"]] for a in actions_taken if a["name"] in KIND_BY_ACTION), "question")
-        self.history.append({"role": "aria", "text": reply, "ts": time.time(), "kind": kind,
+        kind = "error" if failed else next((KIND_BY_ACTION[a["name"]] for a in actions_taken if a["name"] in KIND_BY_ACTION), "question")
+        usage = usage_record(backend=backend, model=model or self.llm.model_for("cloud_cheap"), cost_usd=None if unknown_cost else cost, rounds=rounds,
+                             tokens_in=tokens_in, tokens_out=tokens_out, duration_ms=int((time.time() - started) * 1000), retries=retries)
+        if backend is None and not failed:
+            usage["backend"] = None
+        self.history.append({"role": "aria", "text": reply, "ts": time.time(), "kind": kind, "usage": usage,
                              "actions": [{"name": a["name"], "ok": a["ok"], "evidence": a["evidence"]} for a in actions_taken]})
         self._persist()
         if cost or unknown_cost:
             self.service.store.add_cost(None, None, self.llm.model_for("cloud_cheap"), None if unknown_cost else cost, tokens_in, tokens_out)
-        return {"reply": reply or "(no reply)", "actions": actions_taken, "kind": kind, "model": self.llm.model_for("cloud_cheap"),
-                "cost_usd": None if unknown_cost else round(cost, 5), "tokens": {"in": tokens_in, "out": tokens_out},
-                "duration_ms": int((time.time() - started) * 1000)}
+        return {"reply": reply or "(no reply)", "actions": actions_taken, "kind": kind, "model": usage["model"],
+                "cost_usd": usage["cost_usd"], "tokens": usage["tokens"], "duration_ms": usage["duration_ms"], "usage": usage}
 
     def note(self, text: str, kind: str, evidence: dict | None = None) -> None:
         """Append one Aria turn from a background worker (e.g. a SIMULATED call status) to the same conversation."""

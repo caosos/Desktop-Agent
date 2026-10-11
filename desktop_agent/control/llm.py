@@ -12,6 +12,7 @@ this process and are never passed to workers.
 from __future__ import annotations
 
 import asyncio
+from pathlib import Path
 import copy
 import json
 import os
@@ -201,9 +202,14 @@ class LLM:
             argv += ["--append-system-prompt", system]
         started = time.time()
         env = {k: v for k, v in os.environ.items() if not k.endswith("_API_KEY")}   # subscription path, no keys
+        # Neutral, empty working directory: Claude Code auto-loads CLAUDE.md from the cwd, and this repo's imports the
+        # 218 KB PROJECT_STATE.md into every call (measured 96 480 vs 4 366 cache tokens for an identical trivial call).
+        # Aria and the planner are grounded through their own actions and prompts, not through that file.
+        neutral = Path(self.cfg.data_dir) / "llm-cwd"
+        neutral.mkdir(parents=True, exist_ok=True)
         proc = await asyncio.create_subprocess_exec(
             *argv, stdin=asyncio.subprocess.DEVNULL, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
-            env=env | {"DESKTOP_AGENT_LLM": "1"}, limit=16 * 1024 * 1024)
+            env=env | {"DESKTOP_AGENT_LLM": "1"}, limit=16 * 1024 * 1024, cwd=str(neutral))
         try:
             out, _ = await asyncio.wait_for(proc.communicate(), timeout=timeout)
         except asyncio.TimeoutError:
