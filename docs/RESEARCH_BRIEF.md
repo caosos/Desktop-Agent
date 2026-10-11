@@ -42,7 +42,7 @@ ResearchService.request(turn, question, project, source)      dedup on turn → 
         ▼
 Service.submit_goal(project, text=<worker brief §3>, task_type="docs",
                     owned_area=["docs/research/<job_id>.md"], expected_artifacts=[same],
-                    acceptance_tests=[".venv/bin/python scripts/research_check.py docs/research/<job_id>.md"],
+                    acceptance_tests=["python3 scripts/research_check.py docs/research/<job_id>.md"],
                     model_class="cloud_strong", budget_usd=1.5, max_attempts=2,
                     why_now="research job <job_id> confirmed by the owner in Ask Aria")
         │ state RUNNING, task_id recorded; aria.note("research job … started: one bounded worker …", kind="research")
@@ -68,7 +68,7 @@ One worker runs four passes in order and says which pass it is in, in its commit
 2. **analyst** — group the fragments into findings; a finding without a source is dropped, not padded.
 3. **writer** — write `docs/research/<job_id>.md` in the exact format of §4.
 4. **reviewer** — check every finding against its cited lines; mark each `OK` or `corrected (…)` in the
-   Review section; then run the checker (§4) and fix until it exits 0.
+   Review section; then run the checker (§4) and fix until it exits 0. The checker is stdlib-only and runs with `python3`: the verifier's clean checkout has no `.venv` (first live job rj-3dba7e19b7 failed on exactly that, 2026-10-11 04:5xZ).
 
 Rules in the text: local repository only; every claim cites `[n]`; the Limits section must say what could not
 be answered and that no web retrieval was used; commit on the task branch; do not touch any other file.

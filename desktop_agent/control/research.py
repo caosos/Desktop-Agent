@@ -87,7 +87,7 @@ class ResearchService:
             "   ## Limits (must contain the sentence \"No web retrieval was used.\" and say what could not be answered),\n"
             "   ## Sources (lines like: [1] path/to/file.md:123 — \"quote\"), ## Review (one entry per finding).\n"
             "4. reviewer: check every finding against its cited lines, mark each OK or corrected (what changed) in the Review section, "
-            f"then run `.venv/bin/python scripts/research_check.py {path}` and fix until it exits 0.\n"
+            f"then run `python3 scripts/research_check.py {path}` and fix until it exits 0.\n"
             "Rules: every claim cites [n]; commit on the task branch; do not touch any other file.")
 
     # ---- commands ---------------------------------------------------------
@@ -114,7 +114,7 @@ class ResearchService:
             try:
                 res = self.service.submit_goal(
                     project=project, text=self.worker_text(job), source=source, task_type="docs", owned_area=[path],
-                    expected_artifacts=[path], acceptance_tests=[f".venv/bin/python scripts/research_check.py {path}"],
+                    expected_artifacts=[path], acceptance_tests=[f"python3 scripts/research_check.py {path}"],   # stdlib only; the verifier's clean checkout has no .venv
                     model_class=MODEL_CLASS, budget_usd=BUDGET_USD, max_attempts=2, check_duplicate=False,
                     why_now=f"research job {job['job_id']} confirmed by the owner in Ask Aria")
             except (KeyError, ValueError) as exc:

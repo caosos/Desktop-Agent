@@ -31,7 +31,7 @@ def test_request_creates_one_job_and_one_task(tmp_path):
     assert len(tasks) == 1 and tasks[0]["task_id"] == job["task_id"] and tasks[0]["status"] == "READY"
     c = tasks[0]["contract"]
     assert c["owned_area"] == [path] and c["expected_artifacts"] == [path] and c["model_class"] == "cloud_strong"
-    assert c["acceptance_tests"] == [f".venv/bin/python scripts/research_check.py {path}"] and c["budget"]["usd"] == 1.5
+    assert c["acceptance_tests"] == [f"python3 scripts/research_check.py {path}"] and c["budget"]["usd"] == 1.5
     assert jid in c["objective"] and Q in c["objective"] and "No web retrieval" in c["objective"]
     notes = [t for t in s.aria.transcript() if t.get("kind") == "research"]
     assert len(notes) == 1 and jid in notes[0]["text"] and "RUNNING" not in notes[0]["text"] and "started" in notes[0]["text"]
