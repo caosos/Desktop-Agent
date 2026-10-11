@@ -126,9 +126,11 @@ def test_dictation_states_and_send_in_browser(served):
             assert "Listening" in page.inner_text("#mic_state") and page.evaluate("window.__sr[0].continuous && window.__sr[0].interimResults")
             sr = "window.__sr[window.__sr.length-1]"
             page.evaluate(sr + ".say(0, 'what is', false)"); assert "Transcribing" in page.inner_text("#mic_state") and "what is" in page.inner_text("#interim")
+            assert page.input_value("#aria_text").strip() == "what is"   # interim words are visible without a pause
             page.evaluate(sr + ".say(0, 'What is agent six doing right now?', true)")        # interim → final at the same index
             assert page.input_value("#aria_text").strip() == "What is agent six doing right now?"
             page.evaluate(sr + ".say(1, 'and is', false)")                                     # the cumulative list still carries index 0
+            assert page.input_value("#aria_text").strip() == "What is agent six doing right now? and is"
             page.evaluate(sr + ".say(1, 'And is anything blocked on lane six?', true)")
             assert page.input_value("#aria_text").strip() == "What is agent six doing right now? And is anything blocked on lane six?", page.input_value("#aria_text")
             page.evaluate(sr + ".say(2, 'Aria Aria', true)")                                   # legitimately repeated words survive, once

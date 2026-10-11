@@ -69,6 +69,23 @@ def test_openai_http_error_surfaces(tmp_path: Path, monkeypatch):
         cfg.providers["openai"]["key_file"] = str(tmp_path / "missing"); list_openai_models(cfg)
 
 
+def test_claude_cli_structured_call_has_room_to_complete(tmp_path: Path, monkeypatch):
+    """The CLI may need a second internal turn for a structured answer even with tools disabled."""
+    seen = {}
+    class FakeProcess:
+        async def communicate(self):
+            if seen["turns"] == 1:
+                return json.dumps({"is_error": True, "errors": ["Reached maximum number of turns (1)"]}).encode(), b""
+            return json.dumps({"structured_output": {"reply": "ready", "action": None}, "total_cost_usd": 0.001}).encode(), b""
+    async def fake_spawn(*argv, **kwargs):
+        seen["turns"] = int(argv[argv.index("--max-turns") + 1])
+        assert "--tools" in argv and argv[argv.index("--tools") + 1] == ""
+        return FakeProcess()
+    monkeypatch.setattr(llm_mod.asyncio, "create_subprocess_exec", fake_spawn)
+    result = asyncio.run(LLM(_cfg(tmp_path, "llm_backend_order: [claude_cli]\n")).complete("status?", {"type": "object"}))
+    assert result.data["reply"] == "ready" and seen["turns"] > 1
+
+
 def test_pilot_dry_run_is_offline_and_truthful(tmp_path: Path, monkeypatch):
     from desktop_agent.control.llm import pilot_dry_run
     kf = tmp_path / "openai.key"; kf.write_text("sk-test")

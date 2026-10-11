@@ -195,7 +195,7 @@ class LLM:
 
     async def _claude_cli(self, prompt: str, schema: dict, model: str, system: str | None, timeout: int) -> Completion:
         argv = [self.claude_bin, "-p", prompt, "--output-format", "json", "--json-schema", json.dumps(schema),
-                "--model", model, "--max-turns", "1", "--tools", "", "--no-session-persistence",
+                "--model", model, "--max-turns", "3", "--tools", "", "--no-session-persistence",
                 "--strict-mcp-config", "--mcp-config", '{"mcpServers":{}}']
         if system:
             argv += ["--append-system-prompt", system]
