@@ -155,6 +155,19 @@ provider or credential. The worker commits on its task branch only; the coordina
 
 ## 10. Worker evidence (filled in by the worker)
 
+Self-reported by the worker; the control plane re-runs the gate.
+
+- Files (lines): `control/research.py` 193, `control/research_api.py` 46, `scripts/research_check.py` 84,
+  `tests/test_research.py` 178, fixtures `tests/fixtures/research/{pass,uncited,missing_path,no_limits_sentence}.md`;
+  `aria.py` 255 (was 248, no helper module needed); one-line edits in `api.py` (router include) and `service.py`
+  (`self.research`, `reconcile()` in the tick's `try`).
+- Commands: `bin/run_tests.sh` → `tests/test_research.py tests/test_calling.py tests/test_aria_brain.py`: 27 passed;
+  full suite `pytest -q`: 168 passed, 2 skipped.
+- Deviation (disclosed): `Service.submit_goal` gained `check_duplicate: bool = True`; research jobs pass `False`
+  because every job's worker brief (§3) is mostly shared text, so the ≥60 % word-overlap duplicate detector
+  rejected a second job with a different question. Turn-level dedup (`research:<turn>`) still applies.
+- `BLOCKED` tasks are treated like FAILED/ARCHIVED in `reconcile()` (the scheduler ends exhausted retries as BLOCKED).
+
 ## 11. Unimplemented in v1
 
 Web retrieval (BLOCKED decision); PDF rendering and download (task B); one worker per role (v1 runs the four

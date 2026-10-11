@@ -15,6 +15,7 @@ from pydantic import BaseModel, Field
 
 from .events import Actor, Event, EventType as ET, Provenance
 from .calling_api import calling_routes
+from .research_api import research_routes
 from .service import Service, describe
 
 PANEL = Path(__file__).resolve().parents[2] / "panel" / "index.html"
@@ -111,6 +112,7 @@ def build_app(service: Service, token: str) -> FastAPI:
         return "owner"
 
     app.include_router(calling_routes(service, auth))
+    app.include_router(research_routes(service, auth))
 
     def source(request: Request) -> str:
         return request.headers.get("X-Source", "panel")

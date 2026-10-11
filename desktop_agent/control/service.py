@@ -84,6 +84,8 @@ class Service:
         self.aria = AriaBrain(self, self.llm)
         from .calling import CallService             # SIMULATED calling loop only (docs/CALLING_BRIEF.md)
         self.calling = CallService(self.store, self.aria)
+        from .research import ResearchService        # research jobs: one bounded worker, local sources (docs/RESEARCH_BRIEF.md)
+        self.research = ResearchService(self.store, self.aria, self)
         from .intake import Intake, IntakeSource
         from .intake_delivery import Deliverer
         from .watchdog import Watchdog
@@ -143,7 +145,7 @@ class Service:
                     owned_area: list[str] | None = None, model_class: str | None = None,
                     why_now: str = "owner instruction", acceptance_tests: list[str] | None = None,
                     expected_artifacts: list[str] | None = None, budget_usd: float | None = None,
-                    max_attempts: int = 3, worker_adapter: str = "claude_headless") -> dict:
+                    max_attempts: int = 3, worker_adapter: str = "claude_headless", check_duplicate: bool = True) -> dict:
         if project not in self.projects:
             raise KeyError(f"unknown project {project!r}")
         pkg = self.projects[project]
@@ -153,7 +155,7 @@ class Service:
                                       provenance=Provenance(actor=Actor.HUMAN.value, source=source, evidence=[f"goal={goal_id}"])))
         if worker_adapter not in self.adapters:
             raise ValueError(f"unknown worker_adapter {worker_adapter!r}; known: {sorted(self.adapters)}")
-        dupe = self.duplicate_of(project, text)
+        dupe = self.duplicate_of(project, text) if check_duplicate else None   # research jobs share a long common brief; they have their own turn dedup
         if dupe:
             raise ValueError(f"duplicate of open task {dupe}; stop or finish it first")
         mc = router.at_least(model_class or router.default_class(task_type), pkg.min_model_class)
@@ -582,6 +584,7 @@ class Service:
             while True:
                 try:
                     await self.scheduler.tick()
+                    self.research.reconcile()
                 except Exception as exc:  # the loop must survive; record and go on
                     self.store.append_event(Event(type=ET.CONTROL.value, task_id=None, payload={"action": "tick_error", "error": repr(exc)[:300]},
                                                   provenance=Provenance(actor=Actor.CONTROL.value, source="scheduler", evidence=[repr(exc)[:100]])))

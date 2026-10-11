@@ -29,8 +29,10 @@ ACTIONS = {
     "control": "pause, resume or stop this control plane's scheduler: args {action, task_id (optional)}",
     "request_call": "SIMULATED CALL: start a simulated conversational call to a fixture identity; no real call is ever placed: args {destination_alias (must start with 'fixture:'), purpose}",
     "call_status": "state, history and SIMULATED result of one simulated call: args {call_id}",
+    "request_research": "NEW WORK (research): one bounded worker writes a cited report from local repository sources only, no web: args {question, project}",
+    "research_status": "state, history and result of one research job: args {job_id}",
 }
-KIND_BY_ACTION = {"request_call": "call (SIMULATED)", "submit_goal": "new work", "send_direction": "direction", "answer_decision": "owner decision", "control": "control"}
+KIND_BY_ACTION = {"request_research": "research", "request_call": "call (SIMULATED)", "submit_goal": "new work", "send_direction": "direction", "answer_decision": "owner decision", "control": "control"}
 HISTORY_KV = "aria:history"
 ACTION_RESULT_CHARS = 10000  # an action result is folded into the model context up to this size
 
@@ -82,6 +84,7 @@ class AriaBrain:
             "Classify the owner's message: a QUESTION is answered read-only from actions like get_state, project_brief, explain_task; a DIRECTION goes to the project's coordinator via send_direction; NEW WORK via submit_goal; an OWNER DECISION via answer_decision. " \
             "Ground every status claim in an action result and name its source (host process, project feed, roster table, receipt, GitHub item); if the data does not say, answer 'unknown' rather than guessing. " \
             "A submitted direction or goal is not finished work: say what will happen next and how the owner will see the result. You have no web access and no knowledge beyond these actions. " \
+            "A request for a report, investigation or comparison is research: state the plan (four passes in one bounded worker, model class cloud_strong, budget ceiling $1.5, local repository sources only, no web) and ask yes/no before request_research; its report is the worker's and unverified beyond resolving citations. " \
             "Calls are SIMULATED: no real call is ever placed, destinations are fixture labels ('fixture:…'), and a call result is a SIMULATED result."
 
     async def run_action(self, name: str, args: dict, turn: str | None = None) -> dict:
@@ -114,6 +117,10 @@ class AriaBrain:
                 return s.calling.request(None, str(args.get("destination_alias", "")), str(args.get("purpose", "")), turn, "aria")
             if name == "call_status":
                 return s.calling.get(str(args.get("call_id", ""))) or {"error": "no such call"}
+            if name == "request_research":
+                return s.research.request(turn or "turn-" + uuid.uuid4().hex[:12], str(args.get("question", "")), str(args.get("project", "")), "aria")
+            if name == "research_status":
+                return s.research.get(str(args.get("job_id", ""))) or {"error": "no such research job"}
             if name == "control":
                 return await s.control(str(args.get("action", "")), args.get("task_id"), "aria")
             return {"error": f"unknown action {name}"}
@@ -186,7 +193,7 @@ class AriaBrain:
             if not action or not action.get("name"):
                 break
             result = await self.run_action(action["name"], action.get("args") or {}, turn)
-            evidence = {k: result.get(k) for k in ("item_id", "status", "url", "task_ids", "decision_id", "note", "call_id") if isinstance(result, dict) and result.get(k)}
+            evidence = {k: result.get(k) for k in ("item_id", "status", "url", "task_ids", "decision_id", "note", "call_id", "job_id") if isinstance(result, dict) and result.get(k)}
             actions_taken.append({"name": action["name"], "args": action.get("args") or {}, "ok": "error" not in result, "evidence": evidence})
             self.history.append({"role": "aria_step", "text": reply, "ts": time.time()})
             self.history.append({"role": "action", "text": f"{action['name']} → {json.dumps(result, default=str)[:ACTION_RESULT_CHARS]}", "ts": time.time()})
