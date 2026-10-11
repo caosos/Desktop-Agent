@@ -94,7 +94,11 @@ class Scheduler:
         c = self.store.cost_summary()
         fb = metrics.feedback(self.store)
         ceiling, why = metrics.effective_ceiling(self.cfg.scheduler.ceiling, fb)
+        # Use actual processes for memory accounting, but reserve capacity for each
+        # task from dispatch through verification and integration.
         out = admission(self.cfg, len(self.launcher.running), c["last_hour_usd"], c["today_usd"], ceiling)
+        out["running"] = len(self._tasks)
+        out["free"] = max(0, out["slots"] - len(self._tasks))
         out["ceiling_reason"] = why
         return out
 
@@ -129,9 +133,17 @@ class Scheduler:
             return {"paused": True}
         slots = self.slots()
         launched = []
-        for t in self.eligible()[: slots["free"]]:
+        selected: list[dict] = []
+        for t in self.eligible():
+            if len(selected) >= slots["free"]:
+                break
             if t["task_id"] in self._tasks:
                 continue
+            if any(other["project"] == t["project"] and
+                   areas_overlap(other["contract"].get("owned_area", []), t["contract"].get("owned_area", []))
+                   for other in selected):
+                continue
+            selected.append(t)
             self._tasks[t["task_id"]] = asyncio.create_task(self.run_task(t["task_id"]))
             launched.append(t["task_id"])
         return {"slots": slots, "launched": launched}
