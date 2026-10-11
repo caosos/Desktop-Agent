@@ -65,6 +65,7 @@ class RuntimeConfig:
     pricing: dict[str, dict[str, float]] = field(default_factory=dict)        # model → {"in": usd/1M, "out": usd/1M}
     intake_poll_sec: int = 120            # free GitHub checks; bounded
     intake_post_comments: bool = True     # post tagged DELIVERED/ACK comments on the issue
+    intake_unacked_sec: int = 300         # unacknowledged/undelivered instruction → BLOCKED + NEED receipt (owner protocol: five minutes)
     sandbox_ro_paths: list[str] = field(default_factory=list)   # e.g. ~/.nvm for node + claude
     scope: ScopeLimits = field(default_factory=ScopeLimits)
     scheduler: SchedulerPolicy = field(default_factory=SchedulerPolicy)
@@ -144,6 +145,7 @@ class RuntimeConfig:
         ik = raw.get("intake") or {}
         cfg.intake_poll_sec = int(ik.get("poll_sec", cfg.intake_poll_sec))
         cfg.intake_post_comments = bool(ik.get("post_comments", cfg.intake_post_comments))
+        cfg.intake_unacked_sec = int(ik.get("unacked_sec", cfg.intake_unacked_sec))
         return cfg
 
     # ---- credentials and pricing --------------------------------------------

@@ -138,7 +138,34 @@ def test_delivery_failure_and_unacked_flag(tmp_path: Path):
     assert item["status"] == "RECEIVED" and "no live session" in item["note"]
     time.sleep(0.01); asyncio.run(it.poll_once())
     assert store.get_intake(iid)["flagged"] == 1 and iid in it.summary()["unacknowledged"]
-    assert any(e.type == "BLOCKED" and "unacknowledged" in e.payload.get("reason", "") for e in store.events())
+    blocked = [e for e in store.events() if e.type == "BLOCKED" and "unacknowledged" in e.payload.get("reason", "")]
+    need = blocked[-1].payload["need"]                       # the escalation body, never a bare "need permission"
+    assert need["classification"] == "NEED_HOST_ACTION" and "no live session" in need["blocker"] and "cd /nowhere && claude" in need["action"]
+    assert iid in need["impact"] and need["next_check_sec"] == 1 and "NEED_HOST_ACTION" in blocked[-1].provenance.evidence
+    assert Intake(store, [], deliver).unacked_after_sec == 300  # owner protocol default: five minutes
+
+
+def test_undelivered_item_is_redelivered_once_a_session_resolves_without_duplicates(tmp_path: Path):
+    store = Store(tmp_path); gh = FakeGH()
+    state = {"session": None, "sent": 0}
+    class Deliver:
+        def session_for(self, src): return state["session"]
+        async def __call__(self, src, item):
+            if state["session"] is None: return {"ok": False, "note": "no live Claude Code session; queued", "evidence": ["registry"]}
+            state["sent"] += 1
+            return {"ok": True, "status": "DELIVERED", "note": f"peer message to {state['session']['name']}", "evidence": ["peer"], "comment": f"DELIVERED {item['item_id']}"}
+    it = make(store, gh, Deliver(), unacked_after_sec=3600)
+    asyncio.run(it.poll_once())
+    iid = item_id_for("x/y", 117, "issue", 9001)
+    assert store.get_intake(iid)["status"] == "RECEIVED" and state["sent"] == 0
+    asyncio.run(it.poll_once())                              # still no session: no relay call, no churn
+    assert store.get_intake(iid)["status"] == "RECEIVED" and state["sent"] == 0 and gh.posted == []
+    state["session"] = {"name": "caoscare-1-75", "pid": 1}
+    r = asyncio.run(it.poll_once())                          # a session appeared: the same row is handed over once
+    assert r["delivered"] == 1 and state["sent"] == 1 and store.get_intake(iid)["status"] == "DELIVERED"
+    assert gh.posted == [f"DELIVERED {iid}\n\n" + intake_mod._AUTOMATION_TAG] and len([i for i in store.list_intake() if i["item_id"] == iid]) == 1
+    asyncio.run(it.poll_once())                              # delivered items are not re-sent
+    assert state["sent"] == 1
 
 
 def test_control_plane_coordinator_acks_itself(tmp_path: Path):

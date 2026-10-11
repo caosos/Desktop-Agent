@@ -95,7 +95,7 @@ class Service:
                    for p in self.projects.values() if p.intake and p.github_repo and (p.intake.get("issues") or (p.intake.get("coordinator") or {}).get("liaison"))]
         self.deliverer = Deliverer(cfg, self.store)
         self.intake = Intake(self.store, sources, self.deliverer,
-                             poll_sec=int(cfg.intake_poll_sec), post_comments=bool(cfg.intake_post_comments),
+                             poll_sec=int(cfg.intake_poll_sec), post_comments=bool(cfg.intake_post_comments), unacked_after_sec=int(cfg.intake_unacked_sec),
                              ask_owner=lambda **kw: self.ask_owner(question=kw["question"], options=kw["options"], why=kw["why"],
                                                                    source=kw["source"], recommendation=None))
         self.watchdog = Watchdog(self.store, self.intake, self.deliverer, self.scheduler)

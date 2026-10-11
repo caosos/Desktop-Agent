@@ -16,6 +16,7 @@ import re
 import time
 from dataclasses import dataclass, field
 
+from .intake_need import need_for
 from .events import Actor, Event, EventType as ET, Provenance
 from .receipts import FAILED, VERIFIED, write_receipt
 from .store import Store
@@ -73,7 +74,7 @@ async def gh_api(path: str, timeout: int = 60, method: str = "GET", fields: dict
 
 class Intake:
     def __init__(self, store: Store, sources: list[IntakeSource], deliver, poll_sec: int = 120,
-                 unacked_after_sec: int = 1800, post_comments: bool = True, ask_owner=None):
+                 unacked_after_sec: int = 300, post_comments: bool = True, ask_owner=None):
         self.store, self.sources, self.deliver = store, sources, deliver
         self.poll_sec, self.unacked_after_sec, self.post_comments = poll_sec, unacked_after_sec, post_comments
         self.ask_owner = ask_owner                  # callback(question, options, why, source, project, url) → decision
@@ -196,9 +197,27 @@ class Intake:
                     self.last_error = None
                 except Exception as exc:          # a GitHub hiccup must not stop the loop
                     self.last_error = f"{src.repo}#{issue}: {exc}"[:300]
+        delivered += await self._redeliver_pending()
         self.last_poll_at = time.time()
         self._flag_unacked()
         return {"found": found, "delivered": delivered, "acked": acked, "error": self.last_error}
+
+    async def _redeliver_pending(self) -> int:
+        """An item that could not be handed to a Claude peer (no live session, relay failure) is tried again on every
+        poll once a session resolves — the same item row, so no duplicate; the free session check gates the relay call."""
+        probe = getattr(self.deliver, "session_for", None)
+        by_project = {s.project: s for s in self.sources}
+        n = 0
+        for item in self.store.list_intake():
+            src = by_project.get(item["project"])
+            if not src or item["status"] != "RECEIVED" or (src.coordinator or {}).get("kind") != "claude_peer":
+                continue
+            if item["note"].startswith("ingested from"):
+                continue                                # brand new: delivered by the ingest path of this same poll
+            if probe is not None and probe(src) is None:
+                continue                                # still nobody to hand it to; the flag/NEED path says so
+            n += await self._deliver(src, item)
+        return n
 
     async def _poll_issue(self, src: IntakeSource, issue: int) -> tuple[int, int, int]:
         cursor = self.store.intake_cursor(src.repo, issue)
@@ -328,8 +347,10 @@ class Intake:
         for item in self.store.list_intake():
             if item["status"] in ("RECEIVED", "DELIVERED") and now - item["updated_at"] > self.unacked_after_sec and not item.get("flagged"):
                 self.store.flag_intake(item["item_id"])
+                need = need_for(item, self.sources, self.poll_sec)
                 self._emit(item, ET.BLOCKED.value, {"reason": f"instruction unacknowledged for {int((now - item['updated_at']) / 60)} min",
-                                                     "project": item["project"], "url": item["url"]}, [item["url"]])
+                                                     "project": item["project"], "url": item["url"], "need": need},
+                           [item["url"], need["classification"], need["action"]])
 
     async def run_forever(self) -> None:
         while True:

@@ -117,3 +117,4 @@ pricing:
 intake:
   poll_sec: 120
   post_comments: true
+  unacked_sec: 300        # undelivered or unacknowledged instruction → BLOCKED + NEED receipt (owner protocol: five minutes)
