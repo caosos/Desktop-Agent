@@ -57,7 +57,10 @@ Rationale and what not to build: review
 ## 2. Control plane core — `desktop_agent/control/`
 
 Entry points: [`__main__.py`](../desktop_agent/__main__.py) (service and
-`--check-providers`), [`service.py`](../desktop_agent/control/service.py)
+`--check-providers`), [`service.py`](../desktop_agent/control/service.py) (wiring, goals/tasks, control, loop; thin delegates to
+[`decisions.py`](../desktop_agent/control/decisions.py) owner decisions and approval packet,
+[`state_view.py`](../desktop_agent/control/state_view.py) the read model for panel/widget/Aria,
+[`goals_planned.py`](../desktop_agent/control/goals_planned.py) planner-driven goals)
 (wires everything; the one object the API and scheduler call).
 
 | Component | Files | Label | Citation |
