@@ -141,7 +141,7 @@ review [§8](ARCHITECTURE_REVIEW_2026-10-08.md). Result labels are
 |---|---|---|---|
 | Receipt creation refuses missing provenance | [`receipts.py`](../desktop_agent/control/receipts.py) | VERIFIED-IMPLEMENTED | `tests/test_core.py` `test_receipt_law` |
 | Worker claim → `unverified`, verifier → `verified`/`failed`, integrator → `verified` chain | `receipts.py`, `scheduler.py`, `verifier.py`, `integrator.py` | VERIFIED-IMPLEMENTED | `tests/test_pipeline.py` `test_good_worker_end_to_end`, `test_failing_tests_retry_then_block`; PROJECT_STATE "Stage 1 acceptance sequence complete on the control-plane side" |
-| Receipt query surface | [`api.py`](../desktop_agent/control/api.py) `GET /v0/receipts` | VERIFIED-IMPLEMENTED | `tests/test_pipeline.py` `test_api_state_goals_events` |
+| Receipt query surface | [`api.py`](../desktop_agent/control/api.py) (app, auth, state/events/goals/tasks/decisions/control/receipts; routers: [`intake_api.py`](../desktop_agent/control/intake_api.py), [`aria_api.py`](../desktop_agent/control/aria_api.py) pairing/approvals/Ask Aria/drilldown, `calling_api.py`, `research_api.py`) `GET /v0/receipts` | VERIFIED-IMPLEMENTED | `tests/test_pipeline.py` `test_api_state_goals_events` |
 
 ## 8. API v0, panel, widget, server-side Aria
 

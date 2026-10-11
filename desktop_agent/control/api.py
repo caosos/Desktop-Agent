@@ -16,6 +16,8 @@ from pydantic import BaseModel, Field
 from .events import Actor, Event, EventType as ET, Provenance
 from .calling_api import calling_routes
 from .research_api import research_routes
+from .intake_api import IntakeStatusIn, intake_routes, source
+from .aria_api import aria_routes
 from .service import Service, describe
 
 PANEL = Path(__file__).resolve().parents[2] / "panel" / "index.html"
@@ -43,39 +45,6 @@ class DecisionIn(BaseModel):
 class ControlIn(BaseModel):
     action: str
     task_id: str | None = None
-
-
-class ChatIn(BaseModel):
-    text: str = Field(min_length=1, max_length=4000)
-    reset: bool = False
-
-
-class AnswerIn(BaseModel):
-    decision_id: str
-    answer: str = Field(min_length=1, max_length=2000)
-
-
-class PacketIn(BaseModel):
-    answers: list[AnswerIn] = Field(max_length=50)
-
-
-class PairIn(BaseModel):
-    code: str = Field(min_length=6, max_length=6)
-
-
-class IntakeStatusIn(BaseModel):
-    status: str
-    note: str = Field(default="", max_length=1000)
-
-
-class IntakeActionIn(BaseModel):
-    action: str
-    note: str = Field(default="", max_length=4000)
-
-
-class DirectionIn(BaseModel):
-    project: str
-    text: str = Field(min_length=3, max_length=6000)
 
 
 class AskIn(BaseModel):
@@ -113,9 +82,8 @@ def build_app(service: Service, token: str) -> FastAPI:
 
     app.include_router(calling_routes(service, auth))
     app.include_router(research_routes(service, auth))
-
-    def source(request: Request) -> str:
-        return request.headers.get("X-Source", "panel")
+    app.include_router(intake_routes(service, auth))
+    app.include_router(aria_routes(service, auth, token))
 
     @app.get("/", response_class=HTMLResponse)
     async def panel():
@@ -203,106 +171,6 @@ def build_app(service: Service, token: str) -> FastAPI:
         if not view:
             raise HTTPException(404, "no such task")
         return view
-
-    @app.get("/v0/intake")
-    async def intake(_: str = Depends(auth)):
-        return service.intake.summary()
-
-    @app.post("/v0/intake/poll")
-    async def intake_poll(_: str = Depends(auth)):
-        return await service.intake.poll_once()
-
-    @app.post("/v0/directions", status_code=201)
-    async def direction(body: DirectionIn, request: Request, _: str = Depends(auth)):
-        """Owner → coordinator: posted to the project's intake issue, then ingested and delivered."""
-        try:
-            return await service.intake.send_direction(body.project, body.text, source(request))
-        except ValueError as exc:
-            raise HTTPException(400, str(exc))
-
-    @app.post("/v0/intake/{item_id}/action")
-    async def intake_action(item_id: str, body: IntakeActionIn, request: Request, _: str = Depends(auth)):
-        try:
-            return await service.intake.owner_action(item_id, body.action, body.note, source(request))
-        except KeyError:
-            raise HTTPException(404, "no such instruction")
-        except ValueError as exc:
-            raise HTTPException(400, str(exc))
-
-    @app.post("/v0/intake/{item_id}/status")
-    async def intake_status(item_id: str, body: IntakeStatusIn, request: Request, _: str = Depends(auth)):
-        item = service.store.get_intake(item_id)
-        if not item:
-            raise HTTPException(404, "no such instruction")
-        if body.status not in ("ACKNOWLEDGED", "WORKING", "BLOCKED", "DONE"):
-            raise HTTPException(400, "status must be ACKNOWLEDGED|WORKING|BLOCKED|DONE")
-        service.intake._set(item, body.status, f"{source(request)}: {body.note}", [source(request), body.note[:100]])
-        return service.store.get_intake(item_id)
-
-    pairing: dict[str, float] = {}
-
-    @app.post("/v0/pair/new")
-    async def pair_new(_: str = Depends(auth)):
-        """Owner (already signed in on the panel) mints a one-time 6-character pairing code, valid 10 minutes,
-        so the widget in another login can obtain the token without anyone handling it by hand."""
-        code = "".join(secrets.choice("ABCDEFGHJKLMNPQRSTUVWXYZ23456789") for _ in range(6))
-        pairing[code] = time.time() + 600
-        service.store.append_event(Event(type=ET.CONTROL.value, task_id=None, payload={"action": "pairing_code_issued", "expires_in_sec": 600},
-                                         provenance=Provenance(actor=Actor.HUMAN.value, source="panel", evidence=["pairing"])))
-        return {"code": code, "expires_in_sec": 600}
-
-    @app.post("/v0/pair/claim")
-    async def pair_claim(body: PairIn, request: Request):
-        """No auth: the widget presents the code once; the code is consumed. Localhost only."""
-        exp = pairing.pop(body.code.strip().upper(), None)
-        if not exp or exp < time.time():
-            raise HTTPException(403, "invalid or expired pairing code")
-        service.store.append_event(Event(type=ET.CONTROL.value, task_id=None, payload={"action": "widget_paired", "client": request.client.host if request.client else None},
-                                         provenance=Provenance(actor=Actor.HUMAN.value, source="widget", evidence=["pairing code consumed"])))
-        return {"url": f"http://{service.cfg.api_host}:{service.cfg.api_port}", "token": token}
-
-    @app.get("/v0/approvals")
-    async def approvals(_: str = Depends(auth)):
-        return service.approval_packet()
-
-    @app.post("/v0/approvals/submit")
-    async def approvals_submit(body: PacketIn, request: Request, _: str = Depends(auth)):
-        return await service.submit_packet([a.model_dump() for a in body.answers], source(request))
-
-    @app.get("/v0/aria/greeting")
-    async def aria_greeting(_: str = Depends(auth)):
-        return service.aria.greeting()
-
-    @app.get("/v0/aria/status")
-    async def aria_status(_: str = Depends(auth)):
-        """Is a model configured and permitted for conversation, which, at what cost; plus the dictation disclosure."""
-        return service.aria.status() | {"dictation": {
-            "mode": "browser_speech",
-            "disclosure": "Dictation uses your browser's speech recognition. In Chrome the audio is sent to Google's speech servers for "
-                          "recognition; it is not processed on this computer and this panel stores no audio. The microphone is opened only "
-                          "when you click the mic and closed when you click Stop. Text is never sent to Aria until you press Send.",
-            "requirements": "Chrome (or another browser with SpeechRecognition); microphone permission granted on click; the page on localhost "
-                            "or HTTPS (a localhost SSH tunnel qualifies).",
-            "on_device_alternative": "not installed: an offline speech model would be new software on this host (one owner decision)",
-            "metered_alternative": "widget/voice.py path (OpenAI transcription) stays off; OpenAI is disabled"}}
-
-    @app.get("/v0/aria/history")
-    async def aria_history(_: str = Depends(auth)):
-        return {"turns": service.aria.transcript()}
-
-    @app.get("/v0/projects/{name}/drilldown")
-    async def project_drilldown(name: str, _: str = Depends(auth)):
-        """Owner: one project's mission, coordinator vs workers, declared-vs-live roster, tasks, instructions, freshness."""
-        d = service.drill.build(name)
-        if not d:
-            raise HTTPException(404, "no such project")
-        return d
-
-    @app.post("/v0/aria/chat")
-    async def aria_chat(body: ChatIn, _: str = Depends(auth)):
-        if body.reset:
-            service.aria.reset()
-        return await service.aria.chat(body.text)
 
     @app.post("/v0/decisions", status_code=201)
     async def ask(body: AskIn, request: Request, _: str = Depends(auth)):
