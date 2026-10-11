@@ -105,9 +105,10 @@ class Drilldown:
         else:
             nxt = "UNKNOWN — no project feed to read a next item from"
         needs = []
-        dec = data.get("decision")
-        if ff["fresh"] and dec and str(dec).strip().lower() not in ("nothing needed", "none", ""):
-            needs.append(f"its feed asks: {str(dec)[:200]}")
+        dec = str(data.get("decision") or "").strip()
+        # the feed's `decision` field is free text; only an actual question is an owner decision (status notes are not)
+        if ff["fresh"] and dec and dec.lower() not in ("nothing needed", "none") and ("?" in dec or re.match(r"^(approve|do you|should|which|pick|choose|confirm)\b", dec, re.I)):
+            needs.append(f"its feed asks: {dec[:200]}")
         for g in (self.svc.store.get_kv("gates:" + name) or {}).get("gates") or []:
             if g.get("gate"):
                 needs.append(f"owner gate (from its coordinator's ack file): {g['gate'][:160]}")
