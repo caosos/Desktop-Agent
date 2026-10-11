@@ -212,6 +212,22 @@ class Drilldown:
                 "primary_action": primary, "generated_at": now}
 
 
+def _open_item_text(item: str, row: dict | None) -> str:
+    """A coordinator's open instruction, labelled by the status this control plane actually holds for it. BLOCKED is not WORKING."""
+    status = (row or {}).get("status")
+    if status == "BLOCKED":
+        return f"instruction {item} BLOCKED per its coordinator's last comment; it moves on an owner answer or a new WORKING/DONE comment"
+    if status == "WORKING":
+        return f"instruction {item} in its coordinator's hands (WORKING until its DONE comment)"
+    if status == "ACKNOWLEDGED":
+        return f"instruction {item} acknowledged by its coordinator, not yet WORKING"
+    if status in ("SENT", "RECEIVED", "DELIVERED"):
+        return f"instruction {item} delivered, not yet acknowledged by its coordinator"
+    if status:
+        return f"instruction {item} is {status} here while its coordinator's own list still shows it open"
+    return f"instruction {item} open on its coordinator's own list (no record of it here)"
+
+
 def work_summary(projects: list[dict], tasks: list[dict], inbox: list[dict], intake: dict, scheduler, slots: dict, store) -> dict:
     """Every row names who it waits on (`who`). Three short lists for the owner, from live sources only: what can run now, what needs the owner,
     what is waiting on someone else. Never 'nothing needs you' when a project's own data says otherwise."""
@@ -236,8 +252,9 @@ def work_summary(projects: list[dict], tasks: list[dict], inbox: list[dict], int
                 need.append({"project": name, "who": "you", "text": f"merge the verified PR {f['pr_url']} ({f['id'][:30]})"})
         for item in ex.get("ready_unblocked") or []:
             can.append({"project": name, "who": "its coordinator", "text": f"its coordinator has unblocked work ready: {str(item)[:90]}"})
+        known = {i["item_id"]: i for i in store.list_intake(name)} if ex.get("open_items") else {}
         for item in ex.get("open_items") or []:
-            wait.append({"project": name, "who": "its coordinator", "text": f"instruction {item} in its coordinator's hands (WORKING until its DONE comment)"})
+            wait.append({"project": name, "who": "its coordinator", "text": _open_item_text(str(item), known.get(str(item)))})
         if ex.get("waiting_owner"):
             need.append({"project": name, "who": "you", "text": f"{len(ex['waiting_owner'])} gate(s) on its own list need you (see the approval packet's read-only section): " + "; ".join(map(str, ex["waiting_owner"][:3])) + ("…" if len(ex["waiting_owner"]) > 3 else "")})
         feed = store.get_kv(f"feed:{name}") or {}

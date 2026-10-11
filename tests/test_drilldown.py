@@ -100,7 +100,7 @@ def test_work_summary_three_lists(tmp_path: Path):
     assert need[0] == "optional decision: Optional: key?" and any("merge the verified PR https://x/110" in t for t in need)
     assert any("2 gate(s) on its own list" in t and "drivers; telephony" in t for t in need) and any("lane 02 Discovery: B-12 live smoke" in t for t in need)
     assert not any("lane 07" in t for t in need)
-    assert any("instruction da-1 in its coordinator's hands" in t for t in wait) and any("2 instruction(s) delivered, not acknowledged: Agent 01 reads the liaison branch" in t for t in wait)
+    assert any("instruction da-1 open on its coordinator's own list (no record of it here)" in t for t in wait) and any("2 instruction(s) delivered, not acknowledged: Agent 01 reads the liaison branch" in t for t in wait)
     w2 = work_summary(projects, tasks, [], intake, SimpleNamespace(paused=True, hold_reason="paused: provider limit"), {"free": 0}, store)
     assert any("held: scheduler paused (paused: provider limit)" in t for t in [x["text"] for x in w2["waiting"]])
 
@@ -150,3 +150,25 @@ def test_feed_stopped_state_is_explicit_evidence_and_work_names_owner(tmp_path: 
     assert all("who" in x for x in w["needs_owner"] + w["waiting"] + w["can_run_now"])
     s.store.set_kv("feed:mbos", {"fetched_at": time.time(), "url": "u", "data": {"state": "HEALTHY", "session": None, "last_check": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "work": {"dispatcher_running": True, "stalled_workers": []}}})
     assert next(x for x in s.drill.build("mbos")["roster"] if x["lane"] == "01")["actual"] == "NOT VERIFIED"
+
+
+def test_open_coordinator_instructions_show_their_real_status_not_always_working(tmp_path: Path):
+    """Panel truth: an instruction the store holds as BLOCKED must not be shown as WORKING."""
+    from types import SimpleNamespace
+    from desktop_agent.control.drilldown import work_summary
+    from desktop_agent.control.store import Store
+    store = Store(tmp_path)
+    def row(iid, status):
+        return {"item_id": iid, "project": "caoscare", "repo": "x/y", "issue": 117, "kind": "comment", "gh_id": 1, "author": "caosos",
+                "title": iid, "body": iid, "url": "", "posted_at": "", "status": status, "coordinator": "claude_peer"}
+    for iid, st in [("da-b", "BLOCKED"), ("da-w", "WORKING"), ("da-a", "ACKNOWLEDGED"), ("da-d", "DELIVERED")]:
+        store.save_intake(row(iid, st))
+    projects = [{"name": "caoscare", "workers": {}, "coordinator": {"external": {"open_items": ["da-b", "da-w", "da-a", "da-d", "da-x"]}}}]
+    w = work_summary(projects, [], [], {"items": []}, SimpleNamespace(paused=False, hold_reason=None), {"free": 1}, store)
+    wait = [x["text"] for x in w["waiting"]]
+    assert any(t.startswith("instruction da-b BLOCKED per its coordinator's last comment") for t in wait)
+    assert any(t == "instruction da-w in its coordinator's hands (WORKING until its DONE comment)" for t in wait)
+    assert any(t == "instruction da-a acknowledged by its coordinator, not yet WORKING" for t in wait)
+    assert any(t == "instruction da-d delivered, not yet acknowledged by its coordinator" for t in wait)
+    assert any(t == "instruction da-x open on its coordinator's own list (no record of it here)" for t in wait)
+    assert not any("da-b" in t and "(WORKING until" in t for t in wait)
