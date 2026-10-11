@@ -111,6 +111,19 @@ speculation, use the most economical capable model and escalate only when
 justified, and derive the next bounded task from the acceptance gap when the
 queue runs dry. Do not invent cosmetic busywork.
 
+## Escalation and reboot-continuity protocol
+
+A blocked worker does not become a silent idle worker.
+
+- Use receipt states `DELIVERED`, `ACK`, `WORKING`, `DONE`, `BLOCKED`, and `NEED`. The local watchdog must detect an unacknowledged or stalled assignment within five minutes and either hand off the next eligible task or produce a truthful escalation receipt.
+- A `NEED` receipt must name the project and task, timestamp, exact blocker, classification (`NEED_SERVICE`, `NEED_ACCESS`, `NEED_PERMISSION`, `NEED_HOST_ACTION`, or `NEED_OWNER`), exact requested action or one copyable command, impact, evidence, compatible work continuing, and next check time.
+- Do not report a problem without the proposed fix. Service and host failures include the restart/recovery action and health verification; access failures identify the exact missing credential or permission.
+- Continue other compatible authorized work while a NEED is pending. Ask Michael only for a genuine owner decision, unavailable credential/access, spending/provider commitment, destructive or irreversible action, physical action, or conflicting instruction.
+- Existing project control paths remain canonical: Desktop Agent Issue #3; CAOSCare Issue #129; Deal Sniffer's existing liaison/READY_QUEUE. Do not create a duplicate queue or coordinator.
+- Reboot recovery must be proven, not assumed: enabled service or session supervisor; loaded revision; process identity; expected ports/health checks; coordinator reattachment; queued-task replay; and a timestamped recovery receipt.
+- Cloud supervisors are hourly reconciliation and PR watches are event-driven GitHub reconciliation. They do not replace the local five-minute watchdog.
+- Mirror actionable NEED receipts to Slack `#all-ask-aria` once the ChatGPT Slack app is installed in that channel; until verified, the existing issue/liaison plus hourly supervisor is the delivery path.
+
 ## Handoff to Michael
 
 End every work block by committing and pushing to the authorised branch,
