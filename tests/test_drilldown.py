@@ -172,3 +172,21 @@ def test_open_coordinator_instructions_show_their_real_status_not_always_working
     assert any(t == "instruction da-d delivered, not yet acknowledged by its coordinator" for t in wait)
     assert any(t == "instruction da-x open on its coordinator's own list (no record of it here)" for t in wait)
     assert not any("da-b" in t and "(WORKING until" in t for t in wait)
+
+
+def test_stored_need_body_becomes_the_owner_row_with_the_exact_command(tmp_path: Path):
+    from types import SimpleNamespace
+    from desktop_agent.control.drilldown import work_summary
+    from desktop_agent.control.store import Store
+    store = Store(tmp_path)
+    store.set_kv("need:da-host000001", {"classification": "NEED_HOST_ACTION", "action": "start the coordinator session: cd /home/x && claude",
+                                        "impact": "owner instruction da-host000001 for desktop_agent is not in any coordinator's hands", "flagged_at": time.time()})
+    store.set_kv("need:da-svc0000001", {"classification": "NEED_SERVICE", "action": "re-send from the panel (Transfer) or wake the session", "impact": "x", "flagged_at": time.time()})
+    intake = {"items": [{"project": "desktop_agent", "item_id": "da-host000001", "flagged": 1, "status": "RECEIVED"},
+                        {"project": "desktop_agent", "item_id": "da-svc0000001", "flagged": 1, "status": "DELIVERED"},
+                        {"project": "desktop_agent", "item_id": "da-plain00001", "flagged": 1, "status": "DELIVERED"}]}
+    w = work_summary([{"name": "desktop_agent", "workers": {"status": "IDLE"}, "coordinator": {}}], [], [], intake,
+                     SimpleNamespace(paused=False, hold_reason=None), {"free": 1}, store)
+    need, wait = [x for x in w["needs_owner"]], [x for x in w["waiting"]]
+    assert need and need[0]["who"] == "you" and "cd /home/x && claude" in need[0]["text"] and "NEED_HOST_ACTION" in need[0]["text"]
+    assert wait and wait[0]["who"] == "its coordinator" and wait[0]["text"].startswith("2 instruction(s) delivered, not acknowledged") and "re-send from the panel" in wait[0]["text"]

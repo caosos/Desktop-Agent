@@ -51,6 +51,7 @@ def flag_unacked(intake) -> None:
         if item["status"] in ("RECEIVED", "DELIVERED") and now - item["updated_at"] > intake.unacked_after_sec and not item.get("flagged"):
             intake.store.flag_intake(item["item_id"])
             need = need_for(item, intake.sources, intake.poll_sec)
+            intake.store.set_kv("need:" + item["item_id"], {**need, "flagged_at": now})   # the panel shows the exact action, not a bare flag
             intake._emit(item, ET.BLOCKED.value, {"reason": f"instruction unacknowledged for {int((now - item['updated_at']) / 60)} min",
                                                  "project": item["project"], "url": item["url"], "need": need},
                        [item["url"], need["classification"], need["action"]])

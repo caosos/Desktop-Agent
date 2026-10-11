@@ -142,7 +142,9 @@ class Drilldown:
         for i in items:
             age = _age(i.get("posted_at") or "", i.get("updated_at"))
             if i["status"] in ("RECEIVED", "DELIVERED") and i.get("flagged"):
-                nxt = ("awaiting Agent 01's ack file; it reads the liaison branch at its own sync — no cross-account wake exists" if i.get("kind") == "liaison"
+                stored_need = self.svc.store.get_kv("need:" + i["item_id"])
+                nxt = (f"{stored_need['classification']}: {stored_need['action']}" if stored_need and stored_need.get("action")
+                       else "awaiting Agent 01's ack file; it reads the liaison branch at its own sync — no cross-account wake exists" if i.get("kind") == "liaison"
                        else "delivered but not acknowledged; resend from the Shared inbox or check the coordinator session")
             elif i["status"] in ("WORKING", "ACKNOWLEDGED", "CLAIMED", "BLOCKED") and i.get("kind") == "liaison" and self.svc.store.get_kv("liaison_ack:" + i["item_id"]):
                 _d = self.svc.store.get_kv("liaison_ack:" + i["item_id"])

@@ -142,6 +142,8 @@ def test_delivery_failure_and_unacked_flag(tmp_path: Path):
     need = blocked[-1].payload["need"]                       # the escalation body, never a bare "need permission"
     assert need["classification"] == "NEED_HOST_ACTION" and "no live session" in need["blocker"] and "cd /nowhere && claude" in need["action"]
     assert iid in need["impact"] and need["next_check_sec"] == 1 and "NEED_HOST_ACTION" in blocked[-1].provenance.evidence
+    stored = store.get_kv("need:" + iid)                      # the body is kept for the panel (exact action, not a bare flag)
+    assert stored and stored["classification"] == "NEED_HOST_ACTION" and stored["action"] == need["action"] and stored["flagged_at"]
     assert Intake(store, [], deliver).unacked_after_sec == 300  # owner protocol default: five minutes
 
 

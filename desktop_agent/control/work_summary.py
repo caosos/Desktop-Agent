@@ -88,12 +88,21 @@ def work_summary(projects: list[dict], tasks: list[dict], inbox: list[dict], int
             if b and b.lower() != "none" and any(k in b for k in ("MICHAEL_DECISIONS", "credentials", "Michael", "host software", "host")):
                 need.append({"project": name, "who": "you", "text": f"lane {r['lane']} {r['role'][:20]}: {b[:110]}"})
     unacked = [i for i in (intake.get("items") or []) if i.get("flagged") and i.get("status") in ("RECEIVED", "DELIVERED")]
-    by_proj: dict[str, int] = {}
+    by_proj: dict[str, list] = {}
     for i in unacked:
-        by_proj[i["project"]] = by_proj.get(i["project"], 0) + 1
-    for name, n in by_proj.items():
-        liaison = any(i.get("kind") == "liaison" for i in unacked if i["project"] == name)
-        wait.append({"project": name, "who": ("Agent 01" if liaison else "its coordinator"), "text": f"{n} instruction(s) delivered, not acknowledged" + (": Agent 01 reads the liaison branch at its own sync; you can nudge it in your own account (tmux mbos-agent-01)" if liaison else ": resend from the Shared inbox or check the coordinator session")})
+        by_proj.setdefault(i["project"], []).append(i)
+    for name, items in by_proj.items():
+        needs = [store.get_kv("need:" + i["item_id"]) or {} for i in items if i.get("item_id")]
+        host = [n for n in needs if n.get("classification") == "NEED_HOST_ACTION"]
+        if host:                                        # the stored NEED body names the exact action: the owner's row, not a vague wait
+            need.append({"project": name, "who": "you", "text": f"NEED_HOST_ACTION — {host[0].get('impact', '')}: {host[0].get('action', '')}"[:260]})
+        rest = len(items) - len(host)
+        if rest:
+            liaison = any(i.get("kind") == "liaison" for i in items)
+            svc = next((n for n in needs if n.get("classification") == "NEED_SERVICE"), None)
+            tail = (": Agent 01 reads the liaison branch at its own sync; you can nudge it in your own account (tmux mbos-agent-01)" if liaison
+                    else f": {svc['action']}" if svc else ": resend from the Shared inbox or check the coordinator session")
+            wait.append({"project": name, "who": ("Agent 01" if liaison else "its coordinator"), "text": f"{rest} instruction(s) delivered, not acknowledged" + tail})
     for p in projects:
         if (p.get("workers") or {}).get("status") == "RUNNING":
             can.append({"project": p["name"], "who": "workers", "text": f"{(p['workers'] or {}).get('active', 0)} worker(s) running now: " + ", ".join(x["id"] for x in (p["workers"] or {}).get("workers", [])[:4])})
