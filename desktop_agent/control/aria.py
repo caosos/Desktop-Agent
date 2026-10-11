@@ -29,7 +29,7 @@ ACTIONS = {
     "control": "pause, resume or stop this control plane's scheduler: args {action, task_id (optional)}",
     "request_call": "SIMULATED CALL: start a simulated conversational call to a fixture identity; no real call is ever placed: args {destination_alias (must start with 'fixture:'), purpose}",
     "call_status": "state, history and SIMULATED result of one simulated call: args {call_id}",
-    "request_research": "NEW WORK (research): one bounded worker writes a cited report from local repository sources only, no web: args {question, project}",
+    "request_research": "NEW WORK (research): one bounded worker writes a cited report; args {question, project, web} — web=false: local repository sources only; web=true: also WebSearch/WebFetch with URL citations and access dates ($3 ceiling)",
     "research_status": "state, history and result of one research job: args {job_id}",
 }
 KIND_BY_ACTION = {"request_research": "research", "request_call": "call (SIMULATED)", "submit_goal": "new work", "send_direction": "direction", "answer_decision": "owner decision", "control": "control"}
@@ -100,7 +100,7 @@ class AriaBrain:
             "Classify the owner's message: a QUESTION is answered read-only from actions like get_state, project_brief, explain_task; a DIRECTION goes to the project's coordinator via send_direction; NEW WORK via submit_goal; an OWNER DECISION via answer_decision. " \
             "Ground every status claim in an action result and name its source (host process, project feed, roster table, receipt, GitHub item); if the data does not say, answer 'unknown' rather than guessing. " \
             "A submitted direction or goal is not finished work: say what will happen next and how the owner will see the result. You have no web access and no knowledge beyond these actions. " \
-            "A request for a report, investigation or comparison is research: state the plan (four passes in one bounded worker, model class cloud_strong, budget ceiling $1.5, local repository sources only, no web) and ask yes/no before request_research; its report is the worker's and unverified beyond resolving citations. " \
+            "A request for a report, investigation or comparison is research: state the plan (four passes in one bounded worker, model class cloud_strong; local repository sources only at a $1.5 ceiling, or, when the owner asks for public/online/market sources or the question cannot be answered from the repository, web=true: WebSearch/WebFetch with URL citations and access dates at a $3 ceiling) and ask yes/no before request_research, naming which source mode you will use; its report is the worker's and unverified beyond resolving citations. " \
             "Calls are SIMULATED: no real call is ever placed, destinations are fixture labels ('fixture:…'), and a call result is a SIMULATED result."
 
     async def run_action(self, name: str, args: dict, turn: str | None = None) -> dict:
@@ -134,7 +134,8 @@ class AriaBrain:
             if name == "call_status":
                 return s.calling.get(str(args.get("call_id", ""))) or {"error": "no such call"}
             if name == "request_research":
-                return s.research.request(turn or "turn-" + uuid.uuid4().hex[:12], str(args.get("question", "")), str(args.get("project", "")), "aria")
+                return s.research.request(turn or "turn-" + uuid.uuid4().hex[:12], str(args.get("question", "")), str(args.get("project", "")), "aria",
+                                          web=str(args.get("web", "")).lower() in ("true", "1", "yes"))
             if name == "research_status":
                 return s.research.get(str(args.get("job_id", ""))) or {"error": "no such research job"}
             if name == "control":

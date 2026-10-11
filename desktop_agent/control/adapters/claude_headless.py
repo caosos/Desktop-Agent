@@ -56,7 +56,10 @@ class ClaudeHeadlessAdapter:
         ]
         if contract.allowed_tools:
             argv += ["--allowedTools", *contract.allowed_tools]
-        argv += ["--disallowedTools", "WebFetch", "WebSearch", "Task", "SendMessage",
+        # WebFetch/WebSearch stay disallowed unless the contract allowlists them explicitly (web research jobs, owner decision
+        # d-c3f29691); everything else on this list is never granted to a worker.
+        web_ok = {t for t in ("WebFetch", "WebSearch") if t in (contract.allowed_tools or [])}
+        argv += ["--disallowedTools", *[t for t in ("WebFetch", "WebSearch") if t not in web_ok], "Task", "SendMessage",
                  "Bash(git push:*)", "Bash(gh:*)", "Bash(sudo:*)", "Bash(rm -rf:*)", "Bash(curl:*)", "Bash(wget:*)",
                  "Bash(ssh:*)", "Bash(scp:*)", "Bash(git reset --hard:*)", "Bash(git push --force:*)"]
         return LaunchSpec(argv=argv)

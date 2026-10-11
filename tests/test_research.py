@@ -204,3 +204,48 @@ def test_reconcile_follows_a_scheduler_retry_instead_of_failing_the_job(tmp_path
     s.store.set_task_status(other["task_id"], "BLOCKED", {"reason": "attempt 2 failed: checker"})
     s.research.reconcile()
     assert s.research.get(other["job_id"])["state"] == "FAILED"
+
+
+# ---- web mode (owner decision d-c3f29691: "yes, with citations and the $3 per-job budget") ----------------------------
+def test_web_mode_allowlists_the_two_tools_at_three_dollars_and_local_mode_keeps_them_out(tmp_path):
+    from types import SimpleNamespace
+    from pathlib import Path as _P
+    from desktop_agent.control.adapters.claude_headless import ClaudeHeadlessAdapter
+    s = _service(tmp_path)
+    local = s.research.request("turn-l", Q, "mbos", "test")
+    import pytest
+    with pytest.raises(ValueError, match="web_enabled"):                 # default off: the sandbox is unchanged until the owner flips it
+        s.research.request("turn-w0", "public prices?", "mbos", "test", web=True)
+    s.cfg.research_web_enabled = True
+    web = s.research.request("turn-w", "What do public auction sites list for 16 ft trailers?", "mbos", "test", web=True)
+    cl, cw = s.store.get_task(local["task_id"])["contract"], s.store.get_task(web["task_id"])["contract"]
+    assert local["sources"] == "local" and web["sources"] == "web"
+    assert cl["budget"]["usd"] == 1.5 and not {"WebSearch", "WebFetch"} & set(cl["allowed_tools"]) and "No web retrieval was used." in cl["objective"]
+    assert cw["budget"]["usd"] == 3.0 and set(cw["allowed_tools"]) == set(s.projects["mbos"].worker_allowed_tools) | {"WebSearch", "WebFetch"}
+    assert "sources: web + local repository" in cw["objective"] and "(accessed YYYY-MM-DD)" in cw["objective"] and "Web retrieval was used." in cw["objective"]
+    assert "$3" in [h for h in web["history"] if h["state"] == "PLANNED"][0]["note"] or "3.0" in [h for h in web["history"] if h["state"] == "PLANNED"][0]["note"]
+    notes = [t["text"] for t in s.aria.transcript() if t.get("kind") == "research"]
+    assert any("web + local" in n and "$3" in n for n in notes) and any("local sources only" in n for n in notes)
+    # the adapter grants the two tools only when the contract allowlists them; everything else stays disallowed
+    a = ClaudeHeadlessAdapter()
+    def argv(tools):
+        c = SimpleNamespace(allowed_tools=tools, acceptance_tests=[], budget=SimpleNamespace(max_turns=5, usd=3.0))
+        return a.launch(contract=c, project=None, prompt="x", model="m", workspace=_P(".")).argv
+    dis = lambda av: av[av.index("--disallowedTools") + 1:]
+    assert {"WebFetch", "WebSearch"} <= set(dis(argv(cl["allowed_tools"])))
+    dw = dis(argv(cw["allowed_tools"]))
+    assert not {"WebFetch", "WebSearch"} & set(dw) and "Task" in dw and "Bash(curl:*)" in dw and "Bash(gh:*)" in dw
+    # checker: web format accepted only under a web header; access date required
+    assert _check("web_pass.md").returncode == 0, _check("web_pass.md").stdout
+    assert "web-source-format" in _check("web_bad_source.md").stdout and "web-source-in-local-report" in _check("web_source_in_local.md").stdout
+    # API and Aria carry the flag; default stays local
+    with TestClient(build_app(s, "tok")) as c:
+        r = c.post("/v0/research", json={"question": "public prices?", "project": "mbos", "web": True}, headers=H).json()
+        assert r["sources"] == "web" and s.store.get_task(r["task_id"])["contract"]["budget"]["usd"] == 3.0
+        r2 = c.post("/v0/research", json={"question": "repo question?", "project": "mbos"}, headers=H).json()
+        assert r2["sources"] == "local"
+    s.aria.llm = FakeLLM([{"reply": "Starting web research.", "action": {"name": "request_research", "args": {"question": "sold comps for trailers", "project": "mbos", "web": True}}},
+                          {"reply": "Started.", "action": None}])
+    out = asyncio.run(s.aria.chat("yes"))
+    jid = out["actions"][0]["evidence"]["job_id"]
+    assert s.research.get(jid)["sources"] == "web"

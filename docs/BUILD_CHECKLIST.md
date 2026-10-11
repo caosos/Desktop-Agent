@@ -77,7 +77,7 @@ All durations below are **focused engineering effort after the dependency is ava
 |---|:---:|:---:|:---:|:---:|---|
 | Local-source research job, job state, deduplication, cancellation, report checker | ✓ | ✓ | · | · | Draft [PR #14](https://github.com/caosos/Desktop-Agent/pull/14) at `3374d095` reports control-plane verification; independent review/integration and an owner request/readback remain open. Checker proves citation shape and referenced lines, not the truth of conclusions. |
 | PDF render and download from completed report | ✓ | ✓ | · | · | [`df1422f`](https://github.com/caosos/Desktop-Agent/commit/df1422f7f72eb462f2da32be620881221a7b236d) is a branch prototype; integrate and accept with an actual report. |
-| Web research with citations | · | · | · | · | Web retrieval is blocked in the worker sandbox; the approval-packet decision and source policy are recorded in [RESEARCH_BRIEF](RESEARCH_BRIEF.md). Local-source work need not wait. |
+| Web research with citations | ✓ | ✓ | · | · | Web mode built 2026-10-11 (research.py `web=True`, adapter allowlist per contract, checker rules, RESEARCH_BRIEF §12; owner decision d-c3f29691 yes/$3). Owner switch `research.web_enabled` is OFF by default (web requests refused with the reason until Michael flips it); integration, the flip and a live web job through Ask Aria pending. |
 
 **Immediate estimates:** PR #14 review/integration and real local report, 0.5–1.5 focused days; PDF integration and readback, 0.5–1.5 more days; **low confidence** until review finds the remaining defects. Web retrieval has no ETA pending its decision.
 

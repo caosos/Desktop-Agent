@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field
 class ResearchIn(BaseModel):
     question: str = Field(max_length=1000)
     project: str
+    web: bool = False                 # public web sources through WebSearch/WebFetch (owner decision d-c3f29691); default local only
 
 
 def research_routes(service, auth) -> APIRouter:
@@ -22,7 +23,7 @@ def research_routes(service, auth) -> APIRouter:
     @router.post("/v0/research", status_code=201)
     async def create_job(body: ResearchIn, request: Request, _: str = Depends(auth)):
         try:
-            return jobs.request("api-" + uuid.uuid4().hex[:12], body.question, body.project, request.headers.get("X-Source", "panel"))
+            return jobs.request("api-" + uuid.uuid4().hex[:12], body.question, body.project, request.headers.get("X-Source", "panel"), web=bool(body.web))
         except KeyError as exc:
             raise HTTPException(404, str(exc).strip("'\""))
         except ValueError as exc:

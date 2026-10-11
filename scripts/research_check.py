@@ -1,4 +1,4 @@
-"""Structure and citation checker for Ask Aria research reports (docs/RESEARCH_BRIEF.md §4).
+"""Structure and citation checker for Ask Aria research reports (docs/RESEARCH_BRIEF.md §4, §11 web mode).
 
 Usage: research_check.py <report> [--repo <root>]. Exits 0 only when every rule holds; otherwise prints each
 failed rule (one per line, prefixed with its name) and exits 1. It checks structure and that citations resolve,
@@ -12,6 +12,9 @@ from pathlib import Path
 
 SECTIONS = ["Question", "Findings", "Analysis", "Limits", "Sources", "Review"]
 SENTENCE = "No web retrieval was used."
+WEB_SENTENCE = "Web retrieval was used."
+WEB_HEADER = re.compile(r"^job:.*sources:\s*web", re.M)
+WEB_SOURCE = re.compile(r"^\[(\d+)\]\s+(https?://\S+)\s+—\s+\".+\"\s+\(accessed\s+(\d{4}-\d{2}-\d{2})\)\s*$")
 CITE = re.compile(r"\[(\d+)\]")
 SOURCE = re.compile(r"^\[(\d+)\]\s+(\S+?):(\d+)\b")
 ITEM = re.compile(r"^\s*(\d+)\.\s+(.*)$")
@@ -44,12 +47,22 @@ def check(report: Path, repo: Path) -> list[str]:
     for i, f in enumerate(findings, 1):
         if not CITE.search(f):
             errors.append(f"uncited-finding: finding {i} has no [n] citation: {f[:60]}")
+    web = bool(WEB_HEADER.search(text))
     sources: dict[str, tuple[str, int]] = {}
+    web_sources: set[str] = set()
     for line in body.get("Sources", "").splitlines():
         m = SOURCE.match(line.strip())
         if m:
             sources[m.group(1)] = (m.group(2), int(m.group(3)))
-    for n in sorted(set(CITE.findall(text)) - set(sources), key=int):
+            continue
+        w = WEB_SOURCE.match(line.strip())
+        if w:
+            if not web:
+                errors.append(f"web-source-in-local-report: [{w.group(1)}] cites a URL but the header says local sources only")
+            web_sources.add(w.group(1))
+        elif line.strip().startswith("[") and "http" in line:
+            errors.append(f'web-source-format: {line.strip()[:70]} must read [n] https://… — "quote" (accessed YYYY-MM-DD)')
+    for n in sorted(set(CITE.findall(text)) - set(sources) - web_sources, key=int):
         errors.append(f"unresolved-citation: [{n}] has no Sources line")
     for n, (path, line_no) in sources.items():
         target = repo / path
@@ -57,8 +70,9 @@ def check(report: Path, repo: Path) -> list[str]:
             errors.append(f"missing-path: [{n}] {path} does not exist under {repo}")
         elif line_no < 1 or line_no > len(target.read_text(encoding="utf-8", errors="replace").splitlines()):
             errors.append(f"missing-line: [{n}] {path} has no line {line_no}")
-    if SENTENCE not in body.get("Limits", ""):
-        errors.append(f'limits-sentence: the Limits section must contain "{SENTENCE}"')
+    want = WEB_SENTENCE if web else SENTENCE
+    if want not in body.get("Limits", ""):
+        errors.append(f'limits-sentence: the Limits section must contain "{want}"')
     if len(reviews) != len(findings):
         errors.append(f"review-count: {len(findings)} finding(s) but {len(reviews)} Review entr{'y' if len(reviews) == 1 else 'ies'}")
     return errors

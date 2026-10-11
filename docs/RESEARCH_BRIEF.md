@@ -173,3 +173,25 @@ Self-reported by the worker; the control plane re-runs the gate.
 Web retrieval (BLOCKED decision); PDF rendering and download (task B); one worker per role (v1 runs the four
 passes in one worker); research over another project's checkout (v1 targets the project named in the request,
 which must be one this control plane manages).
+
+## 12. Web mode (v2, 2026-10-11) — owner decision d-c3f29691
+
+Decision (panel, 2026-10-09 20:45 CDT, receipted): "yes, with citations and the $3 per-job budget". Implemented in
+`control/research.py` (`request(..., web=True)`), `research_api.py` (`web` field), `aria.py` (`request_research` arg `web`),
+`adapters/claude_headless.py` (WebFetch/WebSearch are removed from `--disallowedTools` **only** when the task contract
+allowlists them) and `scripts/research_check.py`.
+
+- **Owner switch, default OFF:** `config/runtime.yaml` → `research.web_enabled: false`. While false, `request(web=True)` is refused with the reason and no contract carrying the two tools can exist, so the worker sandbox is unchanged. Flipping it to `true` is Michael's one line (the decision said yes; the flip itself is kept out of the coordinator's hands, like the OpenAI pilot gate).
+- **Default stays local-only** (§3–§5 unchanged). Aria names the source mode in its plan and asks yes/no; web mode is for
+  questions the repository cannot answer (public prices, market comps, official pages) or when the owner asks for it.
+- **Worker in web mode:** same four passes; allowed tools = the project's `worker_allowed_tools` + `WebSearch`, `WebFetch`;
+  budget ceiling **$3.00** (token-equivalent allowance, not an invoice); cite only pages actually fetched.
+- **Report header:** `job: rj-…  ·  project: <p>  ·  sources: web + local repository  ·  <date>`.
+  **Sources** lines are either `[n] path:line — "quote"` or `[n] https://… — "quote" (accessed YYYY-MM-DD)`.
+  **Limits** must contain the sentence `Web retrieval was used.` plus the searches run.
+- **Checker rules added:** `web-source-format` (URL line without quote + access date), `web-source-in-local-report` (a URL
+  cited under a local-only header), `limits-sentence` switches to the web sentence under a web header. URLs are not
+  fetched by the checker (no network in verification); truth of a web finding remains the worker's claim, `unverified`.
+- **Boundary:** no other worker type gains the two tools; `Bash(curl:*)`/`Bash(wget:*)` stay disallowed; no API key,
+  no provider change.
+

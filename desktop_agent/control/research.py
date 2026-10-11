@@ -25,6 +25,8 @@ TRANSITIONS = {
 INDEX_KV = "research:index"
 MODEL_CLASS = "cloud_strong"
 BUDGET_USD = 1.5
+WEB_BUDGET_USD = 3.0                      # owner decision d-c3f29691 (2026-10-09): "yes, with citations and the $3 per-job budget"
+WEB_TOOLS = ["WebSearch", "WebFetch"]     # allowlisted per web job only; every other worker keeps them disallowed
 CAVEAT = "citations resolve; the content is the worker's and unverified"
 
 
@@ -66,7 +68,7 @@ class ResearchService:
         self.aria.note(text, "research", {"job_id": job["job_id"], "task_id": job["task_id"], "state": job["state"]})
 
     def _view(self, job: dict, duplicate: bool = False) -> dict:
-        out = {k: job.get(k) for k in ("job_id", "turn", "question", "project", "source", "state", "task_id", "report_path", "pr_url",
+        out = {k: job.get(k) for k in ("job_id", "turn", "question", "project", "source", "sources", "state", "task_id", "report_path", "pr_url",
                                        "reason", "history", "created_at", "updated_at", "published")}
         out["duplicate"] = duplicate
         out["receipts"] = len(rc.chain(self.store, "research", job["job_id"]))
@@ -74,53 +76,70 @@ class ResearchService:
 
     def worker_text(self, job: dict) -> str:
         jid, path = job["job_id"], report_path(job["job_id"])
+        web = job.get("sources") == "web"
+        if web:
+            sources_rule = ("Sources: this repository checkout on disk AND the public web through the WebSearch and WebFetch tools. Cite only pages you "
+                            "actually fetched; record each web fragment as its URL plus a quote of at most 120 characters and the access date; never guess.\n")
+            header = f"   job: {jid}  ·  project: {job['project']}  ·  sources: web + local repository  ·  <YYYY-MM-DD>\n"
+            limits = '   ## Limits (must contain the sentence "Web retrieval was used." plus the searches run and what could not be answered),\n'
+            srcfmt = '   ## Sources (lines like: [1] https://example.org/page — "quote" (accessed YYYY-MM-DD)  or  [2] path/to/file.md:123 — "quote"), ## Review (one entry per finding).\n'
+        else:
+            sources_rule = "Local sources only: use this repository checkout on disk (docs, code, tests, PROJECT_STATE). No web retrieval, no guesses.\n"
+            header = f"   job: {jid}  ·  project: {job['project']}  ·  sources: local repository only (no web retrieval)  ·  <YYYY-MM-DD>\n"
+            limits = '   ## Limits (must contain the sentence "No web retrieval was used." and say what could not be answered),\n'
+            srcfmt = '   ## Sources (lines like: [1] path/to/file.md:123 — "quote"), ## Review (one entry per finding).\n'
         return (
             f"Research job {jid} for project {job['project']}. QUESTION: {job['question']}\n\n"
-            "Local sources only: use this repository checkout on disk (docs, code, tests, PROJECT_STATE). No web retrieval, no guesses.\n"
+            + sources_rule +
             "Work in four passes, in order, and name the pass in each commit message:\n"
-            "1. researcher: gather evidence from the repository; record each fragment as path:line plus a quote of at most 120 characters.\n"
+            "1. researcher: gather evidence; record each fragment with its source (path:line, or URL with access date) plus a quote of at most 120 characters.\n"
             "2. analyst: group the fragments into findings; a finding without a source is dropped, not padded.\n"
             f"3. writer: write {path} in exactly this format:\n"
             "   # Research: <question>\n"
-            f"   job: {jid}  ·  project: {job['project']}  ·  sources: local repository only (no web retrieval)  ·  <YYYY-MM-DD>\n"
+            + header +
             "   then the sections, in this order: ## Question, ## Findings (numbered, each ending with [n] citations), ## Analysis,\n"
-            "   ## Limits (must contain the sentence \"No web retrieval was used.\" and say what could not be answered),\n"
-            "   ## Sources (lines like: [1] path/to/file.md:123 — \"quote\"), ## Review (one entry per finding).\n"
-            "4. reviewer: check every finding against its cited lines, mark each OK or corrected (what changed) in the Review section, "
+            + limits + srcfmt +
+            "4. reviewer: check every finding against its cited source, mark each OK or corrected (what changed) in the Review section, "
             f"then run `python3 scripts/research_check.py {path}` and fix until it exits 0.\n"
             "Rules: every claim cites [n]; commit on the task branch; do not touch any other file.")
 
     # ---- commands ---------------------------------------------------------
-    def request(self, turn: str, question: str, project: str, source: str = "test") -> dict:
+    def request(self, turn: str, question: str, project: str, source: str = "test", web: bool = False) -> dict:
         question = str(question or "").strip()[:1000]
         if not question:
             raise ValueError("question is required")
         if project not in self.service.projects:
             raise KeyError(f"unknown project {project!r}; known: {list(self.service.projects)}")
+        if web and not getattr(self.service.cfg, "research_web_enabled", False):
+            raise ValueError("web research is not enabled on this host: config/runtime.yaml research.web_enabled is false (owner switch; "
+                             "decision d-c3f29691 approved it). Ask for local-only research or flip the switch.")
         with self._lock:
             seen = self.store.idempotent("research:" + turn)
             if seen:
                 return self._view(self.store.get_kv(self._key(seen["job_id"])), duplicate=True)
             job = {"job_id": "rj-" + uuid.uuid4().hex[:10], "turn": turn, "question": question, "project": project, "source": source,
-                   "state": "REQUESTED", "task_id": None, "report_path": None, "pr_url": None, "reason": None, "history": [],
+                   "sources": "web" if web else "local", "state": "REQUESTED", "task_id": None, "report_path": None, "pr_url": None, "reason": None, "history": [],
                    "rejected": [], "created_at": time.time(), "updated_at": time.time()}
             job["report_path"] = report_path(job["job_id"])
             self.store.set_kv(self._key(job["job_id"]), job)
             self.store.remember("research:" + turn, {"job_id": job["job_id"]})
             self.store.set_kv(INDEX_KV, {"ids": (self.store.get_kv(INDEX_KV) or {}).get("ids", []) + [job["job_id"]]})
+            budget = WEB_BUDGET_USD if web else BUDGET_USD
+            srcs = "web + local repository (WebSearch/WebFetch allowlisted for this worker only; owner decision d-c3f29691)" if web else "local repository sources only"
             self.apply(job["job_id"], "PLANNED", "research job planned: four passes in one bounded worker, "
-                       f"model class {MODEL_CLASS}, budget ceiling ${BUDGET_USD}, local repository sources only", source)
+                       f"model class {MODEL_CLASS}, budget ceiling ${budget}, {srcs}", source)
             path = job["report_path"]
             try:
                 res = self.service.submit_goal(
                     project=project, text=self.worker_text(job), source=source, task_type="docs", owned_area=[path],
                     expected_artifacts=[path], acceptance_tests=[f"python3 scripts/research_check.py {path}"],   # stdlib only; the verifier's clean checkout has no .venv
-                    model_class=MODEL_CLASS, budget_usd=BUDGET_USD, max_attempts=2, check_duplicate=False,
+                    model_class=MODEL_CLASS, budget_usd=budget, max_attempts=2, check_duplicate=False,
+                    allowed_tools=(list(self.service.projects[project].worker_allowed_tools) + WEB_TOOLS) if web else None,
                     why_now=f"research job {job['job_id']} confirmed by the owner in Ask Aria")
             except (KeyError, ValueError) as exc:
                 self.apply(job["job_id"], "FAILED", f"task could not be created: {exc}"[:300], source)
                 return self._view(self.store.get_kv(self._key(job["job_id"])))
-            self.apply(job["job_id"], "RUNNING", f"one bounded worker started (task {res['task_ids'][0]}); local sources only", source,
+            self.apply(job["job_id"], "RUNNING", f"one bounded worker started (task {res['task_ids'][0]}); sources: {'web + local' if web else 'local only'}", source,
                        task_id=res["task_ids"][0])
             return self._view(self.store.get_kv(self._key(job["job_id"])))
 
@@ -181,7 +200,8 @@ class ResearchService:
     def _note_text(self, job: dict, state: str, note: str) -> str:
         jid = job["job_id"]
         if state == "RUNNING":
-            return f"Research job {jid} started: one bounded worker (task {job['task_id']}), local sources only, no web. The report will appear at {job['report_path']}."
+            srcs = "web + local repository sources (WebSearch/WebFetch, $3 ceiling)" if job.get("sources") == "web" else "local sources only, no web"
+            return f"Research job {jid} started: one bounded worker (task {job['task_id']}), {srcs}. The report will appear at {job['report_path']}."
         if state == "VERIFIED":
             pdf = (job.get("published") or {}).get("pdf") or {}
             where = f" PDF ready: GET /v0/research/{jid}/pdf ({pdf.get('bytes')} bytes)." if pdf.get("ok") else f" No PDF: {pdf.get('reason', 'not rendered')}."
