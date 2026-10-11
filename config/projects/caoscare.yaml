@@ -85,6 +85,7 @@ intake:
   owner_logins: [caosos]
   coordinator:
     kind: claude_peer
+    session_name: caoscare-1-ee
     session_cwd: /home/caoscare-1/CAOSCARE-INTEGRATION
     cwd: /home/caoscare-1/CAOSCARE-INTEGRATION
     # provided by the CAOSCare coordinator (stdlib, read-only, no network, no model):
