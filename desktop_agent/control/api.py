@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import secrets
 import time
@@ -92,7 +93,10 @@ def build_app(service: Service, token: str) -> FastAPI:
         try:
             yield
         finally:
+            service.stop()
             loop_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError, asyncio.TimeoutError):
+                await asyncio.wait_for(loop_task, timeout=5)
 
     app = FastAPI(title="Desktop-Agent control plane", version="0.1.0", lifespan=lifespan)
 
@@ -140,7 +144,7 @@ def build_app(service: Service, token: str) -> FastAPI:
                 return
             q = service.subscribe()
             try:
-                while True:
+                while not service.stopping:
                     if await request.is_disconnected():
                         break
                     try:
@@ -148,12 +152,16 @@ def build_app(service: Service, token: str) -> FastAPI:
                     except asyncio.TimeoutError:
                         yield ": keepalive\n\n"
                         continue
+                    if ev is None:                # shutdown sentinel from Service.stop()
+                        break
                     if task_id and ev.task_id != task_id:
                         continue
                     if ev.seq and ev.seq <= last:
                         continue
                     last = ev.seq or last
                     yield _sse(ev)
+            except asyncio.CancelledError:        # bounded graceful shutdown cancels open streams: end quietly
+                return
             finally:
                 service.unsubscribe(q)
         return StreamingResponse(gen(), media_type="text/event-stream",

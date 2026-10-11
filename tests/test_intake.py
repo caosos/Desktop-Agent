@@ -24,7 +24,7 @@ class FakeGH:
             return ISSUE
         if "/comments" in path:
             since = path.split("since=")[1].split("&")[0]
-            return [c for c in self.comments if c["created_at"] > since]
+            return [c for c in self.comments if c["created_at"] >= since]   # GitHub `since=` is inclusive
         raise AssertionError(path)
 
 
@@ -284,3 +284,23 @@ def test_narrative_with_status_words_and_ids_is_an_instruction_and_explicit_repl
     for cid in (202, 203, 204):
         assert store.get_intake(item_id_for("x/y", 117, "comment", cid)) is None
     assert it.summary()["coordinator_activity"]["caoscare"] == "2026-10-09T04:03:00Z"
+
+
+def test_same_blocked_reply_seen_on_later_polls_is_recorded_once(tmp_path: Path):
+    """GitHub returns the comment at the cursor timestamp on every poll (`since=` is inclusive); a BLOCKED
+    read-back must not write a new event and receipt every 120 s while nothing changed."""
+    store = Store(tmp_path); gh = FakeGH()
+    async def deliver(src, item):
+        return {"ok": True, "status": "DELIVERED", "note": "peer", "evidence": [], "comment": f"DELIVERED {item['item_id']}"}
+    it = make(store, gh, deliver)
+    asyncio.run(it.poll_once())
+    iid = item_id_for("x/y", 117, "issue", 9001)
+    gh.comments.append(comment(1, "caosos", f"<!-- caos:coordinator -->\nBLOCKED {iid} — waiting on the owner", "2026-10-09T01:05:00Z"))
+    assert asyncio.run(it.poll_once())["acked"] == 1 and store.get_intake(iid)["status"] == "BLOCKED"
+    before = len(store.receipts("instruction", iid))
+    for _ in range(3):
+        assert asyncio.run(it.poll_once())["acked"] == 0
+    assert store.get_intake(iid)["status"] == "BLOCKED" and len(store.receipts("instruction", iid)) == before
+    # a genuinely new BLOCKED reply (another comment) is recorded again
+    gh.comments.append(comment(2, "caosos", f"<!-- caos:coordinator -->\nBLOCKED {iid} — still waiting, new reason", "2026-10-09T01:09:00Z"))
+    assert asyncio.run(it.poll_once())["acked"] == 1 and len(store.receipts("instruction", iid)) == before + 1

@@ -231,8 +231,11 @@ class Intake:
                     status = {"ACK": "ACKNOWLEDGED", "ACKNOWLEDGED": "ACKNOWLEDGED", "WORKING": "WORKING", "BLOCKED": "BLOCKED",
                               "DONE": "DONE", "VERIFIED": "DONE"}[m.group(1).upper()]
                     cur = item["status"]
+                    note = f"coordinator comment {c.get('html_url','')}"
+                    if status == cur and item.get("note") == note:
+                        continue                  # the same reply seen again (GitHub `since=` is inclusive): nothing changed, nothing recorded
                     if (cur in STATUSES and STATUSES.index(status) > STATUSES.index(cur)) or status == "BLOCKED" or cur not in STATUSES:
-                        self._set(item, status, f"coordinator comment {c.get('html_url','')}", [c.get("html_url", ""), login])
+                        self._set(item, status, note, [c.get("html_url", ""), login])
                         self.store.set_intake_activity(item["item_id"], created)
                         self.store.save_coordinator_ack(src.project, time.time())
                         acked += 1

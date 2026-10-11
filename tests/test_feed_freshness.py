@@ -81,7 +81,7 @@ def test_refetched_old_stopped_is_not_a_restart_instruction(tmp_path: Path):
 def test_fresh_source_stopped_without_acks_is_the_owner_action(tmp_path: Path):
     s = _mbos(tmp_path, _iso(time.time() - 90), unacked=["ARYA-20261010-0328-f49-verification"])
     r = _lane01(s)
-    assert r["actual"] == "NOT RUNNING" and "observed 2026-10-10" in r["proof"] and "read 31s ago" in r["proof"]
+    assert r["actual"] == "NOT RUNNING" and "observed " + _iso(time.time() - 90)[:10] in r["proof"] and "read 31s ago" in r["proof"]   # the date is today's, not a constant
     w = s.state()["work"]
     assert w["needs_owner"][0]["who"] == "you (other account)" and "start it in your own account" in w["needs_owner"][0]["text"]
     assert "1 message(s) its feed lists as unread, 0 of them with an ack receipt here" in w["needs_owner"][0]["text"]

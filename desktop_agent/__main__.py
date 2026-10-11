@@ -46,7 +46,9 @@ def main() -> None:
     port = args.port or cfg.api_port
     logging.getLogger("desktop_agent").info("control plane on http://%s:%d  projects=%s  token=%s",
                                             cfg.api_host, port, list(service.projects), cfg.token_file)
-    uvicorn.run(app, host=cfg.api_host, port=port, log_level="info")
+    # Open event streams (panel, widget) never end on their own; bound the graceful wait so SIGTERM stops
+    # the unit in seconds instead of systemd's 90 s kill (PROJECT_STATE 2026-10-11, activation finding 1).
+    uvicorn.run(app, host=cfg.api_host, port=port, log_level="info", timeout_graceful_shutdown=5)
 
 
 if __name__ == "__main__":

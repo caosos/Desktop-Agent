@@ -107,6 +107,7 @@ class Service:
         self.drill = Drilldown(self)                                            # per-project drilldown from existing sources
         self.watchdog.drill = self.drill
         self._subscribers: list[asyncio.Queue] = []
+        self.stopping = False
         self._loop: asyncio.AbstractEventLoop | None = None
         self.store.subscribe(self._fanout)
         self.started_at = time.time()
@@ -123,6 +124,15 @@ class Service:
         q: asyncio.Queue = asyncio.Queue(maxsize=1000)
         self._subscribers.append(q)
         return q
+
+    def stop(self) -> None:
+        """Shutdown: release every open event stream (a `None` wakes its wait) so connections can close."""
+        self.stopping = True
+        for q in list(self._subscribers):
+            try:
+                q.put_nowait(None)
+            except asyncio.QueueFull:
+                pass
 
     def unsubscribe(self, q: asyncio.Queue) -> None:
         if q in self._subscribers:
@@ -567,12 +577,15 @@ class Service:
 
     # ---- loop -------------------------------------------------------------
     async def run_forever(self) -> None:
-        if self.intake.sources:
-            asyncio.create_task(self._intake_forever())
-        while True:
-            try:
-                await self.scheduler.tick()
-            except Exception as exc:  # the loop must survive; record and go on
-                self.store.append_event(Event(type=ET.CONTROL.value, task_id=None, payload={"action": "tick_error", "error": repr(exc)[:300]},
-                                              provenance=Provenance(actor=Actor.CONTROL.value, source="scheduler", evidence=[repr(exc)[:100]])))
-            await asyncio.sleep(self.cfg.scheduler.tick_sec)
+        intake_task = asyncio.create_task(self._intake_forever()) if self.intake.sources else None
+        try:
+            while True:
+                try:
+                    await self.scheduler.tick()
+                except Exception as exc:  # the loop must survive; record and go on
+                    self.store.append_event(Event(type=ET.CONTROL.value, task_id=None, payload={"action": "tick_error", "error": repr(exc)[:300]},
+                                                  provenance=Provenance(actor=Actor.CONTROL.value, source="scheduler", evidence=[repr(exc)[:100]])))
+                await asyncio.sleep(self.cfg.scheduler.tick_sec)
+        finally:                                  # cancelled at shutdown: take the poll loop down with us
+            if intake_task:
+                intake_task.cancel()
