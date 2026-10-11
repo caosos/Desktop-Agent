@@ -37,6 +37,22 @@ HISTORY_KV = "aria:history"
 ACTION_RESULT_CHARS = 10000  # an action result is folded into the model context up to this size
 
 
+def _unwrap(data: dict) -> tuple[str, dict | None]:
+    """The model occasionally returns its whole JSON answer as the `reply` string (seen live 2026-10-11 with the
+    CLI's multi-turn completion). One level is unwrapped so the owner never reads raw JSON."""
+    reply = str(data.get("reply") or "").strip()
+    action = data.get("action")
+    if reply.startswith("{") and '"reply"' in reply:
+        try:
+            inner = json.loads(reply)
+        except ValueError:
+            return reply, action
+        if isinstance(inner, dict) and isinstance(inner.get("reply"), str):
+            reply = inner["reply"].strip()
+            action = action or inner.get("action")
+    return reply, action
+
+
 def compact_state(st: dict) -> dict:
     """The owner view in model-sized form: what needs the owner, what is blocked and what runs, first; raw
     project internals stay behind project_brief. The full state is ~85 KB; this must fit one action result."""
@@ -188,8 +204,7 @@ class AriaBrain:
             else:
                 cost += comp.cost_usd
             tokens_in += comp.input_tokens; tokens_out += comp.output_tokens
-            reply = str(comp.data.get("reply") or "").strip()
-            action = comp.data.get("action")
+            reply, action = _unwrap(comp.data)
             if not action or not action.get("name"):
                 break
             result = await self.run_action(action["name"], action.get("args") or {}, turn)

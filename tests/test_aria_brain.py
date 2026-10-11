@@ -103,3 +103,17 @@ def test_get_state_is_compact_and_owner_first(tmp_path):
     asyncio.run(s.aria.chat("what is blocked?"))
     folded = next(h["text"] for h in s.aria.history if h["role"] == "action")
     assert folded.startswith("get_state → {") and '"needs_owner"' in folded and len(folded) <= ACTION_RESULT_CHARS + 20
+
+
+def test_json_wrapped_reply_is_unwrapped_for_the_owner(tmp_path):
+    """Seen live: the reply field carried '{"reply": "...", "action": null}' verbatim and the panel showed raw JSON."""
+    s = _service(tmp_path)
+    wrapped = json.dumps({"reply": "Research job rj-x is running: one bounded worker.", "action": None})
+    s.aria.llm = FakeLLM([{"reply": wrapped, "action": None}])
+    r = asyncio.run(s.aria.chat("yes"))
+    assert r["reply"] == "Research job rj-x is running: one bounded worker." and r["actions"] == []
+    # an inner action is honoured when the outer one is missing; a reply that merely starts with a brace stays text
+    s.aria.llm = FakeLLM([{"reply": json.dumps({"reply": "Checking.", "action": {"name": "get_state", "args": {}}}), "action": None},
+                          {"reply": "{not json", "action": None}])
+    r = asyncio.run(s.aria.chat("status?"))
+    assert r["actions"][0]["name"] == "get_state" and r["reply"] == "{not json"
