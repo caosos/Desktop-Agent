@@ -222,7 +222,8 @@ def test_summary_lines_come_from_fresh_sources_and_roster_is_historical(tmp_path
     assert not any("its feed asks" in x for x in s.drill.build("mbos")["summary"]["needs_michael"])   # a status note in that field is not an owner question
     s.store.set_kv("feed:mbos", {"fetched_at": time.time(), "url": "u", "data": {"work": {"dispatcher_running": True, "stalled_workers": []}, "session": {"name": "agent-01-coordinator-7b", "status": "idle", "pid": 1},
                                                                        "decision": "Approve the :8766 reload?", "last_check": fresh}})
-    sm = s.drill.build("mbos")["summary"] and any("self-wake" in x for x in sm["needs_michael"]) and not any("B-12" in x for x in sm["needs_michael"])
+    sm = s.drill.build("mbos")["summary"]
+    assert sm["needs_michael"][0].startswith("its feed asks: Approve the :8766 reload?") and any("self-wake" in x for x in sm["needs_michael"]) and not any("B-12" in x for x in sm["needs_michael"])
     assert sm["next"] == "nothing queued per its own feed right now"
     # stale feed: honest UNKNOWN for Next and the coordinator; the live worker still shows because it is a host observation
     s.store.set_kv("feed:mbos", {"fetched_at": time.time() - 3600, "url": "u", "data": {"work": {"dispatcher_running": True, "approved_ready_rows_for_specialist_lanes": 3}, "session": {"name": "agent-01-coordinator-7b", "status": "busy", "pid": 1},
