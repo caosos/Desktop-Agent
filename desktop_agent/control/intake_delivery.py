@@ -81,8 +81,24 @@ def find_session(cwd_prefix: str, exact: bool = False, name: str | None = None) 
     return s
 
 
-def resolve_session(cwd_prefix: str, exact: bool = False, name: str | None = None) -> tuple[dict | None, str]:
-    """(session, note): the sole eligible match, or None with the reason (no candidate / N candidates)."""
+# name → project: every session pinned by some project's intake.coordinator.session_name. A session that is another
+# project's registered coordinator can never stand in through a cwd fallback (2026-10-11: a Desktop Agent item went to
+# the CAOSCare coordinator because both lived in /home/caoscare-1 and the Desktop Agent pin had gone stale).
+RESERVED_PINS: dict[str, str] = {}
+
+
+def register_pins(projects) -> dict[str, str]:
+    RESERVED_PINS.clear()
+    for p in (projects.values() if hasattr(projects, "values") else projects):
+        name = (((getattr(p, "intake", None) or {}).get("coordinator") or {}).get("session_name"))
+        if name:
+            RESERVED_PINS[name] = getattr(p, "name", "?")
+    return dict(RESERVED_PINS)
+
+
+def resolve_session(cwd_prefix: str, exact: bool = False, name: str | None = None, project: str | None = None) -> tuple[dict | None, str]:
+    """(session, note): the sole eligible match, or None with the reason (no candidate / N candidates). In a cwd
+    lookup (no name) a session pinned as ANOTHER project's coordinator is rejected, never a stand-in."""
     cands, rejected = [], []
     for c in eligible_sessions():
         if name:
@@ -92,6 +108,10 @@ def resolve_session(cwd_prefix: str, exact: bool = False, name: str | None = Non
             if c["cwd"].rstrip("/") != cwd_prefix.rstrip("/"):
                 continue
         elif not c["cwd"].startswith(cwd_prefix.rstrip("/")):
+            continue
+        owner = RESERVED_PINS.get(c["name"])
+        if not name and owner and owner != project:
+            rejected.append({**c, "why": f"pinned coordinator of project {owner}; not a stand-in for {project or 'this project'}"})
             continue
         (cands if c["eligible"] else rejected).append(c)
     where = f"name {name}" if name else f"cwd {cwd_prefix}{' (exact)' if exact else ''}"
@@ -176,7 +196,7 @@ class Deliverer:
             notes.append(note)
         for key, label, exact in (("session_cwd_exact", "cwd (exact)", True), ("session_cwd", "cwd (prefix)", False)):
             if c.get(key):
-                s, note = resolve_session(c[key], exact=exact)
+                s, note = resolve_session(c[key], exact=exact, project=getattr(src, "project", None))
                 if s:
                     return {**s, "resolved_by": label, "pinned_name": c.get("session_name")}, "; ".join(notes + [note])
                 notes.append(note)

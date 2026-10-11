@@ -87,6 +87,7 @@ class Service:
         from .research import ResearchService        # research jobs: one bounded worker, local sources (docs/RESEARCH_BRIEF.md)
         self.research = ResearchService(self.store, self.aria, self)
         from .intake import Intake, IntakeSource
+        from . import intake_delivery
         from .intake_delivery import Deliverer
         from .watchdog import Watchdog
         sources = [IntakeSource(project=p.name, repo=p.github_repo, issues=list(p.intake.get("issues") or []),
@@ -94,6 +95,7 @@ class Service:
                                 coordinator=dict(p.intake.get("coordinator") or {"kind": "control_plane"}))
                    for p in self.projects.values() if p.intake and p.github_repo and (p.intake.get("issues") or (p.intake.get("coordinator") or {}).get("liaison"))]
         self.deliverer = Deliverer(cfg, self.store)
+        intake_delivery.register_pins(self.projects)      # another project's pinned coordinator is never this project's stand-in
         self.intake = Intake(self.store, sources, self.deliverer,
                              poll_sec=int(cfg.intake_poll_sec), post_comments=bool(cfg.intake_post_comments), unacked_after_sec=int(cfg.intake_unacked_sec),
                              ask_owner=lambda **kw: self.ask_owner(question=kw["question"], options=kw["options"], why=kw["why"],

@@ -331,3 +331,29 @@ def test_same_blocked_reply_seen_on_later_polls_is_recorded_once(tmp_path: Path)
     # a genuinely new BLOCKED reply (another comment) is recorded again
     gh.comments.append(comment(2, "caosos", f"<!-- caos:coordinator -->\nBLOCKED {iid} — still waiting, new reason", "2026-10-09T01:09:00Z"))
     assert asyncio.run(it.poll_once())["acked"] == 1 and len(store.receipts("instruction", iid)) == before + 1
+
+
+def test_another_projects_pinned_coordinator_never_satisfies_the_cwd_fallback(monkeypatch):
+    """2026-10-11 misroute: Desktop Agent's pin was stale and its cwd fallback picked caoscare-1-ee, the CAOSCare
+    coordinator, because both sessions live in /home/caoscare-1. A session pinned by another project is rejected in a
+    cwd lookup (fail closed with the reason); the pinned-name path and an unpinned stand-in still work."""
+    idm = _sessions(monkeypatch, [_rec(300214, "caoscare-1-ee"), _rec(481241, "caoscare-integration-b2", cwd="/home/caoscare-1/CAOSCARE-INTEGRATION")])
+    class P:  # minimal project packages
+        def __init__(self, name, pin): self.name, self.intake = name, {"coordinator": {"kind": "claude_peer", "session_name": pin}}
+    idm.register_pins({"caoscare": P("caoscare", "caoscare-1-ee"), "desktop_agent": P("desktop_agent", "caoscare-1-75")})
+    da = _src(kind="claude_peer", session_name="caoscare-1-75", session_cwd_exact="/home/caoscare-1")
+    da.project = "desktop_agent"
+    s, note = idm.Deliverer.resolve_for(da)
+    assert s is None and "pinned coordinator of project caoscare" in note and "caoscare-1-ee" in note
+    # CAOSCare itself still resolves its own pinned session by name
+    ca = _src(kind="claude_peer", session_name="caoscare-1-ee", session_cwd="/home/caoscare-1/CAOSCARE-INTEGRATION"); ca.project = "caoscare"
+    assert idm.Deliverer.resolve_for(ca)[0]["name"] == "caoscare-1-ee"
+    # an unpinned session in the directory is a valid stand-in for Desktop Agent; the reserved one is still excluded
+    idm = _sessions(monkeypatch, [_rec(300214, "caoscare-1-ee"), _rec(552491, "caoscare-1-8c")])
+    s, note = idm.Deliverer.resolve_for(da)
+    assert s and s["name"] == "caoscare-1-8c" and s["resolved_by"] == "cwd (exact)"
+    # once Desktop Agent pins the new name, the by-name path wins and the stale pin is gone from the reserved set
+    idm.register_pins({"caoscare": P("caoscare", "caoscare-1-ee"), "desktop_agent": P("desktop_agent", "caoscare-1-8c")})
+    da2 = _src(kind="claude_peer", session_name="caoscare-1-8c", session_cwd_exact="/home/caoscare-1"); da2.project = "desktop_agent"
+    assert idm.Deliverer.resolve_for(da2)[0]["resolved_by"] == "name"
+    idm.register_pins({})
