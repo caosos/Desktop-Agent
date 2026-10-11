@@ -63,6 +63,65 @@ class Drilldown:
                 report[name] = f"roster error: {exc}"[:120]
         return report
 
+    # ---- three lines the owner reads first: Now / Next / Needs Michael, from current sources only --------------
+    def _summary(self, name: str, st: dict, coord: dict, workers: dict, feed: dict, ff: dict, fsess: dict, tasks: list, roster_kv: dict, now: float) -> dict:
+        """Owner finding 2026-10-11: the Oct-8 declared table next to live rows read like current work and fresh demands.
+        These three lines use only fresh evidence (live processes, the project's own feed within its TTL, open decisions,
+        current owner gates). The declared roster never feeds them; it is shown separately as historical."""
+        data = (feed.get("data") or {}) if feed else {}
+        work = data.get("work") or {}
+        live = workers.get("workers") or []
+        parts = []
+        for w in live[:4]:
+            parts.append(f"{w['id']} running" + (f" on lane {w['lane']}" if w.get("lane") else "") + (f" (pid {w['pid']}, {_ago(now - w['started_at'])})" if w.get("pid") and w.get("started_at") else ""))
+        if coord.get("kind") == "liaison":
+            if fsess and ff["fresh"]:
+                parts.append(f"coordinator session {fsess.get('name', '?')} {str(fsess.get('status') or '?').lower()} per its own feed ({ff['label']})")
+            elif feed and not ff["fresh"]:
+                parts.append(f"coordinator: UNKNOWN — its feed is {ff['status']} ({ff['label']})")
+            else:
+                parts.append("coordinator: NOT VERIFIED (separate account, no fresh feed record)")
+            if ff["fresh"] and "dispatcher_running" in work:
+                parts.append("dispatcher running" if work.get("dispatcher_running") else "dispatcher STOPPED")
+        elif coord.get("kind") == "claude_peer":
+            parts.append(f"coordinator session {coord.get('session')} {coord.get('session_status')}" if coord.get("connected") else "coordinator session DOWN (registry)")
+        else:
+            parts.append("coordinator: this control plane")
+        if not live and not any("running" in x for x in parts[1:2]):
+            parts.append("no bounded worker process observed on the host")
+        now_line = "; ".join(parts)
+        ready_here = [t["task_id"] for t in tasks if t["status"] == "READY"]
+        if ff["fresh"] and work.get("approved_ready_rows_for_specialist_lanes"):
+            n = work["approved_ready_rows_for_specialist_lanes"]
+            nxt = f"{n} approved row(s) ready in its own queue; its dispatcher launches them (feed {ff['label']})"
+        elif ff["fresh"] and str(work.get("dispatcher_action") or "NONE").upper() != "NONE":
+            nxt = f"dispatcher action {work['dispatcher_action']} (feed {ff['label']})"
+        elif ready_here:
+            nxt = f"queued here: {', '.join(ready_here[:3])}"
+        elif feed and not ff["fresh"]:
+            nxt = f"UNKNOWN — the project's feed is {ff['status']} ({ff['label']}); nothing current names a next item"
+        elif ff["fresh"]:
+            nxt = "nothing queued per its own feed right now"
+        else:
+            nxt = "UNKNOWN — no project feed to read a next item from"
+        needs = []
+        dec = data.get("decision")
+        if ff["fresh"] and dec and str(dec).strip().lower() not in ("nothing needed", "none", ""):
+            needs.append(f"its feed asks: {str(dec)[:200]}")
+        for g in (self.svc.store.get_kv("gates:" + name) or {}).get("gates") or []:
+            if g.get("gate"):
+                needs.append(f"owner gate (from its coordinator's ack file): {g['gate'][:160]}")
+        for d in st.get("inbox") or []:
+            if (d.get("project") or "") == name:
+                needs.append(f"decision {d.get('decision_id', '')}: {str(d.get('question', ''))[:160]}")
+        synced = re.search(r"\d{4}-\d{2}-\d{2}", str((roster_kv.get("rows") or [{}])[0].get("declared_as_of") or ""))
+        return {"now": now_line, "next": nxt,
+                "needs_michael": needs[:3] or ["nothing needed now"],
+                "roster_synced": synced.group(0) if synced else None,
+                "roster_note": ("Declared table from the project's own status file. CLOSED means that lane's last bounded worker ended, not that the agent "
+                                "was removed or the project finished. Codes such as B-12, D-09b, licenses_held or 'off-box destination' are historical tracking "
+                                "references from that table, not current owner questions; a current question appears under Needs Michael.")}
+
     # ---- the view ---------------------------------------------------------------------------
     def build(self, name: str) -> dict | None:
         pkg = self.svc.projects.get(name)
@@ -70,6 +129,7 @@ class Drilldown:
             return None
         now = time.time()
         st = self.svc.state()
+        state = st                                      # `st` is reused below for a session status string; keep the dict
         proj = next(p for p in st["projects"] if p["name"] == name)
         coord, workers = proj["coordinator"], proj["workers"]
         tasks = [t for t in st["tasks"] if t["project"] == name]
@@ -196,7 +256,9 @@ class Drilldown:
             primary = "nothing needed; work is running"
         else:
             primary = "nothing needed right now"
+        summary = self._summary(name, state, coord, workers, feed, ff, fsess, tasks, roster_kv, now)
         return {"name": name, "mission": getattr(pkg, "mission", None) or "", "start_here": pkg.start_here, "integration_branch": pkg.integration_branch,
+                "summary": summary,
                 "coordinator": {**coord, "feed_session": fsess or None, "feed_fresh": feed_fresh, "feed_age_sec": feed_age,
                                 "feed_note": ("feed read, no session entry" if feed and not fsess else "no feed" if not feed and (getattr(pkg, "workers", None) or {}).get("feed_url") else ""),
                                 "process": ({"pid": coord_proc["pid"], "user": coord_proc["user"], "alive_since": coord_proc["started_at"]} if coord_proc else None),

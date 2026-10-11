@@ -190,3 +190,37 @@ def test_stored_need_body_becomes_the_owner_row_with_the_exact_command(tmp_path:
     need, wait = [x for x in w["needs_owner"]], [x for x in w["waiting"]]
     assert need and need[0]["who"] == "you" and "cd /home/x && claude" in need[0]["text"] and "NEED_HOST_ACTION" in need[0]["text"]
     assert wait and wait[0]["who"] == "its coordinator" and wait[0]["text"].startswith("2 instruction(s) delivered, not acknowledged") and "re-send from the panel" in wait[0]["text"]
+
+
+def test_summary_lines_come_from_fresh_sources_and_roster_is_historical(tmp_path: Path, monkeypatch):
+    """Owner finding 2026-10-11: Now/Next/Needs Michael come only from live processes, the fresh feed, gates and open
+    decisions; the Oct-8 declared table is labelled historical and never promoted to a task or an owner demand."""
+    s = _service(tmp_path)
+    async def fake_gh(path, **kw):
+        import base64
+        return {"content": base64.b64encode(TABLE.encode()).decode(), "encoding": "base64", "html_url": "https://x/ACTIVE_WORK.md", "sha": "abc123def456"}
+    monkeypatch.setattr(dd, "gh_api", fake_gh)
+    asyncio.run(s.drill.refresh_remote())
+    fresh = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    s.store.set_kv("feed:mbos", {"fetched_at": time.time(), "url": "u", "data": {"work": {"dispatcher_running": True, "stalled_workers": [], "approved_ready_rows_for_specialist_lanes": 1, "dispatcher_action": "NONE"},
+                                                                       "session": {"name": "agent-01-coordinator-7b", "status": "idle", "pid": 594278}, "decision": "nothing needed", "last_check": fresh}})
+    s.workers.procs_fn = lambda: [{"pid": 730858, "ppid": 1, "user": "michaelos", "cmd": "python -I tools/worker.py F-143 --lane 06 --kind implement", "ticks": 3, "started_at": time.time() - 1140}]
+    d = s.drill.build("mbos"); sm = d["summary"]
+    assert "F-143 running on lane 06" in sm["now"] and "agent-01-coordinator-7b idle" in sm["now"] and "dispatcher running" in sm["now"]
+    assert sm["next"].startswith("1 approved row(s) ready in its own queue")
+    assert sm["needs_michael"] == ["nothing needed now"]                      # B-12 from the Oct-8 table is NOT an owner demand
+    assert sm["roster_synced"] == "2026-10-08" and "CLOSED means" in sm["roster_note"] and "historical tracking" in sm["roster_note"]
+    assert any(r["lane"] == "02" and "B-12" in r["blocker"] for r in d["roster"])    # the table itself is still available, separately
+    # a current source may ask: the feed's decision field and a current owner gate appear; the roster blocker still does not
+    s.store.set_kv("gates:mbos", {"gates": [{"gate": "Do you want the faster local tmux self-wake enabled?", "source": "ack.md", "sha": "s"}], "history": []})
+    s.store.set_kv("feed:mbos", {"fetched_at": time.time(), "url": "u", "data": {"work": {"dispatcher_running": True, "stalled_workers": []}, "session": {"name": "agent-01-coordinator-7b", "status": "idle", "pid": 1},
+                                                                       "decision": "Approve the :8766 reload?", "last_check": fresh}})
+    sm = s.drill.build("mbos")["summary"]
+    assert sm["needs_michael"][0].startswith("its feed asks: Approve the :8766 reload?") and any("self-wake" in x for x in sm["needs_michael"]) and not any("B-12" in x for x in sm["needs_michael"])
+    assert sm["next"] == "nothing queued per its own feed right now"
+    # stale feed: honest UNKNOWN for Next and the coordinator; the live worker still shows because it is a host observation
+    s.store.set_kv("feed:mbos", {"fetched_at": time.time() - 3600, "url": "u", "data": {"work": {"dispatcher_running": True, "approved_ready_rows_for_specialist_lanes": 3}, "session": {"name": "agent-01-coordinator-7b", "status": "busy", "pid": 1},
+                                                                       "decision": "Approve?", "last_check": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() - 3600))}})
+    sm = s.drill.build("mbos")["summary"]
+    assert sm["next"].startswith("UNKNOWN") and "coordinator: UNKNOWN" in sm["now"] and "F-143 running" in sm["now"]
+    assert not any("Approve?" in x for x in sm["needs_michael"])              # a stale feed's question is not a current demand

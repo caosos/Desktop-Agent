@@ -123,6 +123,9 @@ def test_owner_view_states_and_evidence_on_demand(served):
         assert not page.evaluate("document.querySelector('#drill').hidden")                     # opens at once (loading line), then fills
         page.wait_for_function("!document.querySelector('#drill').hidden && document.querySelector('#drill').textContent.includes('Agents') && !document.querySelector('#drill').hasAttribute('aria-busy')", timeout=15000)
         drill = page.inner_text("#drill")
+        assert "Next" in drill and "Needs Michael" in drill and "Historical roster (last synced" in drill   # the three lines first; the table is folded
+        page.click("#drill details summary")                                                            # open the historical roster
+        drill = page.inner_text("#drill")
         assert "alpha" in drill and "DOWN" in drill and "coordinator session" in drill and "NOT RUNNING" in drill and "historical, as of" in drill   # same-account registry: DOWN is evidence
         assert "t-run" in drill and "RUNNING" in drill and "this control plane" in drill and "rq-050-claim" in drill and "project coordinator" in drill
         assert "Bounced note" in drill and "RECEIVED" in drill and "not acknowledged" in drill and "ago" in drill and "ACKNOWLEDGED" in drill
