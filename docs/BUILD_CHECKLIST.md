@@ -1,6 +1,6 @@
 # Desktop Agent — Living Product Build Checklist
 
-**Snapshot:** 2026-10-10, approximately 22:00 CDT (GitHub evidence through 2026-10-11 02:51 UTC). **Scope:** `caosos/Desktop-Agent` only. This is a planning and reporting record, not a worker dispatch, deployment, provider change, or release approval.
+**Snapshot:** 2026-10-11 00:06 CDT (GitHub evidence through 2026-10-11 04:52 UTC). **Scope:** caosos/Desktop-Agent only. This is a planning and reporting record, not a worker dispatch, deployment, provider change, or release approval.
 
 **Product finish line:** Michael talks or types to Aria on his desktop; Aria can manage the three projects, use approved desktop/browser/SSH tools, derive and run useful bounded work with economical model choice, show live progress and receipts, and keep going while Michael is away. The owner-facing screen must remain understandable. The full finish line has **not** passed acceptance.
 
@@ -8,13 +8,14 @@
 
 ## At a glance
 
-- **Current milestone:** Phase 2/6, make Ask Aria reliably usable from Michael's screen. Phases 3, 4, and 6 have work in parallel; phase numbers are acceptance milestones, not a serial ban on useful work.
-- **Current code activity observed on GitHub:** [PR #14](https://github.com/caosos/Desktop-Agent/pull/14), local-source research jobs v1, is an open draft at `3374d095` (13 files, verifier run described in its PR). Integration and live use are not evidenced in this snapshot. [PDF renderer branch `feature/research-pdf`](https://github.com/caosos/Desktop-Agent/commit/df1422f7f72eb462f2da32be620881221a7b236d) has a reported three-test prototype, with no integrated/host acceptance receipt found. The coordinator's [latest Issue #3 activity note](https://github.com/caosos/Desktop-Agent/issues/3#issuecomment-6104756919) called these in progress.
-- **Separate local Codex candidate:** `fix/aria-dictation-response` at `1abee06aa2eaf141a2ad5e3da49a3c2881e70dcf` addresses the `claude_cli` one-turn failure and interim dictation display. It is **LOCAL ONLY**, not in GitHub, not deployed, and not microphone-accepted. Do not duplicate it without comparing with current `main`.
-- **Last recorded live Ask Aria acceptance:** `a42f4e3` answered “what is blocked” in Chrome after compact-state repair, using one state read; [PROJECT_STATE](PROJECT_STATE.md) entry “Ask Aria answers what is blocked”. That does not prove Michael's later multi-step question or speech path works.
-- **Live process and worker status now:** **UNKNOWN from GitHub**. The last host receipt reported the service running after `a42f4e3`; a GitHub PR or silence cannot establish a current process. Do not display “working now” from an old comment.
-- **Next engineering checkpoint:** independently review PR #14 against its brief, integrate only after the gate and receipt, then prove a real research request and report readback. In parallel, reconcile the PDF branch and the local Ask Aria/dictation candidate without racing the coordinator's files.
-- **Needs Michael now:** no decision identified for the research code review. A real microphone/dictation acceptance and optional GTK widget acceptance require Michael at his desktop. Web retrieval and real calling remain separate owner gates.
+- **Current milestone:** Phase 2/6, make Ask Aria reliably usable from Michael's screen. Typed Ask Aria and the local-source research lane have live acceptance; microphone timing and the newly observed first-Send loss remain open.
+- **Newly finished since the prior checkpoint:** [PR #14](https://github.com/caosos/Desktop-Agent/pull/14), [PR #15](https://github.com/caosos/Desktop-Agent/pull/15), [PR #16](https://github.com/caosos/Desktop-Agent/pull/16), and [PR #17](https://github.com/caosos/Desktop-Agent/pull/17) are merged. PR #16's merged gate was **174 passed, 1 skipped** and Michael's exact formerly failing typed question answered live. The first confirmed Ask Aria research job reached VERIFIED, its checker exited 0, and its report/PDF were published; see [Issue #3 receipt 6105583357](https://github.com/caosos/Desktop-Agent/issues/3#issuecomment-6105583357).
+- **Integrated but awaiting live confirmation:** [3e14ead](https://github.com/caosos/Desktop-Agent/commit/3e14eadd7c84724727df59a1037a7be2579fb365) unwraps a one-level JSON-wrapped model reply; the recorded gate is **176 passed, 1 skipped**. [fa0291b](https://github.com/caosos/Desktop-Agent/commit/fa0291b1851babe7aba9f5fd2785f19503a4cfb0) records the research acceptance and harness fixes in PROJECT_STATE. No post-commit host load/owner acceptance is established by GitHub alone.
+- **Open reliability observation:** the first Send after a fresh page load within about one minute of a service restart was lost twice in Chrome; no request reached the store and the cause is unknown. Reopening and sending again worked. This is reproduced evidence, not a diagnosed fix.
+- **Live process and worker status now:** **UNKNOWN from this GitHub check.** The latest host receipt proves the earlier research run and loaded harness fixes at that time; it does not prove a process or worker is currently running.
+- **Next eligible bounded task:** reproduce the lost-first-Send path with browser/network/store instrumentation, add a failing regression where possible, and fix only the proven cause. This checklist update does not dispatch that work.
+- **Needs Michael:** one short microphone measurement (request → first interim → final) remains the Phase 2 owner acceptance. Web retrieval remains BLOCKED on its separate approval-packet decision; local-source research does not depend on it.
+- **Owner constraint preserved:** work remains sequential, one accepted item at a time. No new Desktop Agent assignment or release is authorized by this update.
 
 ## Status key and timing
 
@@ -40,13 +41,16 @@ All durations below are **focused engineering effort after the dependency is ava
 
 | Check | I | T | S | L | Evidence / next action |
 |---|:---:|:---:|:---:|:---:|---|
-| Ask Aria text, project-grounded status, clear blocked/owner answer | ✓ | ✓ | ✓ | ✓ | [`a42f4e3`](https://github.com/caosos/Desktop-Agent/commit/a42f4e399561bde394643af8014714705f2693df) passed gate and Chrome question; retain source names and current freshness in replies. |
-| Multi-step Ask Aria question avoids `claude_cli` maximum-turns failure | ✓ | ✓ | · | · | Owner's observed failure: “Reached maximum number of turns (1).” Local `1abee06` changes this path; focused tests reported passing, browser/EliteDesk retest open. Publish/review without duplicating another worker's change. |
-| Dictation shows interim words promptly and final words remain editable | ✓ | ✓ | · | · | Current panel waits for final recognition segments; local `1abee06` adds interim display. No Chrome microphone test here; measure capture → interim → final → Send on Michael's machine. |
-| Panel is understandable while work runs; statuses and receipts are truthful | ✓ | ✓ | ✓ | ✓ | [`adee737`](https://github.com/caosos/Desktop-Agent/commit/adee73730536f76c6c4986ddbf0bb494a240d219) corrected blocked labels and was checked in Chrome. Michael reports the panel still feels busy; get a task-driven owner walk-through before closing usability. |
+| Ask Aria text, project-grounded status, clear blocked/owner answer | ✓ | ✓ | ✓ | ✓ | [a42f4e3](https://github.com/caosos/Desktop-Agent/commit/a42f4e399561bde394643af8014714705f2693df) answered the blocked-state question live; [PR #16 acceptance](https://github.com/caosos/Desktop-Agent/issues/3#issuecomment-6105490122) proves Michael's exact formerly failing typed question answered after integration. |
+| Multi-step Ask Aria question avoids claude_cli maximum-turns failure | ✓ | ✓ | ✓ | ✓ | [PR #16](https://github.com/caosos/Desktop-Agent/pull/16), merge 8a553a0; merged-head gate **174 passed, 1 skipped**; exact question answered live in Chrome at 2026-10-10 23:36 CDT. |
+| Dictation shows interim words promptly and final words remain editable | ✓ | ✓ | ✓ | · | PR #16 integrated the interim/final state changes and regressions. Real microphone request → first interim → final timing still requires Michael's browser; do not infer it from unit/browser automation. |
+| One owner-confirmed bounded task completes with receipts from Ask Aria | ✓ | ✓ | ✓ | ✓ | [PR #17](https://github.com/caosos/Desktop-Agent/pull/17), worker 8103cfa, control-plane merge 7256bec; clean-checkout checker exit 0; [live acceptance receipt](https://github.com/caosos/Desktop-Agent/issues/3#issuecomment-6105583357). Report conclusions remain unverified beyond citation resolution. |
+| JSON-wrapped model reply renders as the reply, not raw JSON | ✓ | ✓ | ✓ | · | [3e14ead](https://github.com/caosos/Desktop-Agent/commit/3e14eadd7c84724727df59a1037a7be2579fb365), recorded gate **176 passed, 1 skipped**. Integrated on main; no later live owner acceptance receipt found. |
+| First Send after fresh page load/restart reliably reaches the store | · | · | · | · | Lost twice in Chrome within about one minute of restart; re-opening and resending worked. Cause unknown. Next bounded task: instrument browser request, API arrival and store write, then add a regression for the proven failure. |
+| Panel is understandable while work runs; statuses and receipts are truthful | ✓ | ✓ | ✓ | ✓ | [adee737](https://github.com/caosos/Desktop-Agent/commit/adee73730536f76c6c4986ddbf0bb494a240d219) corrected blocked labels and was checked in Chrome. |
 | Optional GTK widget and push-to-talk path from Michael's desktop | ✓ | ✓ | · | · | [Widget setup](WIDGET_SETUP.md) and unit tests exist; an actual display/voice acceptance receipt remains open. The browser panel is the usable owner surface meanwhile. |
 
-**Next milestone order:** review and integrate the one-turn/dictation fix; test Michael's exact failing question; measure speech latency with a real microphone; issue one bounded task from the owner surface and inspect its receipt. **Estimate:** 1–3 focused working days plus Michael's short desktop check, **low confidence** until host tests.
+**Current task:** no task is dispatched by this tracker. The next eligible bounded engineering task is the lost-first-Send reproduction/fix. **Dependency:** reproduce around page load/restart without conflating it with microphone latency. **Next checkpoint:** a failing regression or captured browser/API/store trace that identifies the layer, followed by a narrow fix and gate. **Estimate:** 0.5–1 focused working day, **low confidence** until the failure is isolated. Michael's microphone check is a separate short acceptance step.
 
 ## Phase 3 — Reliable autonomous build supervisor across three projects
 
@@ -61,17 +65,18 @@ All durations below are **focused engineering effort after the dependency is ava
 
 **Estimate to acceptance:** 5–10 focused working days after Phase 2's dependable command loop; **low confidence**, and longer if cross-account wake needs new permissions.
 
-## Phase 4 — Research and useful artifacts through Ask Aria (ACTIVE parallel work)
+## Phase 4 — Research and useful artifacts through Ask Aria (LIVE local-source acceptance)
 
 **Milestone:** Michael requests a real report, Aria states source and budget limits, one bounded worker researches, verifies citations, makes a usable PDF, and returns a link, progress and receipts in the conversation.
 
 | Check | I | T | S | L | Evidence / open gate |
 |---|:---:|:---:|:---:|:---:|---|
-| Local-source research job, job state, deduplication, cancellation, report checker | ✓ | ✓ | · | · | Draft [PR #14](https://github.com/caosos/Desktop-Agent/pull/14) at `3374d095` reports control-plane verification; independent review/integration and an owner request/readback remain open. Checker proves citation shape and referenced lines, not the truth of conclusions. |
-| PDF render and download from completed report | ✓ | ✓ | · | · | [`df1422f`](https://github.com/caosos/Desktop-Agent/commit/df1422f7f72eb462f2da32be620881221a7b236d) is a branch prototype; integrate and accept with an actual report. |
-| Web research with citations | · | · | · | · | Web retrieval is blocked in the worker sandbox; the approval-packet decision and source policy are recorded in [RESEARCH_BRIEF](RESEARCH_BRIEF.md). Local-source work need not wait. |
+| Local-source research job, job state, deduplication, retry following, cancellation and checker | ✓ | ✓ | ✓ | ✓ | [PR #14](https://github.com/caosos/Desktop-Agent/pull/14) integrated research v1. Harness corrections [01ae8f5](https://github.com/caosos/Desktop-Agent/commit/01ae8f59a25fd2698600569bb3c619b288e2b7fb) and [5f47b67](https://github.com/caosos/Desktop-Agent/commit/5f47b67440114c249ba23d90f50fcb58236dfcc7) were exercised by the successful retry. [PR #17](https://github.com/caosos/Desktop-Agent/pull/17) reached VERIFIED; checker exit 0. |
+| PDF render and authenticated report/PDF download | ✓ | ✓ | ✓ | ✓ | [347c162](https://github.com/caosos/Desktop-Agent/commit/347c162b24176a086d9c44a480d061e71464645e) integrated publication. [Live receipt](https://github.com/caosos/Desktop-Agent/issues/3#issuecomment-6105583357): PDF 82,884 bytes, SHA-256 f1e4475d…, 0.93 s; report and PDF returned 200 with auth and 401 without it. |
+| Research content independently validates its cited conclusions | · | · | · | · | The checker verifies required structure and that citations resolve; it does not independently judge the report's conclusions. Independent source-line comparison remains open. |
+| Web research with citations | · | · | · | · | Web retrieval is BLOCKED on the approval-packet decision and source policy in [RESEARCH_BRIEF](RESEARCH_BRIEF.md). Local-source work is accepted and need not wait. |
 
-**Immediate estimates:** PR #14 review/integration and real local report, 0.5–1.5 focused days; PDF integration and readback, 0.5–1.5 more days; **low confidence** until review finds the remaining defects. Web retrieval has no ETA pending its decision.
+**Phase status:** the local-source workflow is implemented, tested, integrated and live-accepted. Web retrieval and independent semantic review remain separate open gates. No additional research job is authorized by this tracker.
 
 ## Phase 5 — Desktop, browser and SSH operator
 
@@ -101,4 +106,4 @@ On every meaningful completion or blocker, update the relevant row and the proje
 
 For each active item publish: **requirement · task/PR · owner/lane · stage · started/last activity · implementation SHA · tests · integrated revision · live revision/acceptance · blocker · next action · ETA range and confidence**. If no worker is active, say so only from a fresh host observation. A monitor may report progress, but it does not dispatch work or override a paused lane merely by reading this file.
 
-**Next checkpoint:** reconcile PR #14 and the PDF branch with the live coordinator, then revisit the local one-turn/dictation fix. Update this file from the results. No release, spend, seller contact, provider/account change or other project modification is authorized by this checklist.
+**Next checkpoint:** isolate the first-Send loss, preserve a reproducible receipt, and gate a narrow fix; then record Michael's microphone timing. Keep web retrieval blocked until its approval packet is decided. No release, spend, seller contact, provider/account change, new assignment, or other project modification is authorized by this checklist.
