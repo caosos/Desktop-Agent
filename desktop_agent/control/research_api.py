@@ -3,7 +3,10 @@ from __future__ import annotations
 
 import uuid
 
+from pathlib import Path
+
 from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.responses import FileResponse, PlainTextResponse
 from pydantic import BaseModel, Field
 
 
@@ -35,6 +38,26 @@ def research_routes(service, auth) -> APIRouter:
         if not job:
             raise HTTPException(404, "no such research job")
         return job
+
+    def _published(job_id: str, kind: str) -> Path:
+        job = jobs.get(job_id)
+        if not job:
+            raise HTTPException(404, "no such research job")
+        pub = job.get("published") or {}
+        if kind == "pdf" and not (pub.get("pdf") or {}).get("ok"):
+            raise HTTPException(404, f"no PDF for {job_id}: {(pub.get('pdf') or {}).get('reason', 'job not VERIFIED yet')}")
+        path = Path((pub.get("pdf") or {}).get("pdf_path", "") if kind == "pdf" else pub.get("report", ""))
+        if not path.is_file():
+            raise HTTPException(404, f"no {kind} file for {job_id} ({'job not VERIFIED yet' if job['state'] != 'VERIFIED' else 'file missing'})")
+        return path
+
+    @router.get("/v0/research/{job_id}/report")
+    async def get_report(job_id: str, _: str = Depends(auth)):
+        return PlainTextResponse(_published(job_id, "report").read_text(encoding="utf-8"), media_type="text/markdown")
+
+    @router.get("/v0/research/{job_id}/pdf")
+    async def get_pdf(job_id: str, _: str = Depends(auth)):
+        return FileResponse(_published(job_id, "pdf"), media_type="application/pdf", filename=f"{job_id}.pdf")
 
     @router.post("/v0/research/{job_id}/cancel")
     async def cancel_job(job_id: str, request: Request, _: str = Depends(auth)):

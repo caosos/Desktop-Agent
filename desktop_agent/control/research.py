@@ -6,11 +6,14 @@ The receipt chain on subject ("research", job_id) is the trace. Design: docs/RES
 """
 from __future__ import annotations
 
+import shutil
 import threading
 import time
 import uuid
+from pathlib import Path
 
 from . import receipts as rc
+from .research_pdf import render_pdf
 
 TERMINAL = {"VERIFIED", "FAILED", "CANCELLED"}
 TRANSITIONS = {
@@ -64,7 +67,7 @@ class ResearchService:
 
     def _view(self, job: dict, duplicate: bool = False) -> dict:
         out = {k: job.get(k) for k in ("job_id", "turn", "question", "project", "source", "state", "task_id", "report_path", "pr_url",
-                                       "reason", "history", "created_at", "updated_at")}
+                                       "reason", "history", "created_at", "updated_at", "published")}
         out["duplicate"] = duplicate
         out["receipts"] = len(rc.chain(self.store, "research", job["job_id"]))
         return out
@@ -143,17 +146,47 @@ class ResearchService:
             self.store.set_kv(self._key(job_id), job)
             claim = f"{state}: {note}" + (f" ({CAVEAT})" if state == "VERIFIED" else "")
             self._receipt(job, claim, rc.FAILED if state == "FAILED" else rc.VERIFIED, source, before)
+        if state == "VERIFIED":
+            self._publish(job)
         if state in ("RUNNING", "VERIFIED", "FAILED", "CANCELLED"):
             self._note(job, self._note_text(job, state, note))
         return {"applied": True, "reason": None, "state": state}
+
+    # ---- result publication (convenience after VERIFIED; never changes the job's state) ----
+    def published_dir(self) -> Path:
+        return Path(self.service.cfg.data_dir) / "research"
+
+    def _publish(self, job: dict) -> None:
+        """Copy the verified report out of the task workspace and render it to PDF with the installed Chrome.
+        Outcome is recorded on the job (`published`, `pdf`) and in one receipt; a failure here is reported, not hidden."""
+        src = Path(self.service.cfg.workspaces_dir) / str(job["task_id"]) / "repo" / job["report_path"]
+        out = self.published_dir()
+        pub: dict = {"source": str(src)}
+        if src.is_file():
+            out.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(src, out / f"{job['job_id']}.md")
+            pub["report"] = str(out / f"{job['job_id']}.md")
+            pub["pdf"] = render_pdf(src, out / f"{job['job_id']}.pdf", footer=f"Desktop-Agent research job {job['job_id']} - {CAVEAT}")
+        else:
+            pub["pdf"] = {"ok": False, "reason": f"report not found in the task workspace: {src}"}
+        with self._lock:
+            cur = self.store.get_kv(self._key(job["job_id"])) or job
+            cur["published"] = pub
+            self.store.set_kv(self._key(job["job_id"]), cur)
+            job.update(published=pub)
+        ok = pub["pdf"].get("ok")
+        self._receipt(job, f"report published: {'PDF ' + str(pub['pdf'].get('bytes')) + ' bytes, sha256 ' + pub['pdf']['sha256'][:12] if ok else 'no PDF: ' + pub['pdf']['reason']}",
+                      rc.VERIFIED if ok else rc.FAILED, "publish")
 
     def _note_text(self, job: dict, state: str, note: str) -> str:
         jid = job["job_id"]
         if state == "RUNNING":
             return f"Research job {jid} started: one bounded worker (task {job['task_id']}), local sources only, no web. The report will appear at {job['report_path']}."
         if state == "VERIFIED":
+            pdf = (job.get("published") or {}).get("pdf") or {}
+            where = f" PDF ready: GET /v0/research/{jid}/pdf ({pdf.get('bytes')} bytes)." if pdf.get("ok") else f" No PDF: {pdf.get('reason', 'not rendered')}."
             return (f"Research job {jid} VERIFIED: {job['report_path']} ({CAVEAT})"
-                    + (f" - PR {job['pr_url']}" if job.get("pr_url") else "") + ".")
+                    + (f" - PR {job['pr_url']}" if job.get("pr_url") else "") + "." + where)
         return f"Research job {jid} {state}: {note}"
 
     async def cancel(self, job_id: str, source: str = "test") -> dict:

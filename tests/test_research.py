@@ -59,10 +59,12 @@ def test_reconcile_done_moves_once_and_failed_carries_reason(tmp_path):
     s.research.reconcile()
     s.research.reconcile()
     j = s.research.get(ok["job_id"])
-    assert j["state"] == "VERIFIED" and j["pr_url"] == "https://example.test/pr/1" and j["receipts"] == 3
+    assert j["state"] == "VERIFIED" and j["pr_url"] == "https://example.test/pr/1" and j["receipts"] == 4
     rs = chain(s.store, "research", ok["job_id"])
-    assert [r["result_label"] for r in rs] == ["verified"] * 3 and "citations resolve" in rs[-1]["claim"] and "unverified" in rs[-1]["claim"]
-    assert rs[-1]["actor"] == "control" and rs[-1]["correlation_id"] == "t-ok" and f"task_id={ok['task_id']}" in rs[-1]["evidence"]
+    # PLANNED, RUNNING, VERIFIED, then the publication step: no report in this test workspace → a failed receipt, state unchanged
+    assert [r["result_label"] for r in rs] == ["verified"] * 3 + ["failed"] and "citations resolve" in rs[2]["claim"] and "unverified" in rs[2]["claim"]
+    assert rs[2]["actor"] == "control" and rs[2]["correlation_id"] == "t-ok" and f"task_id={ok['task_id']}" in rs[2]["evidence"]
+    assert rs[3]["claim"].startswith("report published: no PDF: report not found") and j["published"]["pdf"]["ok"] is False
     f = s.research.get(bad["job_id"])
     assert f["state"] == "FAILED" and "verifier failed" in f["reason"]
     assert [r["result_label"] for r in chain(s.store, "research", bad["job_id"])] == ["verified", "verified", "failed"]
@@ -100,7 +102,7 @@ def test_rejected_transitions_are_recorded_not_receipted(tmp_path):
     s.research.apply(job["job_id"], "VERIFIED", "ok")
     res = s.research.apply(job["job_id"], "RUNNING", "after terminal")
     assert res["applied"] is False and res["state"] == "VERIFIED"
-    assert len(chain(s.store, "research", job["job_id"])) == before + 1
+    assert len(chain(s.store, "research", job["job_id"])) == before + 2   # VERIFIED, then its publication step; the two rejections add nothing
     assert len(s.store.get_kv(f"research:{job['job_id']}")["rejected"]) == 2
     assert s.research.apply("rj-nope", "RUNNING")["reason"] == "no such job"
 

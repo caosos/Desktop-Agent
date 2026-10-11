@@ -50,3 +50,37 @@ def test_render_pdf_produces_a_real_pdf(tmp_path: Path):
     assert r["ok"] is True, r
     data = (tmp_path / "out" / "r.pdf").read_bytes()
     assert data.startswith(b"%PDF") and r["bytes"] == len(data) > 1000 and len(r["sha256"]) == 64
+
+
+def test_verified_job_publishes_report_and_pdf_and_routes_serve_them(tmp_path: Path):
+    """End of the job: the verified report is copied out of the task workspace, rendered to PDF, receipted, and
+    served by /report and /pdf; before VERIFIED both routes say so with 404."""
+    from fastapi.testclient import TestClient
+    from desktop_agent.control.api import build_app
+    from desktop_agent.control.receipts import chain
+    from tests.test_ask_aria import _service
+    s = _service(tmp_path)
+    job = s.research.request("t-pub", "What does the gate do?", "mbos")
+    H = {"Authorization": "Bearer tok"}
+    with TestClient(build_app(s, "tok")) as c:
+        assert c.get(f"/v0/research/{job['job_id']}/pdf", headers=H).status_code == 404
+        assert c.get(f"/v0/research/{job['job_id']}/report", headers=H).status_code == 404
+        src = Path(s.cfg.workspaces_dir) / job["task_id"] / "repo" / job["report_path"]
+        src.parent.mkdir(parents=True, exist_ok=True); src.write_text(REPORT)
+        s.store.set_task_status(job["task_id"], "DONE", {"integration": {"pr_url": "https://example.test/pr/9"}})
+        s.research.reconcile()
+        j = s.research.get(job["job_id"])
+        pub = j["published"]
+        assert j["state"] == "VERIFIED" and Path(pub["report"]).read_text() == REPORT
+        r = c.get(f"/v0/research/{job['job_id']}/report", headers=H)
+        assert r.status_code == 200 and r.text == REPORT
+        note = [t["text"] for t in s.aria.transcript() if t.get("kind") == "research"][-1]
+        rs = chain(s.store, "research", job["job_id"])
+        if rp.chrome_binary():
+            assert pub["pdf"]["ok"] is True and pub["pdf"]["bytes"] > 1000
+            r = c.get(f"/v0/research/{job['job_id']}/pdf", headers=H)
+            assert r.status_code == 200 and r.headers["content-type"] == "application/pdf" and r.content.startswith(b"%PDF")
+            assert f"PDF ready: GET /v0/research/{job['job_id']}/pdf" in note and rs[-1]["result_label"] == "verified" and "sha256" in rs[-1]["claim"]
+        else:
+            assert pub["pdf"]["ok"] is False and "No PDF" in note and rs[-1]["result_label"] == "failed"
+        assert c.get(f"/v0/research/{job['job_id']}/pdf").status_code == 401
