@@ -1,4 +1,5 @@
 """Server-side Aria with a fake model: status answers, confirm-then-submit, action receipts."""
+import json
 import asyncio
 from pathlib import Path
 
@@ -81,3 +82,24 @@ def test_widget_uses_server_side_aria_and_api_route(tmp_path):
     a = Aria(ChatClient(), api_key="")
     assert a.server_side and a.ask("what's running?") == "server reply for what's running?"
     assert a.ask("pause") == "Paused."            # single-word controls skip the model
+
+
+def test_get_state_is_compact_and_owner_first(tmp_path):
+    """The full state is tens of KB; folded into the model context it was cut at 3000 chars before the blocked and
+    work sections, so a plain "what is blocked?" looped on get_state and never answered (seen live 2026-10-11)."""
+    from desktop_agent.control.aria import ACTION_RESULT_CHARS, compact_state
+    big = {"next": "Needs you: X", "glance": {"a": 1}, "blocked": [{"task_id": "t1", "reason": "r"}], "inbox": [], "workers": [], "paused": False, "hold": None,
+           "work": {k: [{"project": "p", "who": "you", "text": "row " * 200} for _ in range(40)] for k in ("can_run_now", "needs_owner", "waiting")},
+           "projects": [{"name": f"p{i}", "stage": "IDLE", "coordinator": {"connected": True, "detail": "d" * 2000, "external": {"x": "y" * 3000}}, "workers": {"status": "IDLE", "active": 0, "workers": ["w" * 500]}} for i in range(6)],
+           "tasks": [{"task_id": f"t{i}", "status": "DONE", "stage": "s", "objective": "o" * 500, "result": "r" * 2000} for i in range(60)],
+           "intake": {"counts": {"DONE": 3}, "unacknowledged": [], "items": [{"item_id": f"da-{i}", "project": "p", "status": "DONE" if i % 2 else "WORKING", "title": "t" * 300, "body": "b" * 5000} for i in range(80)]},
+           "costs": {"today_usd": 1.0, "total_usd": 2.0, "per_task": {f"t{i}": 0.1 for i in range(200)}}, "budgets": {"daily": 20}}
+    c = compact_state(big)
+    assert len(json.dumps(c, default=str)) < ACTION_RESULT_CHARS
+    assert list(c)[:3] == ["next", "glance", "work"] and c["blocked"] == big["blocked"] and "per_task" not in c["costs"]
+    assert all(i["status"] != "DONE" for i in c["shared_inbox"]["open_items"]) and len(c["tasks"]) == 5
+    s = _service(tmp_path)
+    s.aria.llm = FakeLLM([{"reply": "Checking.", "action": {"name": "get_state", "args": {}}}, {"reply": "Nothing is blocked.", "action": None}])
+    asyncio.run(s.aria.chat("what is blocked?"))
+    folded = next(h["text"] for h in s.aria.history if h["role"] == "action")
+    assert folded.startswith("get_state → {") and '"needs_owner"' in folded and len(folded) <= ACTION_RESULT_CHARS + 20

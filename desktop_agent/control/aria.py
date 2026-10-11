@@ -32,6 +32,30 @@ ACTIONS = {
 }
 KIND_BY_ACTION = {"request_call": "call (SIMULATED)", "submit_goal": "new work", "send_direction": "direction", "answer_decision": "owner decision", "control": "control"}
 HISTORY_KV = "aria:history"
+ACTION_RESULT_CHARS = 10000  # an action result is folded into the model context up to this size
+
+
+def compact_state(st: dict) -> dict:
+    """The owner view in model-sized form: what needs the owner, what is blocked and what runs, first; raw
+    project internals stay behind project_brief. The full state is ~85 KB; this must fit one action result."""
+    ik = st.get("intake") or {}
+    work = st.get("work") or {}
+    open_items = [i for i in (ik.get("items") or []) if i.get("status") not in ("DONE", "CLOSED")]
+    return {
+        "next": st.get("next"), "glance": st.get("glance"),
+        "work": {k: [{"project": r.get("project"), "who": r.get("who"), "text": str(r.get("text", ""))[:120]} for r in (work.get(k) or [])[:10]]
+                 for k in ("needs_owner", "waiting", "can_run_now")},
+        "blocked": st.get("blocked"), "decisions_waiting": st.get("inbox"), "workers_running": st.get("workers"),
+        "paused": st.get("paused"), "hold": st.get("hold"),
+        "projects": [{"name": p.get("name"), "stage": p.get("stage"),
+                      "coordinator": {k: (str(v)[:140] if k == "detail" else v) for k, v in (p.get("coordinator") or {}).items() if k in ("connected", "detail", "session")},
+                      "workers": {k: v for k, v in (p.get("workers") or {}).items() if k in ("status", "active", "detail")}} for p in st.get("projects") or []],
+        "tasks": [{"task_id": t.get("task_id"), "status": t.get("status"), "stage": t.get("stage"), "objective": str(t.get("objective", ""))[:80]}
+                  for t in (st.get("tasks") or [])[-5:]],
+        "shared_inbox": {"counts": ik.get("counts"), "unacknowledged": ik.get("unacknowledged"),
+                         "open_items": [{"item_id": i.get("item_id"), "project": i.get("project"), "status": i.get("status"), "title": str(i.get("title", ""))[:60]} for i in open_items[-8:]]},
+        "costs": {k: v for k, v in (st.get("costs") or {}).items() if k != "per_task"}, "budgets": st.get("budgets"),
+    }
 HISTORY_KEEP = 60
 
 SCHEMA = {
@@ -65,12 +89,7 @@ class AriaBrain:
         s = self.service
         try:
             if name == "get_state":
-                st = s.state()
-                ik = st.get("intake") or {}
-                return {k: st[k] for k in ("projects", "workers", "inbox", "blocked", "next", "costs", "paused", "hold", "feedback", "budgets")} | \
-                       {"tasks": [{k: t[k] for k in ("task_id", "status", "stage", "objective", "last_activity", "model_class")} for t in st["tasks"][-10:]],
-                        "shared_inbox": {"counts": ik.get("counts"), "unacknowledged": ik.get("unacknowledged"), "coordinator_activity": ik.get("coordinator_activity"),
-                                         "items": [{k: i.get(k) for k in ("item_id", "project", "kind", "title", "status", "posted_at", "url")} for i in (ik.get("items") or [])[-12:]]}}
+                return compact_state(s.state())
             if name == "list_projects":
                 return {"projects": [p.summary() for p in s.projects.values()]}
             if name == "project_brief":
@@ -170,7 +189,7 @@ class AriaBrain:
             evidence = {k: result.get(k) for k in ("item_id", "status", "url", "task_ids", "decision_id", "note", "call_id") if isinstance(result, dict) and result.get(k)}
             actions_taken.append({"name": action["name"], "args": action.get("args") or {}, "ok": "error" not in result, "evidence": evidence})
             self.history.append({"role": "aria_step", "text": reply, "ts": time.time()})
-            self.history.append({"role": "action", "text": f"{action['name']} → {json.dumps(result, default=str)[:3000]}", "ts": time.time()})
+            self.history.append({"role": "action", "text": f"{action['name']} → {json.dumps(result, default=str)[:ACTION_RESULT_CHARS]}", "ts": time.time()})
             pending = "(continue: use the action result above to answer the owner)"
         kind = next((KIND_BY_ACTION[a["name"]] for a in actions_taken if a["name"] in KIND_BY_ACTION), "question")
         self.history.append({"role": "aria", "text": reply, "ts": time.time(), "kind": kind,
