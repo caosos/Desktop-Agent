@@ -10,5 +10,5 @@ log="${GATE_LOG:-$(mktemp -t gate.XXXXXX.log)}"
 rc=$?                                         # captured first; nothing below can change it
 summary="$(tail -n 1 "$log")"
 verdict=FAIL; [ "$rc" -eq 0 ] && verdict=PASS
-echo "GATE $verdict exit=$rc head=$(git rev-parse HEAD) tree=$([ -z "$(git status --porcelain)" ] && echo clean || echo dirty) :: $summary (log $log)"
+echo "GATE $verdict exit=$rc head=$(git rev-parse HEAD) load=$(cut -d" " -f1 /proc/loadavg) tree=$([ -z "$(git status --porcelain)" ] && echo clean || echo dirty) :: $summary (log $log)"
 exit "$rc"
