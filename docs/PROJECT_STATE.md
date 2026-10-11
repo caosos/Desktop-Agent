@@ -658,3 +658,17 @@ HANDOFF CAPSULE
 - **PR #16 `fix/aria-dictation-response` (another session, head 2449c88) reviewed and merged (8a553a0):** `claude_cli --max-turns 3` (tools still disabled), interim dictation shown immediately, regressions; PROJECT_STATE conflict resolved keeping both entries. Gate on the merge: `GATE PASS exit=0 :: 174 passed, 1 skipped`. PR #15 `docs/living-build-checklist-2026-10-10` merged (a09c8c1).
 - **Relay gap:** owner comments 6105164273 / 6105181429 (03:49/03:51Z, items da-dc3e628150 / da-c6d05967b1) were ingested but their peer delivery failed ("OAuth session expired and could not be refreshed"); picked up from the store at 04:35Z after Michael re-logged in; ACK + DONE posted on #3 with this evidence.
 - **Live:** restart 04:32:16Z → 04:32:21Z (5 s stop), main a09c8c1, MainPID 247755; `/v0/research` 401/200. Michael's exact question from the 02:50Z failure ("Aria I need to find out if you're capable of managing these three projects …", which had failed twice with "Reached maximum number of turns (1)") re-sent verbatim from Chrome at 04:36Z: answered in one `get_state`, $0.017 — "Partly. I can watch all three projects, route your instructions to their coordinators, and show you what is waiting on you, but I can't approve, deny or fix anything on your behalf …". Microphone timing still needs Michael at his desk.
+
+
+## 2026-10-10 — task `research-job-rj-fd023afe99-for-p-a6e92b` verified (recorded by the control plane)
+
+- **Objective:** Research job rj-fd023afe99 for project desktop_agent. QUESTION: What does the receipt law require, and where in the code is it enforced? Produce a cited report.
+
+Local sources only: use this repository checkout on disk (docs, code, tests, PROJECT_STATE). No web retrieval, no guesses.
+Work in four pa
+- **Why now:** research job rj-fd023afe99 confirmed by the owner in Ask Aria
+- **Model class:** cloud_strong; attempt 1; adapter claude_headless
+- **Worker head:** `8103cfa0d2ffe2b49032724d5319072ed5469870` on `agent/research-job-rj-fd023afe99-for-p-a6e92b` from `5f47b6744011`
+- **Verifier (clean checkout):** `python3 scripts/research_check.py docs/research/rj-fd023afe99.md` exit 0
+- **Files:** docs/research/rj-fd023afe99.md
+- **Receipts:** worker claim unverified → verifier verified; integration follows this entry.
