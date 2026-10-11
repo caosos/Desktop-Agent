@@ -87,7 +87,7 @@ class Drilldown:
             parts.append(f"coordinator session {coord.get('session')} {coord.get('session_status')}" if coord.get("connected") else "coordinator session DOWN (registry)")
         else:
             parts.append("coordinator: this control plane")
-        if not live and not any("running" in x for x in parts[1:2]):
+        if not live:
             parts.append("no bounded worker process observed on the host")
         now_line = "; ".join(parts)
         ready_here = [t["task_id"] for t in tasks if t["status"] == "READY"]

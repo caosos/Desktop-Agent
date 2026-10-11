@@ -231,3 +231,6 @@ def test_summary_lines_come_from_fresh_sources_and_roster_is_historical(tmp_path
     sm = s.drill.build("mbos")["summary"]
     assert sm["next"].startswith("UNKNOWN") and "coordinator: UNKNOWN" in sm["now"] and "F-143 running" in sm["now"]
     assert not any("Approve?" in x for x in sm["needs_michael"])              # a stale feed's question is not a current demand
+    # no live worker: Now says so explicitly instead of staying silent
+    s.workers.procs_fn = lambda: []
+    assert "no bounded worker process observed on the host" in s.drill.build("mbos")["summary"]["now"]
