@@ -13,6 +13,8 @@ from pathlib import Path
 from typing import Any, Callable, Iterable
 
 from .events import Event
+from .store_intake import IntakeStoreMixin
+from .store_owner import OwnerRecordsMixin
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS goals (
@@ -76,7 +78,7 @@ _MIGRATIONS = [
 ]
 
 
-class Store:
+class Store(IntakeStoreMixin, OwnerRecordsMixin):
     def __init__(self, data_dir: Path):
         self.data_dir = Path(data_dir)
         self.data_dir.mkdir(parents=True, exist_ok=True)
@@ -236,196 +238,6 @@ class Store:
     def last_receipt_id(self, subject_type: str, subject_id: str) -> str | None:
         recs = self.receipts(subject_type, subject_id)
         return recs[-1]["receipt_id"] if recs else None
-
-    # ---- plans ------------------------------------------------------------
-    def save_plan(self, goal_id: str, status: str, plan: dict | None, answers: list[dict] | None = None) -> None:
-        with self._lock:
-            self._db.execute(
-                "INSERT INTO plans(goal_id, status, plan_json, answers_json, updated_at) VALUES (?,?,?,?,?)"
-                " ON CONFLICT(goal_id) DO UPDATE SET status=excluded.status, plan_json=COALESCE(excluded.plan_json, plans.plan_json),"
-                " answers_json=COALESCE(excluded.answers_json, plans.answers_json), updated_at=excluded.updated_at",
-                (goal_id, status, json.dumps(plan) if plan is not None else None,
-                 json.dumps(answers) if answers is not None else None, time.time()),
-            )
-            self._db.commit()
-
-    def get_plan(self, goal_id: str) -> dict | None:
-        with self._lock:
-            row = self._db.execute("SELECT * FROM plans WHERE goal_id=?", (goal_id,)).fetchone()
-        if not row:
-            return None
-        d = dict(row)
-        d["plan"] = json.loads(d.pop("plan_json") or "null")
-        d["answers"] = json.loads(d.pop("answers_json") or "[]")
-        return d
-
-    def get_goal(self, goal_id: str) -> dict | None:
-        with self._lock:
-            row = self._db.execute("SELECT * FROM goals WHERE goal_id=?", (goal_id,)).fetchone()
-        return dict(row) if row else None
-
-    # ---- decisions --------------------------------------------------------
-    def save_decision(self, decision_id: str, task_id: str | None, question: str, options: list[str],
-                      goal_id: str | None = None, project: str | None = None, scope: str | None = None,
-                      resumes: str | None = None, recommendation: str | None = None) -> None:
-        with self._lock:
-            self._db.execute(
-                "INSERT OR REPLACE INTO decisions(decision_id, task_id, question, options_json, answer, asked_at, answered_at, goal_id,"
-                " project, scope, resumes, recommendation) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
-                (decision_id, task_id, question, json.dumps(options), None, time.time(), None, goal_id, project, scope, resumes, recommendation),
-            )
-            self._db.commit()
-
-    def amend_decision(self, decision_id: str, **fields) -> dict | None:
-        """Correct the owner-facing text of an OPEN decision (question, options, recommendation, scope, resumes, why).
-        Never touches answers; the caller records the receipt and the reason."""
-        allowed = {"question", "options", "recommendation", "scope", "resumes", "why"}
-        sets, vals = [], []
-        for k, v in fields.items():
-            if k not in allowed:
-                raise ValueError(f"cannot amend {k}")
-            sets.append(("options_json" if k == "options" else k) + "=?"); vals.append(json.dumps(v) if k == "options" else v)
-        with self._lock:
-            if sets:
-                self._db.execute(f"UPDATE decisions SET {', '.join(sets)} WHERE decision_id=? AND answer IS NULL", (*vals, decision_id))
-                self._db.commit()
-            row = self._db.execute("SELECT * FROM decisions WHERE decision_id=?", (decision_id,)).fetchone()
-        return dict(row) if row else None
-
-    def defer_decision(self, decision_id: str, until: float) -> dict | None:
-        """Hide a decision until `until`; it stays open and unanswered (deferral is never consent)."""
-        with self._lock:
-            self._db.execute("UPDATE decisions SET deferred_until=? WHERE decision_id=? AND answer IS NULL", (until, decision_id))
-            self._db.commit()
-            row = self._db.execute("SELECT * FROM decisions WHERE decision_id=?", (decision_id,)).fetchone()
-        return dict(row) if row else None
-
-    def answer_decision(self, decision_id: str, answer: str) -> dict | None:
-        with self._lock:
-            self._db.execute("UPDATE decisions SET answer=?, answered_at=? WHERE decision_id=?",
-                             (answer, time.time(), decision_id))
-            self._db.commit()
-            row = self._db.execute("SELECT * FROM decisions WHERE decision_id=?", (decision_id,)).fetchone()
-        return dict(row) if row else None
-
-    def open_decisions(self, include_deferred: bool = False) -> list[dict]:
-        q = "SELECT * FROM decisions WHERE answer IS NULL"
-        if not include_deferred:
-            q += " AND (deferred_until IS NULL OR deferred_until < ?)"
-        with self._lock:
-            rows = self._db.execute(q + " ORDER BY asked_at", () if include_deferred else (time.time(),)).fetchall()
-        out = []
-        for r in rows:
-            d = dict(r)
-            d["options"] = json.loads(d.pop("options_json") or "[]")
-            out.append(d)
-        return out
-
-    # ---- owner-instruction intake ------------------------------------------
-    def save_intake(self, item: dict) -> None:
-        now = time.time()
-        with self._lock:
-            self._db.execute(
-                "INSERT OR IGNORE INTO intake_items(item_id, project, repo, issue, kind, gh_id, author, title, body, url, posted_at,"
-                " status, note, coordinator, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                (item["item_id"], item["project"], item["repo"], item["issue"], item["kind"], item["gh_id"], item["author"],
-                 item.get("title", ""), item.get("body", ""), item.get("url", ""), item.get("posted_at", ""),
-                 item.get("status", "POSTED"), "", item.get("coordinator"), now, now))
-            self._db.commit()
-
-    def set_intake_status(self, item_id: str, status: str, note: str) -> None:
-        with self._lock:
-            self._db.execute("UPDATE intake_items SET status=?, note=?, updated_at=? WHERE item_id=?", (status, note[:500], time.time(), item_id))
-            self._db.commit()
-
-    def set_intake_github(self, item_id: str, gh_id: int, url: str, posted_at: str) -> None:
-        with self._lock:
-            self._db.execute("UPDATE intake_items SET gh_id=?, url=?, posted_at=? WHERE item_id=?", (gh_id, url, posted_at, item_id)); self._db.commit()
-
-    def update_intake_body(self, item_id: str, body: str) -> None:
-        with self._lock:
-            self._db.execute("UPDATE intake_items SET body=?, title=?, updated_at=? WHERE item_id=?",
-                             (body, body.strip().splitlines()[0][:120] if body.strip() else "", time.time(), item_id)); self._db.commit()
-
-    def set_intake_activity(self, item_id: str, when: str) -> None:
-        with self._lock:
-            self._db.execute("UPDATE intake_items SET last_activity_at=? WHERE item_id=?", (when, item_id))
-            self._db.commit()
-
-    def flag_intake(self, item_id: str) -> None:
-        with self._lock:
-            self._db.execute("UPDATE intake_items SET flagged=1 WHERE item_id=?", (item_id,)); self._db.commit()
-
-    def get_intake(self, item_id: str) -> dict | None:
-        with self._lock:
-            row = self._db.execute("SELECT * FROM intake_items WHERE item_id=?", (item_id,)).fetchone()
-        return dict(row) if row else None
-
-    def list_intake(self, project: str | None = None) -> list[dict]:
-        q, args = "SELECT * FROM intake_items", []
-        if project:
-            q += " WHERE project=?"; args.append(project)
-        with self._lock:
-            rows = self._db.execute(q + " ORDER BY created_at", args).fetchall()
-        return [dict(r) for r in rows]
-
-    def intake_cursor(self, repo: str, issue: int) -> str | None:
-        with self._lock:
-            row = self._db.execute("SELECT cursor FROM intake_cursors WHERE source=?", (f"{repo}#{issue}",)).fetchone()
-        return row["cursor"] if row else None
-
-    def set_intake_cursor(self, repo: str, issue: int, cursor: str) -> None:
-        with self._lock:
-            self._db.execute("INSERT OR REPLACE INTO intake_cursors VALUES (?,?,?)", (f"{repo}#{issue}", cursor, time.time())); self._db.commit()
-
-    def touch_coordinator_activity(self, project: str, when: str) -> None:
-        with self._lock:
-            self._ensure_coord(project)
-            row = self._db.execute("SELECT last_seen FROM coordinator_activity WHERE project=?", (project,)).fetchone()
-            if not row or (row["last_seen"] or "") < when:
-                self._db.execute("UPDATE coordinator_activity SET last_seen=?, updated_at=? WHERE project=?", (when, time.time(), project))
-            self._db.commit()
-
-    def coordinator_activity(self) -> dict[str, str]:
-        with self._lock:
-            rows = self._db.execute("SELECT project, last_seen FROM coordinator_activity").fetchall()
-        return {r["project"]: r["last_seen"] for r in rows}
-
-    def _ensure_coord(self, project: str) -> None:
-        self._db.execute("INSERT OR IGNORE INTO coordinator_activity(project, last_seen, updated_at) VALUES (?,?,?)", (project, None, time.time()))
-
-    def save_coordinator_check(self, project: str, entry: dict) -> None:
-        with self._lock:
-            self._ensure_coord(project)
-            self._db.execute("UPDATE coordinator_activity SET last_check=?, check_json=?, updated_at=? WHERE project=?",
-                             (entry.get("checked_at", time.time()), json.dumps(entry, default=str)[:20000], time.time(), project)); self._db.commit()
-
-    def save_coordinator_wake(self, project: str, when: float, kind: str) -> None:
-        with self._lock:
-            self._ensure_coord(project)
-            self._db.execute("UPDATE coordinator_activity SET last_wake=?, last_wake_kind=?, updated_at=? WHERE project=?", (when, kind, time.time(), project)); self._db.commit()
-
-    def save_coordinator_ack(self, project: str, when: float) -> None:
-        with self._lock:
-            self._ensure_coord(project)
-            self._db.execute("UPDATE coordinator_activity SET last_ack=?, updated_at=? WHERE project=?", (when, time.time(), project)); self._db.commit()
-
-    def coordinator_rows(self) -> dict[str, dict]:
-        with self._lock:
-            rows = self._db.execute("SELECT * FROM coordinator_activity").fetchall()
-        out = {}
-        for r in rows:
-            d = dict(r); d["check"] = json.loads(d.pop("check_json") or "null"); out[d["project"]] = d
-        return out
-
-    def set_kv(self, key: str, value: dict) -> None:
-        with self._lock:
-            self._db.execute("INSERT OR REPLACE INTO kv VALUES (?,?,?)", (key, json.dumps(value, default=str), time.time())); self._db.commit()
-
-    def get_kv(self, key: str) -> dict | None:
-        with self._lock:
-            row = self._db.execute("SELECT json FROM kv WHERE key=?", (key,)).fetchone()
-        return json.loads(row["json"]) if row else None
 
     # ---- costs / idempotency ---------------------------------------------
     def add_cost(self, task_id: str | None, worker_id: str | None, model: str | None,

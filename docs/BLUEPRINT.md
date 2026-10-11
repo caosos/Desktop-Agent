@@ -66,7 +66,7 @@ Entry points: [`__main__.py`](../desktop_agent/__main__.py) (service and
 | Component | Files | Label | Citation |
 |---|---|---|---|
 | Events, event types, stage derivation (shared contract) | [`events.py`](../desktop_agent/control/events.py) | VERIFIED-IMPLEMENTED | [`tests/test_core.py`](../tests/test_core.py) `test_stage_derivation_sequence`, `test_stage_blocked_and_waiting_owner` |
-| Store: SQLite tables + JSONL event log | [`store.py`](../desktop_agent/control/store.py) | VERIFIED-IMPLEMENTED | `tests/test_core.py` `test_store_events_roundtrip_and_jsonl`, `test_tasks_decisions_costs` |
+| Store: SQLite tables + JSONL event log | [`store.py`](../desktop_agent/control/store.py) (events, goals/tasks, receipts, costs, idempotency) + mixins [`store_intake.py`](../desktop_agent/control/store_intake.py) (intake items/cursors, coordinator rows, kv) and [`store_owner.py`](../desktop_agent/control/store_owner.py) (plans, decisions) | VERIFIED-IMPLEMENTED | `tests/test_core.py` `test_store_events_roundtrip_and_jsonl`, `test_tasks_decisions_costs` |
 | Receipts (law enforced in code; shared contract) | [`receipts.py`](../desktop_agent/control/receipts.py) | VERIFIED-IMPLEMENTED | `tests/test_core.py` `test_receipt_law` |
 | Task contracts (shared contract) | [`contracts.py`](../desktop_agent/control/contracts.py) | VERIFIED-IMPLEMENTED | `tests/test_core.py` `test_project_loader_and_contract` |
 | Project loader (descriptor → package) | [`project.py`](../desktop_agent/control/project.py) | VERIFIED-IMPLEMENTED | `tests/test_core.py` `test_project_loader_and_contract`, `test_project_loader_missing_field` |
