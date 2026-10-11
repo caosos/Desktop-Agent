@@ -11,6 +11,8 @@ decisions or hard external blockers.
 
 **Law.** No action without a receipt. No receipt without provenance.
 
+**Current owner-facing phase tracker:** [Living Product Build Checklist](docs/BUILD_CHECKLIST.md). It separates code, tests, integration and live acceptance, and names the next milestone and ETA confidence.
+
 **Status (2026-10-08).** BUILD, Stage 1 complete on the control-plane side (PR #2, branch `build/stage-1`, ready for review).
 Michael authorised BUILD on PR #1. The control plane runs as the user
 service `desktop-agent.service` on the EliteDesk (`127.0.0.1:8477`); the
