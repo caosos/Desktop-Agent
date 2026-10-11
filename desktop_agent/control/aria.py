@@ -176,13 +176,9 @@ class AriaBrain:
     async def chat(self, text: str) -> dict:
         """One owner message → reply, after at most MAX_STEPS model/action rounds."""
         started = time.time()
-        cost = 0.0
-        unknown_cost = False
-        tokens_in = tokens_out = 0
-        actions_taken: list[dict] = []
-        pending = text
         turn = "turn-" + uuid.uuid4().hex[:12]                # new owner turn = new command identity; repeated actions inside it share it (local to this call)
         self.history.append({"role": "owner", "text": text, "ts": started, "turn_id": turn})
+        self._persist()                                       # the request is in the store the moment it arrives, before any model call
         reply = ""
         if not self.status()["available"]:
             reply = self._deterministic(text)
@@ -190,6 +186,21 @@ class AriaBrain:
             self._persist()
             return {"reply": reply, "actions": [], "kind": "status (no model)", "model": None, "cost_usd": 0.0, "tokens": {"in": 0, "out": 0},
                     "duration_ms": int((time.time() - started) * 1000)}
+        try:
+            return await self._converse(text, turn, started)
+        except Exception as exc:                              # anything the loop did not handle: the failure is recorded, never silently lost
+            self.history.append({"role": "aria", "text": f"Request failed inside the control plane: {type(exc).__name__}: {str(exc)[:200]}. Nothing was changed.",
+                                 "ts": time.time(), "kind": "error", "actions": []})
+            self._persist()
+            raise
+
+    async def _converse(self, text: str, turn: str, started: float) -> dict:
+        cost = 0.0
+        unknown_cost = False
+        tokens_in = tokens_out = 0
+        actions_taken: list[dict] = []
+        pending = text
+        reply = ""
         for _ in range(MAX_STEPS):
             try:
                 comp = await self.llm.complete(self._prompt(pending), SCHEMA, "cloud_cheap", system=self.system, timeout=90)

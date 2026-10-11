@@ -167,3 +167,63 @@ def test_dictation_states_and_send_in_browser(served):
         assert s.store.list_tasks() == [] and "status (no model)" in page.inner_text("#aria_log")
         page.screenshot(path=str(Path(s.cfg.data_dir) / "ask-aria-no-model-1280.png"), full_page=False)
         ctx.close(); browser.close()
+
+
+# ---- Lost first Send (owner item da-66d1cd7470) -------------------------------------------------------------------
+class StoreCheckingLLM(FakeLLM):
+    """Looks at a fresh brain over the same store while the model call is in flight: the owner turn must already be there."""
+    def __init__(self, service, answers): super().__init__(answers); self.service = service; self.seen_in_store = None
+    async def complete(self, prompt, schema, model_class="cloud_cheap", system=None, timeout=0):
+        from desktop_agent.control.aria import AriaBrain
+        fresh = AriaBrain(self.service, llm=self)
+        self.seen_in_store = [t["text"] for t in fresh.transcript() if t["role"] == "owner"]
+        return await super().complete(prompt, schema, model_class, system, timeout)
+
+
+class ExplodingLLM(FakeLLM):
+    async def complete(self, *a, **k): raise RuntimeError("boom: not an LLMError")
+
+
+def test_owner_turn_is_in_the_store_before_the_model_answers_and_after_an_unhandled_failure(tmp_path):
+    from desktop_agent.control.aria import AriaBrain
+    s = _service(tmp_path)
+    s.aria.llm = StoreCheckingLLM(s, [{"reply": "Nothing finished.", "action": None}])
+    r = asyncio.run(s.aria.chat("What finished today?"))
+    assert r["reply"] == "Nothing finished." and s.aria.llm.seen_in_store == ["What finished today?"], "request must be persisted on arrival, not after the reply"
+    s.aria.llm = ExplodingLLM([])
+    with pytest.raises(RuntimeError):
+        asyncio.run(s.aria.chat("Second question"))
+    turns = AriaBrain(s, llm=s.aria.llm).transcript()
+    assert [t["text"] for t in turns if t["role"] == "owner"] == ["What finished today?", "Second question"]
+    assert turns[-1]["role"] == "aria" and turns[-1]["kind"] == "error" and "RuntimeError" in turns[-1]["text"]
+
+
+def test_typing_right_after_opening_the_drawer_reaches_the_box_even_when_status_loads_slowly(served):
+    """Reproduces the lost first Send: the drawer used to focus the box only after the status and history fetches, so
+    keystrokes typed meanwhile went to the bubble button; a whole string typed at once left the box empty and Send
+    returned silently (no request, nothing in the store)."""
+    s = served
+    s.aria.llm = FakeLLM([{"reply": "Four tasks finished today.", "action": None}])
+    playwright = pytest.importorskip("playwright.sync_api")
+    with playwright.sync_playwright() as p:
+        try:
+            browser = p.chromium.launch(channel="chrome", headless=True)
+        except Exception as exc:
+            pytest.skip(f"no Chrome: {exc}")
+        ctx = browser.new_context(viewport={"width": 1648, "height": 900}); page = ctx.new_page()
+        posted = []
+        page.on("request", lambda r: posted.append(r.post_data) if r.method == "POST" and r.url.endswith("/v0/aria/chat") else None)
+        def slow(route): time.sleep(1.2); route.continue_()
+        page.route("**/v0/aria/status", slow)                              # a slow or far-away control plane right after a page load
+        page.goto(f"http://127.0.0.1:{PORT}/?access_token=tok")
+        page.wait_for_function("document.querySelector('#conn').textContent === 'live'", timeout=15000)
+        page.click("#aria_bubble", no_wait_after=True)
+        page.keyboard.type("What finished today?")                           # typed at once, before the status fetch returns
+        page.click("#aria_send", no_wait_after=True)
+        page.wait_for_function("document.querySelector('#aria_send').textContent === 'Send' && document.querySelector('#aria_log').textContent.includes('Four tasks')", timeout=15000)
+        import json as _json
+        assert posted and _json.loads(posted[0])["text"] == "What finished today?", posted
+        assert [t["text"] for t in s.aria.transcript() if t["role"] == "owner"][-1] == "What finished today?"
+        # an empty Send says so instead of doing nothing silently
+        page.click("#aria_send"); assert "Nothing to send yet" in page.inner_text("#mic_state")
+        ctx.close(); browser.close()

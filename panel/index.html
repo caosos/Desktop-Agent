@@ -355,9 +355,11 @@ async function openDrill(name) {
 let ariaStatus = null;
 async function openAria(prefill) {
   $("aria").hidden = false; $("aria_bubble").setAttribute("aria-expanded", "true");
-  if (!ariaStatus) await loadAria();
   if (prefill !== undefined) { $("aria_text").value = prefill; }
-  $("aria_text").focus(); const v = $("aria_text").value; $("aria_text").setSelectionRange(v.length, v.length);
+  // Focus the box BEFORE the status/history fetches: keystrokes typed while they load must land here, not on the
+  // bubble button (that race lost the first Send after a page load on a slow or far-away control plane).
+  const ta = $("aria_text"); ta.focus(); const v = ta.value; ta.setSelectionRange(v.length, v.length);
+  if (!ariaStatus) await loadAria();
 }
 async function loadAria() {
   try {
@@ -378,7 +380,8 @@ function turnHtml(t) {
 $("aria_bubble").onclick = () => openAria();
 $("aria_close").onclick = () => { stopDictation(); $("aria").hidden = true; $("aria_bubble").setAttribute("aria-expanded", "false"); $("aria_bubble").focus(); };
 $("aria_send").onclick = async () => {
-  const text = $("aria_text").value.trim(); if (!text) return;
+  const text = $("aria_text").value.trim();
+  if (!text) { micState("Nothing to send yet: type or dictate a message first.", "amber"); $("aria_text").focus(); return; }
   stopDictation();
   $("aria_log").insertAdjacentHTML("beforeend", turnHtml({role: "owner", text, ts: Date.now() / 1000})); $("aria_text").value = ""; $("aria_log").scrollTop = $("aria_log").scrollHeight;
   $("aria_send").disabled = true; $("aria_send").textContent = "thinking…";
