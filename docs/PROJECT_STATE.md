@@ -1036,3 +1036,10 @@ Note 2026-10-12 12:07 CDT (da-4551f8ab70): the 11:49 entry was PROJECT_STATE onl
 - **Verified:** direct unpiped gate PASS, 294 passed, 1 skipped. Live 24 h sample 17:58Z recorded in BUILD_CHECKLIST Phase 3 row: 0 misroutes, 3 stand-ins (CAOSCare pin `caoscare-1-ee` not live since ~12:31 CDT; one eligible session at its checkout took delivery), 14 CAOSCare items flagged unacknowledged with NEED receipts raised by the watchdog as designed, 78 % of 125 ACKs within 300 s, paid $0 over 0 calls.
 - **Boundary kept:** the flagged items and the absent CAOSCare coordinator are CAOSCare's; nothing was dispatched, recovered or edited there.
 - **Loaded:** `f1db2d358ca1` unchanged; the script is run by hand, not by the service, so no restart.
+
+
+## 2026-10-12 13:0x-13:10 CDT - gate.sh: summary taken from pytest's own result line (coordinator caoscare-1-8c, no task id)
+
+- **Defect (hit at 12:18 today):** `scripts/gate.sh -q …` printed the warnings footer as its summary because it took the log's last line; a second `-q` makes pytest omit its result line entirely. The verdict (pytest's exit status) was never affected.
+- **Fix:** the summary is the last line matching pytest's result pattern; when none exists the gate says `NO PYTEST SUMMARY LINE IN LOG`; the header tells callers not to pass `-q`. Verified: `gate.sh tests/test_unattended_report.py` → `PASS … 2 passed`; with `-q` → `PASS … NO PYTEST SUMMARY LINE IN LOG`; `-k nothing_matches` → `FAIL exit=5 … 2 deselected`.
+- **ACK latency, this project, last 24 h (from the store):** 42 measured, 36 within 300 s; the six slow ones (max 13 min) were all before 03:12 CDT during build blocks and one was a canonical-checkin log that intake no longer delivers (`f1db2d3`). Since 03:12 every desktop_agent ACK was within 300 s. The slow CAOSCare ACKs (up to 9564 s) are that project's.
