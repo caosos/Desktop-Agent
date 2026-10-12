@@ -220,7 +220,7 @@ Run instructions: [`START_HERE.md`](../START_HERE.md) "Running it".
 
 | Component | Files | Label | Citation |
 |---|---|---|---|
-| User service `desktop-agent.service` on `127.0.0.1:8477` | [`config/desktop-agent.service`](../config/desktop-agent.service) | VERIFIED-IMPLEMENTED | PROJECT_STATE "Stage 1 acceptance: first real CAOSCare task end to end" (the task ran under the installed service) |
+| User service `desktop-agent.service` on `127.0.0.1:8477`; clean stop (exit signal releases open event streams, then uvicorn's own handler; 5 s graceful bound as backstop) | [`config/desktop-agent.service`](../config/desktop-agent.service), [`desktop_agent/__main__.py`](../desktop_agent/__main__.py) `make_server` | VERIFIED-IMPLEMENTED | PROJECT_STATE "Stage 1 acceptance: first real CAOSCare task end to end"; [`tests/test_shutdown.py`](../tests/test_shutdown.py); PROJECT_STATE "Clean stop: exit signal releases open event streams" (isolated SIGTERM proof) |
 | Runtime config (limits, scheduler policy, providers, class labels) | [`config/runtime.yaml`](../config/runtime.yaml) | VERIFIED-IMPLEMENTED | loaded by `RuntimeConfig` at service start (the Stage 1 acceptance entry above); contents are local policy and are not summarised or read for this document |
 | Data dir `~/.local/share/desktop-agent`, token file `~/.config/desktop-agent/token`, workspaces `~/Desktop-Agent-work/<task>/` | `config.py` | VERIFIED-IMPLEMENTED | `START_HERE.md` "Running it"; token auth exercised by `tests/test_pipeline.py` `test_api_state_goals_events` |
 | Remote access (Tailscale) | none | PROPOSED | [`IMPLEMENTATION_PLAN.md` §5](IMPLEMENTATION_PLAN.md) Stage 2; review [§12](ARCHITECTURE_REVIEW_2026-10-08.md) |
