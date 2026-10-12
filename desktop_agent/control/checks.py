@@ -120,6 +120,8 @@ class Checks:
     # ---- the due pass, called from the watchdog tick ------------------------------------------------------------------
     async def tick(self) -> list[dict]:
         out = []
+        from .checks_reconcile import reconcile
+        reconcile(self)                                    # retire obsolete timers first (DONE, superseded, owner-wait), so none of them fires
         now = self.clock()
         for item_id in self._ids():
             rec = self.get(item_id)
