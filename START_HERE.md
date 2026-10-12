@@ -13,13 +13,18 @@ decisions or hard external blockers.
 
 **Current owner-facing phase tracker:** [Living Product Build Checklist](docs/BUILD_CHECKLIST.md). It separates code, tests, integration and live acceptance, and names the next milestone and ETA confidence.
 
-**Status (2026-10-08).** BUILD, Stage 1 complete on the control-plane side (PR #2, branch `build/stage-1`, ready for review).
-Michael authorised BUILD on PR #1. The control plane runs as the user
+**Status (2026-10-12).** BUILD (authorised by Michael on PR #1). Phase 2 of 6,
+usable Ask Aria on Michael's screen. The control plane runs as the user
 service `desktop-agent.service` on the EliteDesk (`127.0.0.1:8477`); the
-first real CAOSCare task went end to end with a verified receipt chain
-(CAOSCARE.COM draft PR #105). Widget code exists; its display check needs
-Michael in his desktop session (`docs/WIDGET_SETUP.md`). Current state and
-every run, including the failures, are in `docs/PROJECT_STATE.md`.
+browser panel / Ask Aria is the usable owner surface. Live-verified: text
+chat, project drilldowns, approval packet, research jobs with PDFs, receipt
+bridge to draft PR #19, Slack ingress, ETA-driven checks, M2 screenshot
+understanding. Owner-gated: M1 real-microphone acceptance, the M3 paid-provider
+decision (Daily maximum paid API spend is $0), Phase 5 actions (deferred by
+Michael), a cold-reboot window. The current queue is
+`docs/BUILD_CHECKLIST.md`; every run, including failures, is in
+`docs/PROJECT_STATE.md`. *(Earlier status of 2026-10-08, superseded: "Stage 1
+complete on the control-plane side, PR #2 ready for review".)*
 
 **Michael-facing surface.** A small desktop widget called Aria (text and
 push-to-talk) in Michael's GNOME session, backed by the control plane over a
@@ -106,13 +111,16 @@ never copies it.
 
 ## Decisions pending with Michael
 
-Current table: `docs/IMPLEMENTATION_PLAN.md` §7. Answered so far: separate
-repository (this one), API keys for model usage, the owner-decision
-taxonomy. Open: BUILD authorisation; run location during Pilot 1 week;
-integration authority; CAOSCare PR #67; `PROJECT_STATE.md` authorship;
-remote access; which repository is "Deal Sniffer".
+Current table: `docs/IMPLEMENTATION_PLAN.md` §7. Answered: separate
+repository (this one), BUILD (PR #1), the owner-decision taxonomy,
+`PROJECT_STATE.md` authorship (control plane writes per verified task,
+`state_entry_by: control`), paid spend (one Daily maximum paid API spend,
+default $0, 2026-10-11 directive; supersedes "API keys"). Open: run location
+during Pilot 1 week; integration authority; CAOSCare PR #67; remote access;
+which repository is "Deal Sniffer".
 
 ## Next step
 
-On BUILD: Stage 1 of the implementation plan (widget + control plane + one
-CAOSCare task end to end, no terminal), in the build order listed there.
+The first open row of the queue in `docs/BUILD_CHECKLIST.md`; today that is
+Michael's M1 real-microphone test. *(Earlier text, superseded: "On BUILD:
+Stage 1 of the implementation plan".)*

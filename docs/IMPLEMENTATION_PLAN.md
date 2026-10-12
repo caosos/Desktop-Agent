@@ -232,11 +232,11 @@ packages (`.agentproject/`) live in each managed project's repo, never here.
 |---|---|
 | 1 Separate repo | **Answered**: `caosos/Desktop-Agent` |
 | 2 Run location during Pilot 1 week | Open. Plan assumes the EliteDesk with the memory-derived slot count; the widget runs in Michael's session either way |
-| 3 Payment path | **Answered**: API keys. Stage 1 ran on the Claude subscription through `claude_headless` and shared Michael's session window (hit 2026-10-08 11:55 CDT); an API-key executor is the Stage 2 priority. No key is on the EliteDesk yet |
+| 3 Payment path | **Answered**: API keys. Stage 1 ran on the Claude subscription through `claude_headless` and shared Michael's session window (hit 2026-10-08 11:55 CDT); an API-key executor is the Stage 2 priority. No key is on the EliteDesk yet | *(Superseded 2026-10-11 by the owner's one hard daily budget, `da-8708eb5ec7`: subscription/local first; one Daily maximum paid API spend, default $0; see AGENTS.md.)*
 | 4 Integration authority | Open. Stage 1 uses draft PR only |
 | 5 Owner-decision taxonomy | **Answered** by directive point 9; coordinator files decisions via `POST /v0/decisions`, planner files its own questions |
 | 6 PR #67 in CAOSCare | Open. This platform supersedes its runtime half; directive point 11 says do not disturb CAOSCare, so closing or keeping #67 is Michael's call there |
-| 7 `PROJECT_STATE.md` authorship | Open — filed in the owner inbox 2026-10-08 (recommend control plane writes it) |
+| 7 `PROJECT_STATE.md` authorship | **Implemented** (updated 2026-10-12): the control plane appends one entry per verified task (`state_entry_by: control` in each project descriptor); coordinators append dated entries for work outside a task. Was: open, recommendation filed 2026-10-08 |
 | 8 Remote access | Open; Stage 2 |
-| New: BUILD authorization | Open; gates Stage 1 |
+| New: BUILD authorization | **Answered** (updated 2026-10-12): Michael authorised BUILD on PR #1. Was: open, gating Stage 1 |
 | New: Deal Sniffer repository | Open — filed in the owner inbox 2026-10-08 (recommend `michael-business-os`) |
