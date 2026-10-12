@@ -100,6 +100,13 @@ class Watchdog:
             report["checks"] = await self.checks.tick()          # due ETA-driven checks: exactly one outcome each
         except Exception as exc:
             report["checks"] = {"error": str(exc)[:200]}
+        try:
+            from .look_retention import sweep                    # stored screenshots expire after seven days (the capture receipts stay)
+            removed = sweep(self.store, self.store.data_dir)
+            if removed:
+                report["look_retention"] = removed
+        except Exception as exc:
+            report["look_retention"] = {"error": str(exc)[:200]}
         return report
 
     async def _wake(self, src: IntakeSource, reasons: list) -> dict:
