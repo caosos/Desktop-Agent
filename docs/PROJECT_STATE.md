@@ -1015,3 +1015,5 @@ Cause of the missed 09:00 receipt: since the 02:38 fix, an owner-wait task's tim
 6. Current bounded task: da-50b1e88f20, responsible coordinator caoscare-1-8c, stage WAITING_OWNER.
 7. Remaining steps: Michael's real-microphone test (M1); his paid-provider decision for M3.
 9. ETA: UNKNOWN. 10. next_check_at: 2026-10-12 15:00 CDT. 11. Blocker: NEED_OWNER. 12. Michael action: M1 microphone test when convenient; otherwise NOTHING.
+
+Note 2026-10-12 12:07 CDT (da-4551f8ab70): the 11:49 entry was PROJECT_STATE only; the Issue #3 receipt was missed. Rule: a check-in is complete only when the Issue #3 receipt is posted (the bridge mirrors it to PR #19); PROJECT_STATE is the supporting log. Receipt: issues/3#issuecomment-6128925489.
