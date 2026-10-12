@@ -83,6 +83,13 @@ class RuntimeConfig:
     use_bwrap: bool = True
     use_systemd_scope: bool = True
     source_file: Path | None = None
+    # Owner's private memory (da-c6d1e57152): runtime-only, outside every repository, beside the token (0700 dir, 0600
+    # files), never mounted into a worker. Derived from the token file's directory unless `private_dir` is set.
+    private_dir: Path | None = None
+
+    def __post_init__(self) -> None:
+        if self.private_dir is None:
+            self.private_dir = Path(self.token_file).expanduser().parent / "private"
 
     @classmethod
     def load(cls, path: Path | None = None) -> "RuntimeConfig":
@@ -149,6 +156,8 @@ class RuntimeConfig:
         cfg.slack_channel = str((raw.get("slack") or {}).get("channel", ""))
         cfg.slack_owner = str((raw.get("slack") or {}).get("owner", ""))
         cfg.research_web_enabled = bool((raw.get("research") or {}).get("web_enabled", cfg.research_web_enabled))
+        if raw.get("private_dir"):
+            cfg.private_dir = p(raw["private_dir"])
         return cfg
 
     # ---- credentials and pricing --------------------------------------------

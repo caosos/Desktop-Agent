@@ -15,7 +15,7 @@ from pathlib import Path
 
 from .llm import LLM, LLMError
 from .aria_replay import interrupted_result, stored_exchange
-from .aria_state import compact_state  # noqa: F401  (re-exported: tests and run_action import it from here)
+from .aria_state import compact_state, greeting  # noqa: F401  (compact_state re-exported: tests and run_action import it from here)
 from .aria_usage import merge_models, money_statement, quotes_obsolete_money, route_note, usage_record, withdrawn
 
 PROMPT_FILE = Path(__file__).resolve().parents[2] / "widget" / "aria_prompt.md"
@@ -207,13 +207,15 @@ class AriaBrain:
         actions_taken: list[dict] = []
         pending = text
         reply = ""
+        mem = self.service.memory.context_for(text)           # private memory for this message: system context only, never in history or events
+        system = self.system + ("\n\n" + mem["text"] if mem["text"] else "")
         for _ in range(MAX_STEPS):
             try:
-                comp = await self.llm.complete(self._prompt(pending), SCHEMA, "cloud_cheap", system=self.system, timeout=90, purpose="Ask Aria conversation")
+                comp = await self.llm.complete(self._prompt(pending), SCHEMA, "cloud_cheap", system=system, timeout=90, purpose="Ask Aria conversation")
             except LLMError as first:
                 retries += 1
                 try:                                           # one bounded retry: the CLI occasionally returns an empty error
-                    comp = await self.llm.complete(self._prompt(pending), SCHEMA, "cloud_cheap", system=self.system, timeout=90, purpose="Ask Aria conversation")
+                    comp = await self.llm.complete(self._prompt(pending), SCHEMA, "cloud_cheap", system=system, timeout=90, purpose="Ask Aria conversation")
                 except LLMError as exc:
                     reply = f"Model call failed twice: {first}; {exc}. Nothing was changed."
                     failed = True

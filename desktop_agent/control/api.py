@@ -88,6 +88,8 @@ def build_app(service: Service, token: str) -> FastAPI:
     app.include_router(intake_routes(service, auth))
     app.include_router(aria_routes(service, auth, token))
     app.include_router(checks_routes(service, auth))
+    from ..memory.api import memory_routes       # Memory Center: owner-local private memory (da-c6d1e57152)
+    app.include_router(memory_routes(service, auth))
 
     @app.get("/", response_class=HTMLResponse)
     async def panel():

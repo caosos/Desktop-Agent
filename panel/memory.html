@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Memory Center</title>
+<style>
+:root { --bg:#f6f7f9; --surface:#fff; --line:#d9dde3; --text:#1c2128; --muted:#5b6470; --accent:#2b5fd9; --ok:#1f8a4c; --warn:#b26a00; --bad:#b3261e; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --bg:#101418; --surface:#181d23; --line:#2b323b; --text:#e6e9ee; --muted:#9aa4b1; --accent:#7ea2ff; } }
+* { box-sizing:border-box; } body { margin:0; background:var(--bg); color:var(--text); font:14px/1.45 system-ui, sans-serif; padding:12px 16px; }
+h1 { font-size:18px; margin:0; } h2 { font-size:15px; margin:14px 0 6px; } a { color:var(--accent); }
+.card { background:var(--surface); border:1px solid var(--line); border-radius:8px; padding:10px 12px; margin-bottom:12px; }
+.row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; } .muted { color:var(--muted); } .tiny { font-size:12px; }
+.chip { display:inline-block; border:1px solid var(--line); border-radius:12px; padding:0 8px; font-size:12px; } .chip.ok { border-color:var(--ok); color:var(--ok); }
+.chip.warn { border-color:var(--warn); color:var(--warn); } .chip.bad { border-color:var(--bad); color:var(--bad); } .chip.sel { background:var(--accent); color:#fff; border-color:var(--accent); }
+button { font:inherit; padding:4px 10px; border-radius:6px; border:1px solid var(--line); background:var(--surface); color:var(--text); cursor:pointer; }
+button.primary { background:var(--accent); color:#fff; border-color:var(--accent); } button.tiny { font-size:12px; padding:2px 8px; }
+input, select, textarea { font:inherit; padding:5px 8px; border:1px solid var(--line); border-radius:6px; background:var(--surface); color:var(--text); max-width:100%; }
+textarea { width:100%; min-height:90px; }
+.rec { border-top:1px solid var(--line); padding:8px 0; } .rec:first-child { border-top:none; } .rec .t { margin:2px 0; } .rec.sensitive .t { filter:blur(5px); } .rec.sensitive.show .t { filter:none; }
+#tabs .chip { cursor:pointer; margin:2px 0; } #why { white-space:pre-wrap; }
+</style>
+</head>
+<body>
+<div class="row" style="justify-content:space-between">
+  <h1>Memory Center <span class="muted tiny">private · this computer only · never GitHub, Slack or workers</span></h1>
+  <span><a href="/" id="back">← Dashboard</a> <span id="conn" class="chip">connecting</span></span>
+</div>
+
+<section class="card" id="health" aria-label="Memory health">
+  <div class="row"><b>Status</b> <span id="st_loaded" class="chip"></span> <span id="st_rev" class="tiny muted"></span></div>
+  <div class="tiny muted" id="st_seed"></div>
+  <div class="tiny muted" id="st_health"></div>
+  <div class="tiny muted" id="st_dot"></div>
+  <div class="row" style="margin-top:6px">
+    <button class="tiny" id="btn_backup">Backup now</button> <button class="tiny" id="btn_export">Export bundle (private)</button>
+    <label class="tiny">Import bundle <input type="file" id="bundle_file" accept="application/json"></label>
+    <span id="op_state" class="tiny muted" aria-live="polite"></span>
+  </div>
+</section>
+
+<section class="card" aria-label="Import private seed">
+  <h2 style="margin-top:0">Import your private Markdown seed</h2>
+  <div class="tiny muted">Headings route sections to containers; bullets and paragraphs become facts. The file is written at 0600 in the private directory, a backup is taken first, and nothing but counts comes back here. Mark a heading "(sensitive)" to raise its sensitivity.</div>
+  <div class="row" style="margin-top:6px"><input type="file" id="seed_file" accept=".md,.txt,text/markdown,text/plain"> <button class="primary tiny" id="btn_import" disabled>Import</button> <span id="import_state" class="tiny" aria-live="polite"></span></div>
+</section>
+
+<section class="card" aria-label="Containers">
+  <div id="tabs" class="row"></div>
+  <div class="row" style="margin-top:8px">
+    <input id="q" placeholder="search facts" aria-label="Search facts" style="flex:1 1 200px">
+    <select id="status" aria-label="Status filter"><option value="active">active</option><option value="pending">pending</option><option value="superseded">superseded</option><option value="expired">expired</option><option value="deleted">deleted</option><option value="">all</option></select>
+    <label class="tiny"><input type="checkbox" id="capture_on"> automatic capture for this container</label>
+    <button class="tiny" id="btn_add">Add fact</button> <button class="tiny" id="btn_show">Show sensitive</button>
+  </div>
+  <div id="list" aria-live="polite" style="margin-top:6px"></div>
+</section>
+
+<section class="card" id="whycard" hidden aria-label="Why did Aria remember or use this">
+  <div class="row" style="justify-content:space-between"><b>Why did Aria remember / use this?</b> <button class="tiny" id="why_close">close</button></div>
+  <div id="why" class="tiny"></div>
+</section>
+
+<section class="card" id="addcard" hidden aria-label="Add a fact">
+  <div class="row"><b>Add a fact</b> <select id="add_container"></select> <input id="add_subject" placeholder="subject (who/what)"> <input id="add_key" placeholder="key (optional)"></div>
+  <textarea id="add_text" placeholder="the fact, in one or two sentences"></textarea>
+  <div class="row"><button class="primary tiny" id="add_save">Save</button> <button class="tiny" id="add_cancel">cancel</button> <span id="add_state" class="tiny muted"></span></div>
+</section>
+<script src="/memory.js"></script>
+</body>
+</html>

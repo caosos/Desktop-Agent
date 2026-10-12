@@ -44,6 +44,8 @@ class Service:
         self.llm = LLM(cfg)
         self.llm.gate = self.paid
         self.planner = Planner(self.llm, self.projects)
+        from ..memory import MemoryService           # owner's private memory (da-c6d1e57152): private dir only, never in the store, events or workers
+        self.memory = MemoryService(cfg.private_dir)
         from .aria import AriaBrain                  # local import: aria depends on the service surface
         self.aria = AriaBrain(self, self.llm)
         from .calling import CallService             # SIMULATED calling loop only (docs/CALLING_BRIEF.md)
