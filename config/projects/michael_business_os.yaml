@@ -56,6 +56,7 @@ worker_allowed_tools:
 # on the coordinator branch. Agent 01 runs under another account; no session is reachable from here.
 intake:
   issues: []
+  bridge_pr: 1                              # existing Deal Sniffer event transport; do not merge
   owner_logins: [caosos]
   coordinator:
     kind: liaison

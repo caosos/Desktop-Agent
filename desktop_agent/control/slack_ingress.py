@@ -18,7 +18,21 @@ from .receipts import VERIFIED, write_receipt
 ACK_MARK = "DOT ARYA ACK"                                 # prefix of every ACK this listener posts; a message starting with it is never accepted
 ROUTES = {"DESKTOP AGENT": ["desktop_agent"], "CAOSCARE": ["caoscare"], "DEAL SNIFFER": ["michael_business_os"],
           "DOT ARIA": [], "ALL PROJECTS": ["desktop_agent", "caoscare", "michael_business_os"]}
-_ROUTE_RE = re.compile(r"^\s*(" + "|".join(sorted(map(re.escape, ROUTES), key=len, reverse=True)) + r")\s*:", re.I)
+ROUTE_ALIASES = {
+    "DESKTOP AGENT": "DESKTOP AGENT", "ASK ARIA": "DESKTOP AGENT",
+    "DEAL SNIFFER": "DEAL SNIFFER", "BUSINESS OS": "DEAL SNIFFER", "MICHAEL BUSINESS OS": "DEAL SNIFFER",
+    "CAOSCARE": "CAOSCARE", "CARE APP": "CAOSCARE", "CARE": "CAOSCARE",
+    "DOT ARIA": "DOT ARIA", "ALL PROJECTS": "ALL PROJECTS",
+}
+_ROUTE_RE = re.compile(
+    r"^\s*(" + "|".join(sorted(map(re.escape, ROUTE_ALIASES), key=len, reverse=True)) + r")(?=\s|:|—|-|$)\s*(?::|—|-)?\s*",
+    re.I,
+)
+PROJECT_RECEIPTS = {
+    "desktop_agent": ("DESKTOP AGENT", "existing Desktop Agent coordinator"),
+    "michael_business_os": ("DEAL SNIFFER", "existing Agent 01 coordinator"),
+    "caoscare": ("CAOSCARE", "existing CAOSCare coordinator"),
+}
 _VISIBLE_RE = re.compile(r"\b(can (anyone|anybody|you|someone) (see|read)|does (anyone|anybody) see|is (anyone|anybody) (seeing|reading)|do you see this|(anyone|anybody|someone) (listening|there|here|home|awake))\b", re.I)
 _BOT_SUBTYPES = {"bot_message", "message_changed", "message_deleted", "channel_join", "channel_leave", "file_share_bot"}
 
@@ -45,7 +59,7 @@ def route_for(text: str) -> tuple[str | None, list[str]]:
     m = _ROUTE_RE.match(text)
     if not m:
         return None, []
-    label = m.group(1).upper()
+    label = ROUTE_ALIASES[m.group(1).upper()]
     return label, list(ROUTES[label])
 
 
@@ -82,12 +96,16 @@ class SlackIngress:
         text = event["text"].strip()
         label, projects = route_for(text)
         visibility = label is None and bool(_VISIBLE_RE.search(text))
-        sent, errors = [], []
+        sent, errors, routed = [], [], []
         for p in projects:
             try:
-                sent.append((await self.intake.send_direction(p, text, "slack"))["item_id"])
+                item_id = (await self.intake.send_direction(p, text, "slack"))["item_id"]
+                sent.append(item_id)
+                routed.append((p, item_id, None))
             except Exception as exc:                                                   # a project without a coordinator never stops the others
-                errors.append(f"{p}: {str(exc)[:80]}")
+                error = str(exc)[:80]
+                errors.append(f"{p}: {error}")
+                routed.append((p, None, error))
         reply = ack_text(label, self.clock(), visibility, [p for p in projects if not any(e.startswith(p + ":") for e in errors)])
         if errors:
             reply += " Not delivered: " + "; ".join(errors) + "."
@@ -96,22 +114,27 @@ class SlackIngress:
                             actor=Actor.CONTROL.value, source="slack_ingress", result_label=VERIFIED,
                             evidence=[f"channel={self.channel}", f"ts={ts}", f"user={self.owner}", *[f"item={i}" for i in sent], *errors],
                             after_state={"label": label, "items": sent, "errors": errors, "visibility_answer": visibility})
-        if self.mirror:                                                               # the one transport receipt the existing PR watcher turns into a Work update
-            try:
-                await self.mirror(self._receipt_text(ts, label, sent, errors, rec["receipt_id"]))
-            except Exception as exc:                                                  # a failed mirror never loses the ACK or the receipt
-                self.store.set_kv(key, {"at": self.clock(), "mirror_error": str(exc)[:120]})
+        if self.mirror:                                                               # one receipt to each routed project's existing transport PR
+            mirror_errors = []
+            for project, item_id, error in routed:
+                try:
+                    await self.mirror(project, self._receipt_text(project, ts, label, item_id, error, rec["receipt_id"]))
+                except Exception as exc:                                              # a failed mirror never loses the ACK or the receipt
+                    mirror_errors.append(f"{project}: {str(exc)[:100]}")
+            if mirror_errors:
+                self.store.set_kv(key, {"at": self.clock(), "mirror_error": "; ".join(mirror_errors)[:240]})
         return {"handled": True, "label": label, "items": sent, "errors": errors, "receipt": rec["receipt_id"]}
 
-    def _receipt_text(self, ts: str, label: str | None, sent: list[str], errors: list[str], receipt_id: str) -> str:
+    def _receipt_text(self, project: str, ts: str, label: str | None, item_id: str | None, error: str | None, receipt_id: str) -> str:
         try:
             typed = _chicago(float(ts))
         except ValueError:
             typed = ts
+        prefix, responsible = PROJECT_RECEIPTS[project]
         return "\n".join([
-            "DESKTOP AGENT RECEIPT: ACK",
-            "project: desktop_agent", "task: DA-SLACK-INGRESS-001 (da-9e6b71d929)", "responsible: coordinator caoscare-1-8c",
-            "stage: owner Slack message received and acknowledged in the channel",
-            f"evidence: slack channel {self.channel} ts {ts} (typed {typed}); control-plane receipt {receipt_id}; routing label {label or 'none'}; directions {', '.join(sent) or 'none'}",
-            f"acknowledged_at: {_chicago(self.clock())}", f"blocker: {'; '.join(errors) or 'NONE'}",
+            f"{prefix} RECEIPT: {'NEED' if error else 'ACK'}",
+            f"project: {project}", "task: ASK-ARIA-LISTENER-THREE-PROJECT-001", f"responsible: {responsible}",
+            f"stage: owner Slack message acknowledged once and routed to {label or project}",
+            f"evidence: slack channel {self.channel} ts {ts} (typed {typed}); control-plane receipt {receipt_id}; direction {item_id or 'not delivered'}",
+            f"acknowledged_at: {_chicago(self.clock())}", f"blocker: {error or 'NONE'}",
             "host observation: UNKNOWN (this receipt is GitHub transport, not host-liveness proof)"])

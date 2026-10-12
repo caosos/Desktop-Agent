@@ -1,5 +1,8 @@
 """Slack ingress decision logic: genuine owner messages only, one ACK per event, routing through existing paths, no network."""
 import asyncio
+from pathlib import Path
+
+import yaml
 
 from desktop_agent.control.slack_ingress import ACK_MARK, SlackIngress, classify, route_for
 from desktop_agent.control.store import Store
@@ -12,17 +15,18 @@ def ev(text="DESKTOP AGENT: hello", ts="1.1", **kw):
 
 
 class FakeIntake:
-    def __init__(self): self.sent = []
+    def __init__(self, fail_projects=("michael_business_os",)): self.sent, self.fail_projects = [], set(fail_projects)
     async def send_direction(self, project, text, source):
-        if project == "michael_business_os": raise ValueError("no coordinator")
+        if project in self.fail_projects: raise ValueError("no coordinator")
         self.sent.append((project, text, source)); return {"item_id": f"da-{project[:4]}"}
 
 
 class Rig:
-    def __init__(self, tmp_path):
-        self.store, self.intake, self.posts = Store(tmp_path), FakeIntake(), []
+    def __init__(self, tmp_path, fail_projects=("michael_business_os",)):
+        self.store, self.intake, self.posts, self.mirrors = Store(tmp_path), FakeIntake(fail_projects), [], []
         async def post(ch, thread, text): self.posts.append((ch, thread, text))
-        self.ing = SlackIngress(self.store, self.intake, post, CH, ME)
+        async def mirror(project, text): self.mirrors.append((project, text))
+        self.ing = SlackIngress(self.store, self.intake, post, CH, ME, mirror=mirror)
     def run(self, e): return asyncio.run(self.ing.handle(e))
 
 
@@ -38,15 +42,21 @@ def test_one_ack_per_event_survives_redelivery_and_restart_and_never_acks_itself
     assert r.run(ev("DESKTOP AGENT: TEST SLACK INGRESS — DESKTOP AGENT"))["handled"]
     assert len(r.posts) == 1 and r.posts[0][2].startswith(ACK_MARK) and "desktop_agent" in r.posts[0][2] and r.posts[0][1] == "1.1"
     for _ in range(3): assert not r.run(ev("DESKTOP AGENT: TEST SLACK INGRESS — DESKTOP AGENT"))["handled"]
-    r2 = Rig.__new__(Rig); r2.store, r2.intake, r2.posts = r.store, FakeIntake(), []
+    r2 = Rig.__new__(Rig); r2.store, r2.intake, r2.posts, r2.mirrors = r.store, FakeIntake(), [], []
     async def post(ch, thread, text): r2.posts.append(text)
-    r2.ing = SlackIngress(r.store, r2.intake, post, CH, ME)                       # restart over the same store
+    async def mirror(project, text): r2.mirrors.append((project, text))
+    r2.ing = SlackIngress(r.store, r2.intake, post, CH, ME, mirror=mirror)        # restart over the same store
     assert not r2.run(ev("DESKTOP AGENT: TEST SLACK INGRESS — DESKTOP AGENT"))["handled"] and r2.posts == []
     assert not r.run(ev(r.posts[0][2], ts="2.2"))["handled"] and len(r.posts) == 1   # our own ACK echoed back: no loop
 
 
 def test_routing_labels_use_the_shared_inbox_and_keep_projects_isolated(tmp_path):
     assert route_for("caoscare: x")[1] == ["caoscare"] and route_for("Deal Sniffer: x")[1] == ["michael_business_os"] and route_for("DOT ARIA: x") == ("DOT ARIA", [])
+    assert route_for("Ask Aria — x") == ("DESKTOP AGENT", ["desktop_agent"])
+    assert route_for("Business OS please check") == ("DEAL SNIFFER", ["michael_business_os"])
+    assert route_for("Michael Business OS: x") == ("DEAL SNIFFER", ["michael_business_os"])
+    assert route_for("Care App - x") == ("CAOSCARE", ["caoscare"])
+    assert route_for("Care please check") == ("CAOSCARE", ["caoscare"])
     assert route_for("all projects: x")[0] == "ALL PROJECTS" and route_for("hello")[0] is None and route_for("DESKTOP AGENTS: x")[0] is None
     r = Rig(tmp_path)
     out = r.run(ev("CAOSCARE: please look", ts="3.3", thread_ts="3.0"))
@@ -54,6 +64,34 @@ def test_routing_labels_use_the_shared_inbox_and_keep_projects_isolated(tmp_path
     out = r.run(ev("ALL PROJECTS: status", ts="4.4"))                              # one project has no coordinator: the others still get it, ACK says so
     assert [p for p, _, _ in r.intake.sent[1:]] == ["desktop_agent", "caoscare"] and out["errors"] and "Not delivered: michael_business_os" in r.posts[1][2]
     r.run(ev("DOT ARIA: note", ts="5.5")); assert len(r.intake.sent) == 3 and "no project work started" in r.posts[2][2]
+
+
+def test_each_project_gets_one_ack_and_its_own_existing_transport_receipt(tmp_path):
+    r = Rig(tmp_path, fail_projects=())
+    cases = [
+        ("Ask Aria: TEST", "desktop_agent", "DESKTOP AGENT RECEIPT: ACK"),
+        ("Michael Business OS: TEST", "michael_business_os", "DEAL SNIFFER RECEIPT: ACK"),
+        ("Care App: TEST", "caoscare", "CAOSCARE RECEIPT: ACK"),
+    ]
+    for n, (message, project, prefix) in enumerate(cases, 10):
+        before_posts, before_mirrors = len(r.posts), len(r.mirrors)
+        r.run(ev(message, ts=f"{n}.1"))
+        assert len(r.posts) == before_posts + 1
+        assert len(r.mirrors) == before_mirrors + 1
+        assert r.mirrors[-1][0] == project and r.mirrors[-1][1].startswith(prefix)
+        assert "ASK-ARIA-LISTENER-THREE-PROJECT-001" in r.mirrors[-1][1]
+        assert not r.run(ev(message, ts=f"{n}.1"))["handled"]
+        assert len(r.posts) == before_posts + 1 and len(r.mirrors) == before_mirrors + 1
+
+
+def test_project_descriptors_point_at_the_existing_coordination_and_transport_paths():
+    root = Path(__file__).parents[1] / "config" / "projects"
+    desktop = yaml.safe_load((root / "desktop_agent.yaml").read_text())
+    deals = yaml.safe_load((root / "michael_business_os.yaml").read_text())
+    care = yaml.safe_load((root / "caoscare.yaml").read_text())
+    assert desktop["github_repo"] == "caosos/Desktop-Agent" and desktop["intake"]["issues"] == [3] and desktop["intake"]["bridge_pr"] == 19
+    assert deals["github_repo"] == "caosos/michael-business-os" and deals["intake"]["bridge_pr"] == 1 and deals["intake"]["coordinator"]["kind"] == "liaison"
+    assert care["github_repo"] == "caosos/CAOSCARE.COM" and care["intake"]["issues"][0] == 129 and care["intake"]["bridge_pr"] == 131
 
 
 def test_visibility_question_gets_a_direct_answer_not_a_status_dump(tmp_path):

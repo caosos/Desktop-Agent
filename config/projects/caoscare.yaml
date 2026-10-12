@@ -81,7 +81,8 @@ worker_allowed_tools:
 # coordinator session (Claude Code, cwd ~/CAOSCARE-INTEGRATION) as a peer message; ACK/WORKING/BLOCKED/DONE
 # read back from issue comments carrying the item id.
 intake:
-  issues: [117, 129]
+  issues: [129, 117]                        # #129 is the active Care Operations coordination issue; #117 remains watched history
+  bridge_pr: 131                            # existing CAOSCare receipt event transport; do not merge
   owner_logins: [caosos]
   coordinator:
     kind: claude_peer

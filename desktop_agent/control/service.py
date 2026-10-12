@@ -79,8 +79,8 @@ class Service:
             from .slack_socket import SlackSocket
             env = Path("~/.config/desktop-agent/slack.env").expanduser()
             self.slack = SlackSocket(self.store, None, env)
-            src = self.intake.source_for("desktop_agent")
-            async def _mirror(text):                                # one comment on the transport-only bridge PR, if configured
+            async def _mirror(project, text):                       # one comment on that project's existing transport-only bridge PR
+                src = self.intake.source_for(project)
                 if src and getattr(src, "bridge_pr", None):
                     from . import intake as _im
                     await _im.gh_api(f"repos/{src.repo}/issues/{src.bridge_pr}/comments", method="POST", fields={"body": text})
