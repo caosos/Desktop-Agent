@@ -50,7 +50,7 @@ def route_note(backend: str | None, available: bool) -> str:
     return "paid API, only within your Daily maximum paid API spend"
 
 
-_MONEY, _CONTEXT, _LEGIT = re.compile(r"\$\s?\d"), re.compile(r"\b(spend|spent|cost|costs|charged|cap|caps|budget|hourly|daily)\b", re.I), re.compile(r"paid api|daily maximum", re.I)
+_MONEY, _CONTEXT, _LEGIT = re.compile(r"\$\s?\d"), re.compile(r"\b(spend|spent|cost|costs|charged|cap|caps|hourly|token-equivalent)\b", re.I), re.compile(r"daily maximum", re.I)
 
 
 def quotes_obsolete_money(text: str) -> bool:

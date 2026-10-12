@@ -182,7 +182,7 @@ def test_ask_aria_never_quotes_subscription_usage_as_spend_cost_or_cap(tmp_path)
     prompt scrub keep that wording out of both the answer and the model's context."""
     from desktop_agent.control.aria_usage import money_statement, quotes_obsolete_money
     from tests.test_aria_brain import FakeLLM, _service
-    for bad in ("Spend today is $5.11 of the $20 daily cap.", "It cost about $0.12 per message.", "The hourly cap is $5."):
+    for bad in ("The control plane records $5.11 of paid API spend today against your $20 daily cap.", "Spend today is $5.11 of the $20 daily cap.", "It cost about $0.12 per message.", "The hourly cap is $5."):
         assert quotes_obsolete_money(bad)
     for ok in (money_statement(0.0, 0.0), "Paid API today $0.00 of your $2.00 daily maximum.", "Nothing is running.", "It took 3 rounds."):
         assert not quotes_obsolete_money(ok)
