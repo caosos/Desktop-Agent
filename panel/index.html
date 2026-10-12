@@ -108,6 +108,15 @@ a { color:var(--accent); }
   </span>
 </header>
 
+<section id="paidbar" class="card" aria-label="Daily maximum paid API spend" style="margin:12px 0 0">
+  <div class="ctl" style="align-items:center;gap:8px;flex-wrap:wrap">
+    <label for="paid_max"><b>Daily maximum paid API spend</b></label>
+    <span>$<input id="paid_max" type="number" min="0" max="10000" step="0.5" style="width:90px" aria-describedby="paid_state"></span>
+    <button id="paid_save" type="button">Save</button>
+    <span id="paid_state" class="tiny muted" aria-live="polite"></span>
+  </div>
+  <div class="tiny muted" style="margin-top:4px">Default $0: no paid API call is made. Claude and Codex work included in your subscription, local work and cached work are not paid API spend and are not counted here.</div>
+</section>
 <section id="owner" class="card owner-only" aria-label="Owner view" style="margin:12px 0">
   <div class="ocards" id="o_projects"></div>
   <div id="drill" class="card" hidden style="margin-bottom:12px" aria-live="polite"></div>
@@ -137,7 +146,7 @@ a { color:var(--accent); }
     <span id="mic_state" class="muted">Ready</span>
     <button class="primary" id="aria_send" type="button" style="margin-left:auto">Send</button>
   </div>
-  <details class="tiny" style="margin-top:6px"><summary>Where does my voice go? · cost</summary><div id="aria_disclosure" class="muted"></div></details>
+  <details class="tiny" style="margin-top:6px"><summary>Where does my voice go?</summary><div id="aria_disclosure" class="muted"></div></details>
   <details class="tiny"><summary>Dictation log (measured in this browser)</summary><pre id="dict_log" style="max-height:140px">no dictation yet</pre><div class="muted">Words appear in the box as the browser hears them and may change until the speech engine finalizes a phrase. Nothing is sent until you press Send.</div></details>
 </section>
 
@@ -150,7 +159,7 @@ a { color:var(--accent); }
 </section>
 <div class="legend details-only" id="legend">
   <span><b>Submit answers</b> records your consent in the approval packet, one receipt per answer; nothing starts by itself.</span>
-  <span><b>Submit goal</b> starts a <i>new</i> bounded worker task (a model runs; cost shows below).</span>
+  <span><b>Submit goal</b> starts a <i>new</i> bounded worker task (a model runs on your subscription).</span>
   <span><b>Transfer / Send</b> messages a project's existing coordinator through GitHub; no task is created.</span>
   <span><b>IDLE</b> means this control plane has no task there; the project's own workers are listed under Coordinators → WORKERS.</span>
 </div>
@@ -179,7 +188,7 @@ a { color:var(--accent); }
 
   <div class="card details-only"><h2>Projects <span class="muted" style="text-transform:none;letter-spacing:0">· this control plane's tasks only</span></h2><div id="projects"></div></div>
   <div class="card details-only"><h2>Coordinators and workers (watchdog)</h2><div class="muted tiny" style="margin-bottom:6px">COORDINATOR = the project's Claude session or liaison; WORKERS = jobs actually running now, from live processes and the project's own feed. A coordinator at rest does not mean its workers are at rest.</div><div id="coords"></div><div id="quota" class="muted tiny" style="margin-top:6px"></div></div>
-  <div class="card details-only"><h2>Cost / usage</h2><div id="costs"></div></div>
+  <div class="card details-only"><h2>Technical evidence <span class="muted" style="text-transform:none;letter-spacing:0">· token-equivalent estimates; not billed</span></h2><div id="costs"></div></div>
   <div class="card details-only" id="blockedcard"><h2>Blocked</h2><div id="blocked" class="muted">none</div></div>
   <div class="card details-only"><h2>Shared inbox <span class="muted" style="text-transform:none;letter-spacing:0">· messages to existing coordinators via GitHub, no task created</span></h2>
     <form id="dirform" class="goal" style="margin-bottom:8px">
@@ -369,7 +378,7 @@ async function openAria(prefill) {
 async function loadAria() {
   try {
     ariaStatus = await api("/v0/aria/status");
-    $("aria_model").textContent = ariaStatus.available ? `model ${ariaStatus.model} via ${ariaStatus.backend} · ${ariaStatus.cost_note}` : `no model permitted: ${ariaStatus.reason}`;
+    $("aria_model").textContent = ariaStatus.available ? `model ${ariaStatus.model} via ${ariaStatus.backend} · ${ariaStatus.route_note}` : `no model permitted: ${ariaStatus.reason}`;
     const dct = ariaStatus.dictation || {};
     $("aria_disclosure").innerHTML = `<b>Dictation:</b> ${esc(dct.disclosure||"")}<br><b>Needs:</b> ${esc(dct.requirements||"")}<br><b>On-device alternative:</b> ${esc(dct.on_device_alternative||"")}<br><b>Metered alternative:</b> ${esc(dct.metered_alternative||"")}<br><b>Aria's model:</b> ${ariaStatus.available ? esc(ariaStatus.cost_note) : esc(ariaStatus.reason||"")}`;
     const seq = ++ariaLoadSeq;
@@ -379,14 +388,21 @@ async function loadAria() {
     ariaWatchPending();
   } catch (e) { $("aria_model").textContent = "Aria status unavailable: " + e; }
 }
-const BASIS_SHORT = {"token-equivalent": "token-equivalent, not an invoice", "metered": "metered API", "unknown": "cost unknown", "none": ""};
-// What the exchange actually used, from the persisted reply: model, backend, cost and its kind, rounds, time.
+const BILLING_SHORT = {"subscription-included": "included in your subscription", "paid-api": "paid API", "none": ""};
+// How the exchange was served, from the persisted reply: model, route, rounds, time. No dollar figure for subscription
+// work; the token-equivalent estimate sits behind "technical evidence" (see usageDetail).
 function usageLine(t) {
   const u = t.usage;
-  if (!u) return t.cost_usd != null ? ` · $${Number(t.cost_usd).toFixed(3)} (older reply: cost kind not recorded)` : "";
-  if (u.cost_basis === "none") return " · no model call";
-  const cost = u.cost_usd != null ? ` · $${Number(u.cost_usd).toFixed(3)} ${esc(BASIS_SHORT[u.cost_basis] || "")}` : " · cost unknown";
-  return ` · ${esc(u.model || "model unknown")}${u.backend ? " · " + esc(u.backend) : ""}${cost}${u.rounds ? ` · ${u.rounds} round${u.rounds === 1 ? "" : "s"}` : ""}${u.duration_ms ? ` · ${Math.round(u.duration_ms / 1000)}s` : ""}`;
+  if (!u) return "";
+  if (u.billing === "none") return " · no model call";
+  const paid = u.billing === "paid-api" && u.paid_usd != null ? ` · $${Number(u.paid_usd).toFixed(3)} paid API (provider-reported)` : ` · ${esc(BILLING_SHORT[u.billing] || "")}`;
+  return ` · ${esc(u.model || "model unknown")}${paid}${u.rounds ? ` · ${u.rounds} round${u.rounds === 1 ? "" : "s"}` : ""}${u.duration_ms ? ` · ${Math.round(u.duration_ms / 1000)}s` : ""}`;
+}
+function usageDetail(t) {
+  const u = t.usage;
+  if (!u || u.billing === "none") return "";
+  const est = u.estimate_usd != null ? `${esc(u.estimate_label || "estimate; not billed")}: $${Number(u.estimate_usd).toFixed(3)} (token-equivalent) · ` : "";
+  return `<details class="tiny"><summary>technical evidence</summary><span class="muted">${est}${esc(u.backend || "")} · ${((u.tokens||{}).in||0)} in / ${((u.tokens||{}).out||0)} out tokens</span></details>`;
 }
 // Messages sent from this page that the server's history response may not contain yet (a history request can be
 // answered late with content built before the send). They are re-drawn after every history render until the server
@@ -422,7 +438,7 @@ async function ariaRecorded(id) {                      // has the control plane 
 function turnHtml(t) {
   if (t.role === "owner") return `<div class="turn owner">${esc(t.text)}<div class="meta">you · ${t.ts ? ago(t.ts) + " ago" : ""}</div></div>`;
   const acts = (t.actions || []).map(a => `${esc(a.name)}${a.ok ? " ✓" : " ✗"}${a.evidence && Object.keys(a.evidence).length ? " " + esc(Object.entries(a.evidence).map(([k, v]) => `${k}=${String(v).slice(0, 60)}`).join(", ")) : ""}`).join("; ");
-  return `<div class="turn aria">${esc(t.text)}<div class="meta">Aria · <span class="chip ${t.kind === "question" || !t.kind ? "" : t.kind && t.kind.startsWith("status") ? "warn" : "ok"}">${esc(t.kind || "question")}</span>${acts ? " · " + acts : ""}${usageLine(t)}${t.ts ? " · " + ago(t.ts) + " ago" : ""}</div></div>`;
+  return `<div class="turn aria">${esc(t.text)}<div class="meta">Aria · <span class="chip ${t.kind === "question" || !t.kind ? "" : t.kind && t.kind.startsWith("status") ? "warn" : "ok"}">${esc(t.kind || "question")}</span>${acts ? " · " + acts : ""}${usageLine(t)}${t.ts ? " · " + ago(t.ts) + " ago" : ""}</div>${usageDetail(t)}</div>`;
 }
 $("aria_bubble").onclick = () => openAria();
 // Closing only hides the window: the draft in the box, sent turns, a waiting reply and the saved transcript are untouched,
@@ -485,7 +501,7 @@ $("aria_send").onclick = async () => {
       await fail(unavailable ? `Service unavailable (HTTP ${r.status})` : "The control plane reported an error", body && body.detail ? String(body.detail) : "");
       return;
     }
-    const turn = {role: "aria", text: body.reply, kind: body.kind, actions: body.actions, usage: body.usage, cost_usd: body.cost_usd, ts: Date.now() / 1000};
+    const turn = {role: "aria", text: body.reply, kind: body.kind, actions: body.actions, usage: body.usage, ts: Date.now() / 1000};
     p.reply = turn;
     $("aria_log").insertAdjacentHTML("beforeend", turnHtml(turn));
     if (body.kind === "error") ariaState(`Model failure after ${secs()} s: the control plane received your message but the model call failed. Nothing was changed.`, "amber");
@@ -601,11 +617,27 @@ function setMode(m) {
   try { localStorage.setItem("da_mode", m); } catch (e) {}
 }
 
+// The one owner budget. The input is only overwritten while the owner is not editing it.
+function renderPaid(b) {
+  if (!b) return;
+  const inp = $("paid_max");
+  if (document.activeElement !== inp && !inp.dataset.dirty) inp.value = Number(b.daily_max_paid_usd).toFixed(2);
+  $("paid_state").textContent = `paid API today $${Number(b.paid_today_usd).toFixed(2)}` + (b.blocked_attempts_today ? ` · ${b.blocked_attempts_today} paid call(s) not made (maximum reached); work continued on your subscription` : "");
+}
+$("paid_max").oninput = () => { $("paid_max").dataset.dirty = "1"; };
+$("paid_save").onclick = async () => {
+  const v = Number($("paid_max").value);
+  if (!Number.isFinite(v) || v < 0) { $("paid_state").textContent = "Enter a number, 0 or more."; return; }
+  try {
+    const r = await api("/v0/paid-budget", {method: "POST", body: JSON.stringify({daily_max_usd: v})});
+    delete $("paid_max").dataset.dirty; renderPaid(r); $("paid_state").textContent = `Saved: daily maximum $${v.toFixed(2)}. ` + $("paid_state").textContent;
+  } catch (e) { $("paid_state").textContent = "Not saved: " + (e.message || e); }
+};
 function render(st) {
   lastState = st; merged = {}; st.projects.forEach(p => ((p.workers||{}).finished||[]).forEach(f => { merged[f.id] = f.status; }));
   $("uptime").textContent = st.uptime_sec; $("seq").textContent = st.last_seq;
   const sl = st.slots;
-  $("slots").textContent = `slots ${sl.slots} (cpu ${sl.cpu_slots} · mem ${sl.mem_slots} · budget ${sl.budget_slots} · ceiling ${dash(sl.ceiling)} of owner ${dash(sl.owner_ceiling)} · reason ${dash(sl.ceiling_reason)}) · running ${sl.running}` + (st.paused ? " · PAUSED" : "") + (st.hold ? " · HOLD: " + st.hold : "");
+  $("slots").textContent = `slots ${sl.slots} (cpu ${sl.cpu_slots} · mem ${sl.mem_slots} · ceiling ${dash(sl.ceiling)} of owner ${dash(sl.owner_ceiling)} · reason ${dash(sl.ceiling_reason)}) · running ${sl.running}` + (st.paused ? " · PAUSED" : "") + (st.hold ? " · HOLD: " + st.hold : "");
   const active = st.tasks.filter(t => t.status==="RUNNING").map(t=>t.stage);
   const lit = new Set(active.length ? active : (st.next ? ["PLANNING"] : []));
   $("stages").innerHTML = STAGES.map(s => `<span class="${lit.has(s)?"on":""} ${s==="BLOCKED"||s==="WAITING_OWNER"?"alt":""}">${s}</span>`).join("");
@@ -644,18 +676,16 @@ function render(st) {
   // money(): a finite number renders as dollars, anything else as UNKNOWN (never "$0", never NaN)
   const money = v => (typeof v === "number" && Number.isFinite(v)) ? "$" + v.toFixed(2) : "UNKNOWN";
   const num = v => (typeof v === "number" && Number.isFinite(v)) ? String(v) : "UNKNOWN";
-  const prov = (st.llm||{}).providers || {}; const metered = Object.values(prov).filter(p => p.enabled && p.key_present).map(p => p.provider);
-  const unk = (st.budgets||{}).unknown_usage || st.costs.unknown_usage || {};
+  const est = st.estimates || {};
   const row = (k, v, cls="num") => `<div class="row"><span>${k}</span><span class="${cls}">${v}</span></div>`;
   $("costs").innerHTML =
-    `<div class="muted tiny" style="margin-bottom:4px">Known $ = token-equivalent at list prices as reported by the Claude CLI on your subscription (not an invoice). Metered API invoices: ${metered.length ? esc(metered.join(", ")) + " enabled" : "none possible — OpenAI DISABLED, no Anthropic key"}.</div>` +
-    row("today (token-equivalent)", money(st.costs.today_usd)) + row("last hour", money(st.costs.last_hour_usd)) + row("total since start", money(st.costs.total_usd)) +
-    row("metered API spend", metered.length ? money(st.costs.today_usd) : "$0.00 (no metered provider enabled)") +
-    row("usage with no $ figure", `${num(unk.calls)} calls · ${num((unk.input_tokens||0) + (unk.output_tokens||0))} tokens · UNKNOWN $`, "num tiny") +
-    (st.budgets ? row('<span class="muted">hour cap</span>', `${money(st.budgets.spent_last_hour_usd)} / ${money(st.budgets.hourly_cap_usd)}`) + row('<span class="muted">day cap</span>', `${money(st.budgets.spent_today_usd)} / ${money(st.budgets.daily_cap_usd)}`) + row('<span class="muted">per-task default</span>', money(st.budgets.per_task_default_usd)) : "") +
+    `<div class="muted tiny" style="margin-bottom:4px">Internal diagnostics only: ${esc(est.label || "estimate; not billed")}. These dollar-shaped numbers come from tokens on your subscription; nothing here was charged.</div>` +
+    row("estimate today", money(est.today)) + row("estimate, last hour", money(est.last_hour)) + row("estimate, since start", money(est.total)) +
+    row("calls with no estimate today", num(est.unpriced_calls_today)) +
     row('<span class="muted">model backend</span>', esc((st.llm||{}).backend||"—"), "tiny") +
-    row("verified tasks (24 h)", num(fb.verified_tasks)) + row("verified per known $", num(fb.verified_per_dollar)) + row("verified per hour", num(fb.verified_per_hour)) +
-    row("conflict rate", num(fb.conflict_rate)) + row("retry rate", num(fb.retry_rate)) + row("unknown-cost tasks", num((fb.unknown_cost_tasks||[]).length));
+    row("verified tasks (24 h)", num(fb.verified_tasks)) + row("verified per hour", num(fb.verified_per_hour)) +
+    row("conflict rate", num(fb.conflict_rate)) + row("retry rate", num(fb.retry_rate));
+  renderPaid(st.budgets);
   $("blocked").innerHTML = st.blocked.length ? st.blocked.map(t => `<div class="row task" data-t="${esc(t.task_id)}"><span class="tiny">${esc(t.task_id)}<br><span class="muted">${esc((t.result||{}).reason||t.last_activity)}</span></span>${stageChip(t.stage)}</div>`).join("") : '<span class="muted">none</span>';
   if (st.intake) {
     const ik = st.intake, ca = ik.coordinator_activity || {};
@@ -684,7 +714,7 @@ async function showTask(tid) {
   selected = tid; const d = await api("/v0/tasks/"+tid);
   $("detail").hidden = false; $("d_id").textContent = tid; $("d_stage").textContent = d.stage;
   const money = v => (typeof v === "number" && Number.isFinite(v)) ? "$" + v.toFixed(2) : "UNKNOWN";
-  $("d_summary").textContent = `${d.status} · model class ${d.model_class || "—"} · attempt ${d.attempt} · cost ${money(d.cost_usd)} (known $ only) · ${d.tool_calls ?? 0} tool calls · ${d.files_changed_events ?? 0} file changes · ${(d.receipts||[]).length} receipts`;
+  $("d_summary").textContent = `${d.status} · model class ${d.model_class || "—"} · attempt ${d.attempt} · estimate (not billed) ${money(d.estimate_usd)} · ${d.tool_calls ?? 0} tool calls · ${d.files_changed_events ?? 0} file changes · ${(d.receipts||[]).length} receipts`;
   const tl = d.stage_timeline || [];
   $("d_timeline").innerHTML = tl.map((s, i) => `<span class="chip ${s.stage==="DONE"?"ok":s.stage==="BLOCKED"?"bad":""}">${esc(s.stage)}</span> <span class="muted">${new Date(s.ts*1000).toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"})}${i < tl.length-1 ? " → " : ""}</span>`).join(" ") || '<span class="muted">no events</span>';
   $("d_nev").textContent = (d.events||[]).length;

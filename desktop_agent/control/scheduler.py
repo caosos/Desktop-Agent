@@ -33,18 +33,16 @@ def mem_available_mb() -> int:
     return 0
 
 
-def admission(cfg: RuntimeConfig, running: int, spend_last_hour: float, spend_today: float,
-              ceiling: int | None = None) -> dict:
+def admission(cfg: RuntimeConfig, running: int, ceiling: int | None = None) -> dict:
+    """Worker slots from host capacity only. Workers run on subscription logins and hold no provider key, so they are not
+    paid API spend; the one hard budget (paid_budget.py) gates every paid provider call and is not a throttle here."""
     s = cfg.scheduler
     ceiling_eff = s.ceiling if ceiling is None else min(ceiling, s.ceiling)
     cores = os.cpu_count() or 2
     cpu_slots = max(0, (cores - s.reserved_cores) // max(1, s.cores_per_worker))
     mem_slots = max(0, (mem_available_mb() + running * s.mem_per_worker_mb - s.host_reserve_mb) // max(1, s.mem_per_worker_mb))
-    budget_slots = max(0, int((s.hourly_cap_usd - spend_last_hour) // max(0.01, s.expected_cost_per_worker_hour_usd)))
-    daily_ok = spend_today < s.daily_cap_usd
-    slots = min(cpu_slots, mem_slots, budget_slots, ceiling_eff) if daily_ok else 0
-    return {"cpu_slots": cpu_slots, "mem_slots": int(mem_slots), "budget_slots": budget_slots,
-            "ceiling": ceiling_eff, "owner_ceiling": s.ceiling, "daily_cap_ok": daily_ok, "slots": int(slots),
+    slots = min(cpu_slots, mem_slots, ceiling_eff)
+    return {"cpu_slots": cpu_slots, "mem_slots": int(mem_slots), "ceiling": ceiling_eff, "owner_ceiling": s.ceiling, "slots": int(slots),
             "running": running, "free": max(0, int(slots) - running)}
 
 
@@ -91,12 +89,11 @@ class Scheduler:
                                       provenance=Provenance(actor=Actor.CONTROL.value, source=source, evidence=evidence)))
 
     def slots(self) -> dict:
-        c = self.store.cost_summary()
         fb = metrics.feedback(self.store)
         ceiling, why = metrics.effective_ceiling(self.cfg.scheduler.ceiling, fb)
         # Memory is accounted from real worker processes; capacity is RESERVED per dispatched task, from dispatch through
         # workspace preparation, the run, verification and integration (a task has no process while its workspace is cloned).
-        out = admission(self.cfg, len(self.launcher.running), c["last_hour_usd"], c["today_usd"], ceiling)
+        out = admission(self.cfg, len(self.launcher.running), ceiling)
         out["running"] = len(self._tasks)
         out["free"] = max(0, out["slots"] - len(self._tasks))
         out["ceiling_reason"] = why

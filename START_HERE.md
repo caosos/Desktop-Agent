@@ -78,8 +78,7 @@ Full runbook: `docs/PANEL_RUNBOOK.md`. The panel opens in the one-screen **Owner
 2. Decisions are answered in exactly one place, the **Approval packet**: pick
    an answer per item, press **Submit answers**. Blank means unanswered and
    never consent; "defer a day" hides an item without answering.
-3. **Submit goal** starts a new bounded worker task (a model runs, cost shows
-   on the Cost card). **Transfer / Send** messages a project's existing
+3. **Submit goal** starts a new bounded worker task (a model runs on your subscription, no dollar figure shows). **Transfer / Send** messages a project's existing
    coordinator through GitHub and creates no task.
 4. **Coordinators and workers**: COORDINATOR is the project's session;
    WORKERS are jobs running right now from live processes and the project's

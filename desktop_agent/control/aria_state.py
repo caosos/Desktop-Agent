@@ -21,5 +21,5 @@ def compact_state(st: dict) -> dict:
                   for t in (st.get("tasks") or [])[-5:]],
         "shared_inbox": {"counts": ik.get("counts"), "unacknowledged": ik.get("unacknowledged"),
                          "open_items": [{"item_id": i.get("item_id"), "project": i.get("project"), "status": i.get("status"), "title": str(i.get("title", ""))[:60]} for i in open_items[-8:]]},
-        "costs": {k: v for k, v in (st.get("costs") or {}).items() if k != "per_task"}, "budgets": st.get("budgets"),
+        "paid_api_budget": st.get("budgets"),      # the one owner budget; subscription usage has no dollar figure to quote
     }

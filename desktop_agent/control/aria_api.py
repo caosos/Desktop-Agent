@@ -70,7 +70,7 @@ def aria_routes(service, auth, token: str) -> APIRouter:
     
     @router.get("/v0/aria/status")
     async def aria_status(_: str = Depends(auth)):
-        """Is a model configured and permitted for conversation, which, at what cost; plus the dictation disclosure."""
+        """Is a model configured and permitted for conversation, which, how served; plus the dictation disclosure."""
         return service.aria.status() | {"dictation": {
             "mode": "browser_speech",
             "disclosure": "Dictation uses your browser's speech recognition. In Chrome the audio is sent to Google's speech servers for "

@@ -124,12 +124,9 @@ def test_prepare_worker_home_copies_only_credentials(tmp_path: Path):
 def test_admission_and_overlap(tmp_path: Path):
     cfg = RuntimeConfig(data_dir=tmp_path, workspaces_dir=tmp_path, token_file=tmp_path / "t",
                         scheduler=SchedulerPolicy(ceiling=4, reserved_cores=0, cores_per_worker=1, host_reserve_mb=0,
-                                                  mem_per_worker_mb=1, hourly_cap_usd=10, daily_cap_usd=20,
-                                                  expected_cost_per_worker_hour_usd=2))
-    a = admission(cfg, running=1, spend_last_hour=0, spend_today=0)
-    assert a["slots"] == 4 and a["free"] == 3 and a["budget_slots"] == 5
-    assert admission(cfg, 0, spend_last_hour=9.5, spend_today=0)["slots"] == 0
-    assert admission(cfg, 0, 0, spend_today=25)["slots"] == 0
+                                                  mem_per_worker_mb=1))
+    a = admission(cfg, running=1)
+    assert a["slots"] == 4 and a["free"] == 3 and "budget_slots" not in a and "daily_cap_ok" not in a      # subscription work is not throttled by a dollar figure
     assert areas_overlap(["backend/routes/*"], ["backend/routes/alerts.py"])
     assert areas_overlap(["backend/"], ["backend/x.py"])
     assert not areas_overlap(["backend/a.py"], ["frontend/b.js"])

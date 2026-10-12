@@ -15,7 +15,7 @@ from widget.aria import Aria
 class FakeLLM:
     def __init__(self, answers): self.answers = list(answers); self.prompts = []
     def model_for(self, mc): return "fake"
-    async def complete(self, prompt, schema, model_class="cloud_cheap", system=None, timeout=0):
+    async def complete(self, prompt, schema, model_class="cloud_cheap", system=None, timeout=0, purpose=""):
         self.prompts.append(prompt)
         return Completion(data=self.answers.pop(0), model="fake", backend="fake", cost_usd=0.002, input_tokens=5, output_tokens=5, duration_ms=1)
 
@@ -34,7 +34,7 @@ def test_status_question_uses_get_state(tmp_path):
                           {"reply": "Nothing is running and the queue is empty.", "action": None}])
     r = asyncio.run(s.aria.chat("how is it going?"))
     assert r["reply"].startswith("Nothing is running") and r["actions"][0]["name"] == "get_state" and r["actions"][0]["ok"]
-    assert r["cost_usd"] == 0.004 and "get_state →" in s.aria.llm.prompts[1]
+    assert r["usage"]["paid_usd"] == 0.004 and "cost_usd" not in r and "get_state →" in s.aria.llm.prompts[1]
     assert s.store.cost_summary()["today_usd"] == 0.004
 
 
@@ -59,7 +59,7 @@ def test_greeting_from_live_state_without_model(tmp_path):
     g = s.aria.greeting()
     assert g["greeting"].startswith("Hello Michael.") and "1 decision waiting" in g["greeting"]
     assert g["first_decision"]["question"].startswith("Install the key?") and g["counts"]["decisions"] == 1
-    assert "Known spend today $0.00" in g["greeting"]
+    assert "spend" not in g["greeting"].lower() and "cap" not in g["greeting"].lower() and "$" not in g["greeting"]   # default maximum $0: nothing about money
     with TestClient(build_app(s, "tok")) as c:
         r = c.get("/v0/aria/greeting", headers={"Authorization": "Bearer tok"})
         assert r.status_code == 200 and r.json()["counts"]["decisions"] == 1
@@ -93,10 +93,10 @@ def test_get_state_is_compact_and_owner_first(tmp_path):
            "projects": [{"name": f"p{i}", "stage": "IDLE", "coordinator": {"connected": True, "detail": "d" * 2000, "external": {"x": "y" * 3000}}, "workers": {"status": "IDLE", "active": 0, "workers": ["w" * 500]}} for i in range(6)],
            "tasks": [{"task_id": f"t{i}", "status": "DONE", "stage": "s", "objective": "o" * 500, "result": "r" * 2000} for i in range(60)],
            "intake": {"counts": {"DONE": 3}, "unacknowledged": [], "items": [{"item_id": f"da-{i}", "project": "p", "status": "DONE" if i % 2 else "WORKING", "title": "t" * 300, "body": "b" * 5000} for i in range(80)]},
-           "costs": {"today_usd": 1.0, "total_usd": 2.0, "per_task": {f"t{i}": 0.1 for i in range(200)}}, "budgets": {"daily": 20}}
+           "costs": {"today_usd": 1.0, "total_usd": 2.0, "per_task": {f"t{i}": 0.1 for i in range(200)}}, "budgets": {"daily_max_paid_usd": 0.0, "paid_today_usd": 0.0}}
     c = compact_state(big)
     assert len(json.dumps(c, default=str)) < ACTION_RESULT_CHARS
-    assert list(c)[:3] == ["next", "glance", "work"] and c["blocked"] == big["blocked"] and "per_task" not in c["costs"]
+    assert list(c)[:3] == ["next", "glance", "work"] and c["blocked"] == big["blocked"] and "costs" not in c and "estimates" not in c and c["paid_api_budget"]["daily_max_paid_usd"] == 0.0
     assert all(i["status"] != "DONE" for i in c["shared_inbox"]["open_items"]) and len(c["tasks"]) == 5
     s = _service(tmp_path)
     s.aria.llm = FakeLLM([{"reply": "Checking.", "action": {"name": "get_state", "args": {}}}, {"reply": "Nothing is blocked.", "action": None}])

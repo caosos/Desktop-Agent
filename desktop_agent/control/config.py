@@ -33,9 +33,6 @@ class SchedulerPolicy:
     cores_per_worker: int = 2
     host_reserve_mb: int = 4096
     mem_per_worker_mb: int = 3072
-    hourly_cap_usd: float = 5.0
-    daily_cap_usd: float = 20.0
-    expected_cost_per_worker_hour_usd: float = 2.0
     stall_after_sec: int = 600
     tick_sec: float = 5.0
 

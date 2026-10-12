@@ -175,7 +175,7 @@ class Planner:
                   + (f"OWNER ANSWERS TO EARLIER QUESTIONS:\n{json.dumps(answers)}\n\n" if answers else "")
                   + project_context(pkg, files=files))
         try:
-            comp = await self.llm.complete(prompt, PLAN_SCHEMA, model_class, system=SYSTEM.format(max_tasks=MAX_TASKS))
+            comp = await self.llm.complete(prompt, PLAN_SCHEMA, model_class, system=SYSTEM.format(max_tasks=MAX_TASKS), purpose="planning a goal")
         except LLMError as exc:
             return Plan(project=project, summary="", tasks=[], questions=[], blocked_reason=f"planner model call failed: {exc}")
         return self._validate(comp, pkg, files)
@@ -188,7 +188,7 @@ class Planner:
                             for n, p in self.projects.items())
         try:
             comp = await self.llm.complete(f"Which project does this request concern? Answer 'unknown' if unclear.\n\nREQUEST:\n{request}\n\nPROJECTS:\n{listing}",
-                                           schema, "cloud_cheap")
+                                           schema, "cloud_cheap", purpose="choosing the project for a request")
         except LLMError:
             return None
         p = comp.data.get("project")

@@ -27,7 +27,7 @@
 | Control | Effect | Receipt |
 |---|---|---|
 | **Open approval packet → Submit answers** | records your consent per item; blank = unanswered (never consent); "defer a day" hides without answering | one receipt per answered item, actor human, source panel |
-| **Goal → Submit goal** (Details) | plans and starts a **new** bounded worker task; a model runs and its cost appears on the Cost card | goal + task receipts |
+| **Goal → Submit goal** (Details) | plans and starts a **new** bounded worker task; a model runs on your subscription (no dollar figure; see "Daily maximum paid API spend" below) | goal + task receipts |
 | **Shared inbox → Transfer / Send** (Details) | posts a direction on the project's owner-dispatch GitHub issue and delivers it to that project's existing coordinator; creates no task | instruction receipts, status chips POSTED → DELIVERED → ACKNOWLEDGED → DONE |
 | **Pause / Resume** | stops / allows this control plane's scheduler starting new workers (running workers finish) | control receipt |
 | **Stop all** | kills this control plane's running workers | control receipt |
@@ -37,7 +37,7 @@ Pause, Resume and Stop never touch CAOSCare's or Business OS's own workers.
 
 ## Ask Aria (bubble, bottom right)
 
-- **What it is:** a text conversation with the control plane's Aria on the existing `/v0/aria/chat`. The header line names the model and backend in use and its cost note; when no model is permitted it says so and answers with a deterministic status only.
+- **What it is:** a text conversation with the control plane's Aria on the existing `/v0/aria/chat`. The header line names the model and how replies are served ("included in your subscription"; never a dollar figure); when no model is permitted it says so and answers with a deterministic status only.
 - **Kinds of message, shown as a chip on each reply:** *question* (answered read-only from live state, project briefs, task details: the reply names its source), *direction* (sent to the project's coordinator through the Shared inbox, tracked POSTED → DELIVERED → ACK → DONE; never finished work by itself), *new work* (a bounded worker task via the planner, confirmed first), *owner decision* (recorded in the packet, confirmed first), *control* (pause / resume / stop, confirmed first). Every action leaves a receipt and is listed under the reply.
 - **Dictation (🎤 Dictate):** click to start, speak in complete thoughts with pauses, click **Stop**. States: Ready → Listening → Transcribing → Text ready, or an error that says what to do (permission denied, no speech engine, speech service unreachable). Text lands in the box; edit it; nothing is sent until you press **Send**. Audio goes to your browser's speech service (in Chrome: Google's servers), never to this panel or Aria; no recordings are kept. Needs Chrome, microphone permission on click, and a localhost or HTTPS page (your SSH tunnel qualifies). On-device speech is not installed (one owner decision); the metered OpenAI path stays off.
 - **Transcript:** kept by the control plane (last 60 turns) so a reload or restart shows it again; "Ask Aria about this project" in a drilldown opens the bubble with that project named.
@@ -54,3 +54,7 @@ Only the registered coordinator session (its session id, written by the control 
 
 
 Known dollars are token-equivalent list prices reported by the Claude CLI on the subscription, not an invoice. Anything the platform cannot price shows as **UNKNOWN**, never `$0`. Metered API invoices are impossible while OpenAI is DISABLED and no Anthropic key exists; both decisions are optional and stay unanswered until you submit them.
+
+## Daily maximum paid API spend (the one budget)
+
+One setting, in the bar under the header, in both views: **Daily maximum paid API spend**. The default is **$0**: the control plane makes no paid API call. Claude and Codex work included in your subscription, local work and cached work are **not** paid spend, are never counted against it, and never show a dollar figure in normal use. Save changes the maximum (one receipt per change). At the maximum, paid calls stop, subscription and local work carries on, and one NEED receipt records the refused call; you are interrupted only if the limit blocks necessary work. Technical evidence (Details) keeps token-equivalent numbers, labelled **estimate; not billed**. Provider billing receipts (`POST /v0/paid-budget/billing`) are the only authority for actual paid spend. Design and code: `desktop_agent/control/paid_budget.py`.

@@ -14,7 +14,7 @@ class StubClient:
         self.goals, self.controls, self.answers = [], [], []
         self.paused = False
         self.st = {"projects": [{"name": "demo", "stage": "IDLE"}], "workers": [], "inbox": [], "blocked": [], "next": None,
-                   "costs": {"today_usd": 0}, "paused": False, "tasks": []}
+                   "budgets": {"daily_max_paid_usd": 0}, "paused": False, "tasks": []}
     def projects(self): return [{"name": "demo"}]
     def state(self): return self.st
     def submit_goal(self, project, text, task_type="code", owned_area=None, idempotency_key=None, **kw):

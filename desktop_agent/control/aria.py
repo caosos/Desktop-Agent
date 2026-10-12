@@ -16,14 +16,14 @@ from pathlib import Path
 from .llm import LLM, LLMError
 from .aria_replay import interrupted_result, stored_exchange
 from .aria_state import compact_state  # noqa: F401  (re-exported: tests and run_action import it from here)
-from .aria_usage import merge_models, status_cost_note, usage_record
+from .aria_usage import merge_models, route_note, usage_record
 
 PROMPT_FILE = Path(__file__).resolve().parents[2] / "widget" / "aria_prompt.md"
 MAX_STEPS = 4
 HISTORY_TURNS = 12
 
 ACTIONS = {
-    "get_state": "current workers, tasks with stages, blocked items, open owner decisions, costs, feedback",
+    "get_state": "current workers, tasks with stages, blocked items, open owner decisions, the paid API budget, feedback",
     "list_projects": "projects the control plane manages",
     "project_brief": "one project's drilldown: mission, coordinator vs workers, agent roster (declared vs actual now, with proof), tasks, instructions with status/age, freshness, primary action: args {project}",
     "explain_task": "details of one task: args {task_id}",
@@ -85,6 +85,7 @@ class AriaBrain:
             "Ground every status claim in an action result and name its source (host process, project feed, roster table, receipt, GitHub item); if the data does not say, answer 'unknown' rather than guessing. " \
             "A submitted direction or goal is not finished work: say what will happen next and how the owner will see the result. You have no web access and no knowledge beyond these actions. " \
             "A request for a report, investigation or comparison is research: state the plan (four passes in one bounded worker, model class cloud_strong; local repository sources only at a $1.5 ceiling, or, when the owner asks for public/online/market sources or the question cannot be answered from the repository, web=true: WebSearch/WebFetch with URL citations and access dates at a $3 ceiling) and ask yes/no before request_research, naming which source mode you will use; its report is the worker's and unverified beyond resolving citations. " \
+            "MONEY (hardcoded owner rule): the only budget is the owner's Daily maximum paid API spend, default $0; paid_api_budget in get_state shows it and what was actually paid. Subscription-included Claude/Codex usage, local work and cached work are NOT spend: never call them spend, cost, charged or a cap and never quote a token-equivalent dollar figure or an hourly/daily dollar limit for them. Answer 'what did that cost' with 'included in your subscription' unless a paid API call really happened. Only the owner changes the maximum, in the panel. " \
             "Calls are SIMULATED: no real call is ever placed, destinations are fixture labels ('fixture:…'), and a call result is a SIMULATED result."
 
     async def run_action(self, name: str, args: dict, turn: str | None = None) -> dict:
@@ -134,12 +135,12 @@ class AriaBrain:
         return "CONVERSATION SO FAR (newest last):\n" + "\n".join(lines) + "\n\nRespond with the JSON object."
 
     def status(self) -> dict:
-        """Whether a model is configured and permitted for conversation, which one, and what it costs. Never flips a gate."""
+        """Whether a model is configured and permitted for conversation, which one, and how replies are served. Never flips a gate."""
         backend = self.llm.refresh_backend() if hasattr(self.llm, "refresh_backend") else getattr(self.llm, "backend", "fake")
         ok = bool(self.llm.available(backend)) if hasattr(self.llm, "available") else True
         model = self.llm.model_for("cloud_cheap") if ok else None
-        cost_note = status_cost_note(backend, ok)
-        return {"available": ok, "backend": backend if ok else None, "model": model, "cost_note": cost_note,
+        note = route_note(backend, ok)
+        return {"available": ok, "backend": backend if ok else None, "model": model, "route_note": note,
                 "reason": None if ok else "conversation requires a configured and permitted model; status answers stay deterministic",
                 "turns": len(self.history), "actions": list(ACTIONS)}
 
@@ -182,10 +183,10 @@ class AriaBrain:
         reply = ""
         if not self.status()["available"]:
             reply = self._deterministic(text)
-            usage = usage_record(backend=None, model=None, cost_usd=0.0, rounds=0, tokens_in=0, tokens_out=0, duration_ms=int((time.time() - started) * 1000))
+            usage = usage_record(backend=None, model=None, reported_usd=0.0, rounds=0, tokens_in=0, tokens_out=0, duration_ms=int((time.time() - started) * 1000))
             self.history.append({"role": "aria", "text": reply, "ts": time.time(), "kind": "status (no model)", "usage": usage})
             self._persist()
-            return {"reply": reply, "actions": [], "kind": "status (no model)", "model": None, "cost_usd": 0.0, "tokens": {"in": 0, "out": 0},
+            return {"reply": reply, "actions": [], "kind": "status (no model)", "model": None, "tokens": {"in": 0, "out": 0},
                     "duration_ms": usage["duration_ms"], "usage": usage}
         try:
             return await self._converse(text, turn, started)
@@ -208,11 +209,11 @@ class AriaBrain:
         reply = ""
         for _ in range(MAX_STEPS):
             try:
-                comp = await self.llm.complete(self._prompt(pending), SCHEMA, "cloud_cheap", system=self.system, timeout=90)
+                comp = await self.llm.complete(self._prompt(pending), SCHEMA, "cloud_cheap", system=self.system, timeout=90, purpose="Ask Aria conversation")
             except LLMError as first:
                 retries += 1
                 try:                                           # one bounded retry: the CLI occasionally returns an empty error
-                    comp = await self.llm.complete(self._prompt(pending), SCHEMA, "cloud_cheap", system=self.system, timeout=90)
+                    comp = await self.llm.complete(self._prompt(pending), SCHEMA, "cloud_cheap", system=self.system, timeout=90, purpose="Ask Aria conversation")
                 except LLMError as exc:
                     reply = f"Model call failed twice: {first}; {exc}. Nothing was changed."
                     failed = True
@@ -235,7 +236,7 @@ class AriaBrain:
             self.history.append({"role": "action", "text": f"{action['name']} → {json.dumps(result, default=str)[:ACTION_RESULT_CHARS]}", "ts": time.time()})
             pending = "(continue: use the action result above to answer the owner)"
         kind = "error" if failed else next((KIND_BY_ACTION[a["name"]] for a in actions_taken if a["name"] in KIND_BY_ACTION), "question")
-        usage = usage_record(backend=backend, model=model or self.llm.model_for("cloud_cheap"), cost_usd=None if unknown_cost else cost, rounds=rounds,
+        usage = usage_record(backend=backend, model=model or self.llm.model_for("cloud_cheap"), reported_usd=None if unknown_cost else cost, rounds=rounds,
                              tokens_in=tokens_in, tokens_out=tokens_out, duration_ms=int((time.time() - started) * 1000), retries=retries, models_billed=billed or None)
         if backend is None and not failed:
             usage["backend"] = None
@@ -245,7 +246,7 @@ class AriaBrain:
         if cost or unknown_cost:
             self.service.store.add_cost(None, None, self.llm.model_for("cloud_cheap"), None if unknown_cost else cost, tokens_in, tokens_out)
         return {"reply": reply or "(no reply)", "actions": actions_taken, "kind": kind, "model": usage["model"],
-                "cost_usd": usage["cost_usd"], "tokens": usage["tokens"], "duration_ms": usage["duration_ms"], "usage": usage}
+                "tokens": usage["tokens"], "duration_ms": usage["duration_ms"], "usage": usage}
 
     def note(self, text: str, kind: str, evidence: dict | None = None) -> None:
         """Append one Aria turn from a background worker (e.g. a SIMULATED call status) to the same conversation."""
@@ -285,8 +286,8 @@ class AriaBrain:
         if ik.get("unacknowledged"):
             parts.append(f"{len(ik['unacknowledged'])} instruction{'s' if len(ik['unacknowledged']) != 1 else ''} to coordinators still unacknowledged.")
         b = st["budgets"]
-        parts.append(f"Known spend today ${b['spent_today_usd']:.2f} of the ${b['daily_cap_usd']:.0f} cap"
-                     + (f", plus {b['unknown_usage']['calls_today']} subscription calls with no dollar figure" if b["unknown_usage"]["calls_today"] else "") + ".")
+        if b["daily_max_paid_usd"] > 0 or b["paid_today_usd"] > 0:       # nothing about money unless paid API is authorised or was used
+            parts.append(f"Paid API today ${b['paid_today_usd']:.2f} of your ${b['daily_max_paid_usd']:.2f} daily maximum.")
         first = inbox[0] if inbox else None
         return {"greeting": " ".join(parts),
                 "first_decision": ({"decision_id": first["decision_id"], "question": first["question"], "options": first["options"] or ["yes", "no"]}

@@ -14,14 +14,14 @@ def stored_exchange(history: list[dict], client_id: str):
                 if nxt.get("role") == "aria" and nxt.get("usage") is not None:
                     u = nxt["usage"]
                     return {"reply": nxt.get("text") or "(no reply)", "actions": nxt.get("actions") or [], "kind": nxt.get("kind"), "model": u.get("model"),
-                            "cost_usd": u.get("cost_usd"), "tokens": u.get("tokens"), "duration_ms": u.get("duration_ms"), "usage": u}
+                            "tokens": u.get("tokens"), "duration_ms": u.get("duration_ms"), "usage": u}
             return False
     return None
 
 
 def interrupted_result() -> dict:
     from .aria_usage import usage_record
-    u = usage_record(backend=None, model=None, cost_usd=0.0, rounds=0, tokens_in=0, tokens_out=0, duration_ms=0)
+    u = usage_record(backend=None, model=None, reported_usd=0.0, rounds=0, tokens_in=0, tokens_out=0, duration_ms=0)
     return {"reply": "This request was received earlier but was interrupted before it finished (for example by a service restart). It was not run again; "
-                     "check the transcript, or send it as a new message.", "actions": [], "kind": "error", "model": None, "cost_usd": 0.0,
+                     "check the transcript, or send it as a new message.", "actions": [], "kind": "error", "model": None,
             "tokens": {"in": 0, "out": 0}, "duration_ms": 0, "usage": u}

@@ -113,6 +113,6 @@ def test_live_owner_acceptance():
         page.screenshot(path=str(Path("~/.local/share/desktop-agent").expanduser() / "live-acceptance-phone.png"), full_page=True)
         b.close()
     # 10. idle checks spend nothing: cost rows in the last 10 minutes come only from deliveries/heartbeats (relay) or worker runs
-    costs = api("/v0/state")["costs"]
-    report["last_hour_known_usd"] = costs["last_hour_usd"]
+    costs = api("/v0/state")["estimates"]
+    report["last_hour_estimate_usd"] = costs["last_hour"]
     print("\nLIVE ACCEPTANCE REPORT:", json.dumps(report, indent=1))

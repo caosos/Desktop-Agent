@@ -1,31 +1,32 @@
-"""What an Ask Aria exchange actually used, stated once and persisted on the reply: model, backend, rounds, tokens,
-cost and what kind of cost it is. Three kinds are never mixed: `token-equivalent` (the Claude CLI on the subscription
-reports a dollar-shaped figure computed from tokens; it is not an invoice), `metered` (a priced API backend; this
-is billed), and `unknown` (no price for that model, or the backend reported none)."""
+"""What an Ask Aria exchange actually used, stated once and persisted on the reply: model, route, rounds and tokens.
+
+Owner-facing wording follows the one-budget directive (da-8708eb5ec7): a reply says only HOW it was served
+(`subscription-included`, `paid-api` or `none`). Subscription-included usage carries no dollar figure for the owner; the
+Claude CLI's token-equivalent number is kept as `estimate_usd` for technical evidence and is always labelled
+`estimate; not billed`. A paid API call carries `paid_usd`, the provider-reported amount (billing receipts are the
+authority, see paid_budget.py)."""
 from __future__ import annotations
 
-BASIS_TEXT = {
-    "token-equivalent": "token-equivalent from the Claude CLI on your subscription, not an invoice",
-    "metered": "metered API cost at the configured price",
-    "unknown": "cost unknown (no price reported)",
-    "none": "no model call",
-}
+ESTIMATE_LABEL = "estimate; not billed"
+BILLING_TEXT = {"subscription-included": "included in your subscription", "paid-api": "paid API (under your daily maximum)", "none": "no model call"}
 
 
-def cost_basis(backend: str | None, cost_usd: float | None) -> str:
+def billing_kind(backend: str | None) -> str:
     if backend is None:
         return "none"
-    if cost_usd is None:
-        return "unknown"
-    return "token-equivalent" if backend == "claude_cli" else "metered"
+    return "subscription-included" if backend == "claude_cli" else "paid-api"
 
 
-def usage_record(*, backend: str | None, model: str | None, cost_usd: float | None, rounds: int, tokens_in: int, tokens_out: int,
+def usage_record(*, backend: str | None, model: str | None, reported_usd: float | None, rounds: int, tokens_in: int, tokens_out: int,
                  duration_ms: int, retries: int = 0, models_billed: dict | None = None) -> dict:
-    rec = {"backend": backend, "model": model, "cost_usd": None if cost_usd is None else round(cost_usd, 5), "cost_basis": cost_basis(backend, cost_usd),
+    kind = billing_kind(backend)
+    rec = {"backend": backend, "model": model, "billing": kind,
+           "estimate_usd": round(reported_usd, 5) if kind == "subscription-included" and reported_usd is not None else None,
+           "estimate_label": ESTIMATE_LABEL if kind == "subscription-included" else None,
+           "paid_usd": round(reported_usd, 5) if kind == "paid-api" and reported_usd is not None else None,
            "rounds": rounds, "retries": retries, "tokens": {"in": tokens_in, "out": tokens_out}, "duration_ms": duration_ms}
     if models_billed:
-        rec["models_billed"] = models_billed          # per model: usd and the four token classes, as the backend itself reported them
+        rec["models_billed"] = models_billed          # technical evidence: per model usd (estimate) and token classes, as the backend reported them
     return rec
 
 
@@ -38,11 +39,10 @@ def merge_models(total: dict, add: dict | None) -> dict:
     return total
 
 
-def status_cost_note(backend: str | None, available: bool) -> str:
-    """Header text for the drawer: what backend and what kind of cost, without promising an amount (the amount is
-    whatever the exchange reports; tool-free structured calls were measured at 0.1–12 cents depending on context)."""
+def route_note(backend: str | None, available: bool) -> str:
+    """Header text for the drawer: how replies are served. No dollar figure and no promise of one."""
     if not available or backend is None:
         return ""
     if backend == "claude_cli":
-        return "Claude CLI on your subscription; each reply shows its token-equivalent cost (not an invoice)"
-    return "metered API; each reply shows its cost at the configured price, or UNKNOWN if the model has no price"
+        return "Claude CLI, included in your subscription"
+    return "paid API, only within your Daily maximum paid API spend"

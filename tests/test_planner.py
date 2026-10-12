@@ -17,7 +17,7 @@ class FakeLLM:
     def __init__(self, answers):
         self.answers = list(answers); self.calls = []
     def model_for(self, mc): return "fake-" + mc
-    async def complete(self, prompt, schema, model_class="cloud_cheap", system=None, timeout=0):
+    async def complete(self, prompt, schema, model_class="cloud_cheap", system=None, timeout=0, purpose=""):
         self.calls.append((prompt, model_class))
         return Completion(data=self.answers.pop(0), model="fake-" + model_class, backend="fake", cost_usd=0.001,
                           input_tokens=10, output_tokens=5, duration_ms=1)

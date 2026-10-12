@@ -7,13 +7,13 @@ import time
 import pytest
 
 from desktop_agent.control.aria import AriaBrain
-from desktop_agent.control.aria_usage import cost_basis, status_cost_note
+from desktop_agent.control.aria_usage import billing_kind, route_note
 from desktop_agent.control.llm import Completion, LLMError
 from tests.test_ask_aria import FakeLLM, PORT, _service, served  # noqa: F401  (fixture re-used)
 
 
 class TokenEquivalentLLM(FakeLLM):
-    async def complete(self, prompt, schema, model_class="cloud_cheap", system=None, timeout=0):
+    async def complete(self, prompt, schema, model_class="cloud_cheap", system=None, timeout=0, purpose=""):
         self.prompts.append(prompt)
         return Completion(data=self.answers.pop(0), model="claude-haiku-5-5", backend="claude_cli", cost_usd=0.119, input_tokens=201085, output_tokens=965, duration_ms=11000)
 
@@ -22,11 +22,11 @@ class FailingLLM(FakeLLM):
     async def complete(self, *a, **k): raise LLMError("claude_cli error: boom")
 
 
-def test_cost_basis_keeps_token_equivalent_metered_and_unknown_apart():
-    assert cost_basis("claude_cli", 0.119) == "token-equivalent" and cost_basis("openai_api", 0.004) == "metered"
-    assert cost_basis("claude_cli", None) == "unknown" and cost_basis(None, 0.0) == "none"
-    assert "about a cent" not in status_cost_note("claude_cli", True) and "not an invoice" in status_cost_note("claude_cli", True)
-    assert status_cost_note("claude_cli", False) == ""
+def test_billing_kind_and_route_note_carry_no_dollar_figure():
+    assert billing_kind("claude_cli") == "subscription-included" and billing_kind("openai_api") == "paid-api" and billing_kind(None) == "none"
+    note = route_note("claude_cli", True)
+    assert "subscription" in note and "$" not in note and "cost" not in note.lower() and "token-equivalent" not in note
+    assert route_note("claude_cli", False) == ""
 
 
 def test_reply_usage_and_client_id_are_persisted_and_survive_a_fresh_brain(tmp_path):
@@ -34,11 +34,12 @@ def test_reply_usage_and_client_id_are_persisted_and_survive_a_fresh_brain(tmp_p
     s.aria.llm = TokenEquivalentLLM([{"reply": "Yes, running.", "action": None}])
     r = asyncio.run(s.aria.chat("is this working now", "client-abc"))
     u = r["usage"]
-    assert (u["model"], u["backend"], u["cost_usd"], u["cost_basis"], u["rounds"]) == ("claude-haiku-5-5", "claude_cli", 0.119, "token-equivalent", 1)
-    assert u["tokens"] == {"in": 201085, "out": 965} and r["cost_usd"] == 0.119 and r["model"] == "claude-haiku-5-5"
+    assert (u["model"], u["backend"], u["estimate_usd"], u["billing"], u["rounds"]) == ("claude-haiku-5-5", "claude_cli", 0.119, "subscription-included", 1)
+    assert u["estimate_label"] == "estimate; not billed" and u["paid_usd"] is None
+    assert u["tokens"] == {"in": 201085, "out": 965} and "cost_usd" not in r and r["model"] == "claude-haiku-5-5"
     turns = AriaBrain(s, llm=s.aria.llm).transcript()                      # what a reload reads from the store
-    assert turns[0]["role"] == "owner" and turns[0]["client_id"] == "client-abc" and turns[1]["usage"]["cost_basis"] == "token-equivalent"
-    assert "about a cent" not in s.aria.status()["cost_note"]
+    assert turns[0]["role"] == "owner" and turns[0]["client_id"] == "client-abc" and turns[1]["usage"]["billing"] == "subscription-included"
+    assert "about a cent" not in s.aria.status()["route_note"] and "$" not in s.aria.status()["route_note"]
 
 
 def test_model_failure_is_an_error_turn_with_retry_count_and_no_invented_cost(tmp_path):
@@ -46,7 +47,7 @@ def test_model_failure_is_an_error_turn_with_retry_count_and_no_invented_cost(tm
     s.aria.llm = FailingLLM([])
     r = asyncio.run(s.aria.chat("is this working now", "c1"))
     assert r["kind"] == "error" and "Model call failed twice" in r["reply"]
-    assert r["usage"]["rounds"] == 0 and r["usage"]["retries"] == 1 and r["usage"]["cost_usd"] == 0.0
+    assert r["usage"]["rounds"] == 0 and r["usage"]["retries"] == 1 and r["usage"]["billing"] == "none"
     assert [t["kind"] for t in s.aria.transcript() if t["role"] == "aria"] == ["error"]
 
 
@@ -54,7 +55,7 @@ def test_no_model_mode_says_no_model_call(tmp_path):
     s = _service(tmp_path)
     s.aria.llm = FakeLLM([], ok=False)
     r = asyncio.run(s.aria.chat("status?"))
-    assert r["usage"]["cost_basis"] == "none" and r["usage"]["backend"] is None
+    assert r["usage"]["billing"] == "none" and r["usage"]["backend"] is None
 
 
 INIT_DELAY = "const _f = window.fetch; window.fetch = async (u, o) => { const r = await _f(u, o); if (String(u).includes('/v0/aria/history')) await new Promise(x => setTimeout(x, 3000)); return r; };"
@@ -87,7 +88,7 @@ def test_late_history_response_never_removes_a_sent_message_and_reload_shows_it_
         page.wait_for_function("document.querySelector('#aria_send').textContent === 'Send'", timeout=15000)
         log = page.inner_text("#aria_log")
         assert "Yes, the control plane is running." in log and text in log
-        assert "claude-haiku-5-5" in log and "claude_cli" in log and "$0.119 token-equivalent, not an invoice" in log and "1 round" in log
+        assert "claude-haiku-5-5" in log and "included in your subscription" in log and "$0.119" not in log and "token-equivalent" not in log and "1 round" in log
         assert "Reply received in" in page.inner_text("#aria_state")
         assert "about a cent" not in page.inner_text("#aria_model")
         assert "about a cent" not in page.inner_text("#aria_model")
@@ -95,7 +96,7 @@ def test_late_history_response_never_removes_a_sent_message_and_reload_shows_it_
         page.wait_for_function(f"document.querySelector('#aria_log').innerText.includes({text!r})", timeout=15000)
         page.wait_for_timeout(3600)                                           # even with the delayed history on reload
         owners = page.evaluate("[...document.querySelectorAll('#aria_log .turn.owner')].filter(t => t.innerText.startsWith('is this working now')).length")
-        assert owners == 1 and "$0.119 token-equivalent" in page.inner_text("#aria_log")   # recovered from the store exactly once, usage persisted
+        assert owners == 1 and "included in your subscription" in page.inner_text("#aria_log") and "$0.119" not in page.inner_text("#aria_log")   # recovered from the store exactly once, usage persisted
         ctx.close(); browser.close()
     assert [t["text"] for t in s.aria.transcript() if t["role"] == "owner"] == [text]
 
@@ -285,7 +286,7 @@ def test_reload_while_a_reply_is_pending_shows_the_reply_when_it_lands_exactly_o
 
 def test_reply_usage_keeps_the_models_actually_billed_summed_over_rounds(tmp_path):
     class Billed(FakeLLM):
-        async def complete(self, prompt, schema, model_class="cloud_cheap", system=None, timeout=0):
+        async def complete(self, prompt, schema, model_class="cloud_cheap", system=None, timeout=0, purpose=""):
             self.prompts.append(prompt)
             return Completion(data=self.answers.pop(0), model="claude-haiku-5-5", backend="claude_cli", cost_usd=0.07, input_tokens=100, output_tokens=10, duration_ms=1,
                               model_usage={"claude-haiku-5-5": {"usd": 0.0007, "in": 2, "out": 10, "cache_read": 500, "cache_create": 4000},
@@ -293,6 +294,6 @@ def test_reply_usage_keeps_the_models_actually_billed_summed_over_rounds(tmp_pat
     s = _service(tmp_path)
     s.aria.llm = Billed([{"reply": "Checking.", "action": {"name": "get_state", "args": {}}}, {"reply": "Done.", "action": None}])
     u = asyncio.run(s.aria.chat("status", "cid-9"))["usage"]
-    assert u["rounds"] == 2 and u["cost_usd"] == 0.14
+    assert u["rounds"] == 2 and u["estimate_usd"] == 0.14
     assert u["models_billed"]["claude-sonnet-5-5"] == {"usd": 0.1386, "in": 0, "out": 10, "cache_read": 0, "cache_create": 18000}
     assert AriaBrain(s, llm=s.aria.llm).transcript()[1]["usage"]["models_billed"]["claude-haiku-5-5"]["cache_create"] == 8000      # persisted

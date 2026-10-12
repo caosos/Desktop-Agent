@@ -218,7 +218,7 @@ def test_overlapping_owner_turns_keep_their_own_identity(tmp_path):
 
     class GatedLLM(FakeLLM):
         calls = 0
-        async def complete(self, prompt, schema, model_class="cloud_cheap", system=None, timeout=0):
+        async def complete(self, prompt, schema, model_class="cloud_cheap", system=None, timeout=0, purpose=""):
             GatedLLM.calls += 1
             if GatedLLM.calls == 1:
                 await gate.wait()                          # first chat parks here; the second runs start to finish meanwhile

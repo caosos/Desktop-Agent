@@ -7,7 +7,8 @@ WORKING → DONE like any instruction; the 300 s unacknowledged flag and the ETA
 
 Selection FAILS CLOSED: nothing is delivered (a refusal is recorded with its reason) unless the first READY / QUEUED row
 by priority and table order is clearly eligible: assigned to the coordinator, not owner-gated, not blocked, not another
-project's, dependencies verifiably met, no earlier handoff still open, and the hourly and daily budgets not exhausted.
+project's, dependencies verifiably met, no earlier handoff still open. The relay is a subscription call, not paid API spend, so the
+paid-spend maximum (paid_budget.py) does not gate it.
 One completed item produces at most one handoff (deterministic id + persisted record), also across restarts. Only
 projects with `intake.handoff: true` take part; the queue read is the project's own file. No model is called.
 """
@@ -79,17 +80,6 @@ class Handoff:
         """checklist_for(project) → the project's own BUILD_CHECKLIST path (never another project's)."""
         self.store, self.intake, self.checklist_for, self.cfg, self.clock = store, intake, checklist_for, cfg, clock
 
-    def _budget_refusal(self) -> str | None:
-        if self.cfg is None:
-            return None
-        c = self.store.cost_summary()
-        s = self.cfg.scheduler
-        if c["last_hour_usd"] >= s.hourly_cap_usd:
-            return f"over budget: ${c['last_hour_usd']:.2f} spent in the last hour against the ${s.hourly_cap_usd:.2f} cap"
-        if c["today_usd"] >= s.daily_cap_usd:
-            return f"over budget: ${c['today_usd']:.2f} spent today against the ${s.daily_cap_usd:.2f} cap"
-        return None
-
     def _refuse(self, done: dict, reason: str) -> dict:
         self.intake._emit(done, ET.CONTROL.value, {"action": "handoff_refused", "reason": reason, "after": done["item_id"]}, [reason[:100]])
         write_receipt(self.store, subject_type="instruction", subject_id=done["item_id"], claim=f"handoff refused (fail closed): {reason}"[:300], actor=Actor.CONTROL.value,
@@ -109,9 +99,6 @@ class Handoff:
         row, why = select_next(parse_queue(checklist.read_text()))
         if row is None:
             return self._refuse(done, why or "no eligible row")
-        over = self._budget_refusal()
-        if over:
-            return self._refuse(done, over)
         item_id = "da-" + hashlib.sha1(f"handoff:{done['item_id']}:{row['title']}".encode()).hexdigest()[:10]
         if self.store.get_intake(item_id):
             self.store.set_kv(key, {"item_id": item_id, "at": self.clock()})

@@ -15,6 +15,7 @@ from typing import Any, Callable, Iterable
 from .events import Event
 from .store_intake import IntakeStoreMixin
 from .store_owner import OwnerRecordsMixin
+from .store_paid import PaidLedgerMixin
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS goals (
@@ -43,6 +44,10 @@ CREATE TABLE IF NOT EXISTS costs (
   id INTEGER PRIMARY KEY AUTOINCREMENT, ts REAL, task_id TEXT, worker_id TEXT,
   model TEXT, usd REAL, input_tokens INTEGER, output_tokens INTEGER
 );
+CREATE TABLE IF NOT EXISTS paid_ledger (
+  call_id TEXT PRIMARY KEY, ts REAL, day TEXT, provider TEXT, model TEXT, usd REAL, basis TEXT, status TEXT, purpose TEXT
+);
+CREATE INDEX IF NOT EXISTS paid_ledger_day ON paid_ledger(day, status);
 CREATE TABLE IF NOT EXISTS idempotency (
   key TEXT PRIMARY KEY, ts REAL, response_json TEXT
 );
@@ -78,7 +83,7 @@ _MIGRATIONS = [
 ]
 
 
-class Store(IntakeStoreMixin, OwnerRecordsMixin):
+class Store(IntakeStoreMixin, OwnerRecordsMixin, PaidLedgerMixin):
     def __init__(self, data_dir: Path):
         self.data_dir = Path(data_dir)
         self.data_dir.mkdir(parents=True, exist_ok=True)

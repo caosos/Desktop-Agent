@@ -102,17 +102,13 @@ def test_a_met_dependency_is_accepted(tmp_path):
     assert len(r.handoffs()) == 1 and "Follows the audit" in r.handoffs()[0]["body"]
 
 
-def test_over_budget_is_refused_hourly_and_daily(tmp_path):
+def test_subscription_usage_never_refuses_a_handoff(tmp_path):
+    """The relay is a subscription call, not paid API spend: a large token-equivalent figure in the usage table is not a budget."""
     cfg = RuntimeConfig(data_dir=tmp_path / "d", workspaces_dir=tmp_path / "w", token_file=tmp_path / "t")
-    cfg.scheduler.hourly_cap_usd, cfg.scheduler.daily_cap_usd = 1.0, 100.0
     r = Rig(tmp_path, QUEUE, cfg=cfg)
-    r.store.add_cost(None, None, "m", 1.5, 1, 1)
+    r.store.add_cost(None, None, "m", 500.0, 1, 1)
     r.done()
-    assert r.handoffs() == [] and "over budget" in r.refusals()[0] and "hourly" not in r.refusals()[0] and "last hour" in r.refusals()[0]
-    cfg2 = RuntimeConfig(data_dir=tmp_path / "d2", workspaces_dir=tmp_path / "w2", token_file=tmp_path / "t2"); cfg2.scheduler.hourly_cap_usd, cfg2.scheduler.daily_cap_usd = 100.0, 1.0
-    r2 = Rig(tmp_path / "second" if (tmp_path / "second").mkdir() is None else tmp_path, QUEUE, cfg=cfg2)
-    r2.store.add_cost(None, None, "m", 1.5, 1, 1); r2.done()
-    assert r2.handoffs() == [] and "spent today" in r2.refusals()[0]
+    assert len(r.handoffs()) == 1 and r.refusals() == []
 
 
 def test_unreadable_queue_and_an_open_earlier_handoff_are_refused(tmp_path):

@@ -23,7 +23,7 @@ DEFAULT_MODEL = "claude-haiku-5-5"
 
 TOOLS = [
     {"name": "list_projects", "description": "Projects the control plane manages.", "input_schema": {"type": "object", "properties": {}}},
-    {"name": "get_state", "description": "Current workers, tasks with stages, blocked items, open owner decisions, costs.",
+    {"name": "get_state", "description": "Current workers, tasks with stages, blocked items, open owner decisions, the paid API budget.",
      "input_schema": {"type": "object", "properties": {}}},
     {"name": "submit_goal", "description": "Create one bounded task from Michael's confirmed instruction.",
      "input_schema": {"type": "object", "required": ["project", "text"], "properties": {
@@ -63,7 +63,7 @@ class Aria:
                 return {"projects": self.client.projects()}
             if name == "get_state":
                 s = self.client.state()
-                return {k: s[k] for k in ("projects", "workers", "inbox", "blocked", "next", "costs", "paused")} | \
+                return {k: s[k] for k in ("projects", "workers", "inbox", "blocked", "next", "budgets", "paused")} | \
                        {"tasks": [{k: t[k] for k in ("task_id", "status", "stage", "objective", "last_activity")} for t in s["tasks"][-10:]]}
             if name == "submit_goal":
                 return self.client.submit_goal(inp["project"], inp["text"], inp.get("task_type", "code"),

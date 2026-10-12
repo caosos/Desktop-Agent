@@ -15,6 +15,7 @@ from pydantic import BaseModel, Field
 
 from .events import Actor, Event, EventType as ET, Provenance
 from .calling_api import calling_routes
+from .paid_api import paid_routes
 from .research_api import research_routes
 from .intake_api import IntakeStatusIn, intake_routes, source
 from .aria_api import aria_routes
@@ -82,6 +83,7 @@ def build_app(service: Service, token: str) -> FastAPI:
         return "owner"
 
     app.include_router(calling_routes(service, auth))
+    app.include_router(paid_routes(service, auth))
     app.include_router(research_routes(service, auth))
     app.include_router(intake_routes(service, auth))
     app.include_router(aria_routes(service, auth, token))

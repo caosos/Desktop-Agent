@@ -27,7 +27,7 @@ def describe(ev: Event) -> str:
         "TEST_FAILED": lambda: "worker tests failed (claim)",
         "COMMIT_CREATED": lambda: f"commit {str(p.get('sha') or '')[:10]}",
         "CLAIM_WRITTEN": lambda: f"worker claim: {p.get('status')}",
-        "WORKER_FINISHED": lambda: f"worker finished, exit {p.get('exit_code')}, ${p.get('cost_usd') or 0:.2f}",
+        "WORKER_FINISHED": lambda: f"worker finished, exit {p.get('exit_code')}",
         "WORKER_KILLED": lambda: "worker killed",
         "WORKER_STALLED": lambda: "worker stalled",
         "VERIFY_STARTED": lambda: "verifier: clean checkout + tests",
@@ -113,11 +113,7 @@ def state(service) -> dict:
         next_action = {"kind": "none", "text": (f"Needs you: {work['needs_owner'][0]['text'][:110]}" if work["needs_owner"] else f"Waiting on others: {work['waiting'][0]['text'][:110]}")}
         glance["next_action"] = next_action
     if any(t["status"] == "READY" for t in tasks) and slots["free"] == 0 and not service.scheduler.paused:
-        if not slots["daily_cap_ok"]:
-            hold = "daily budget cap reached"
-        elif slots["budget_slots"] == 0:
-            hold = "hourly budget cap: waiting for spend to age out of the window"
-        elif slots["mem_slots"] == 0:
+        if slots["mem_slots"] == 0:
             hold = "host memory below reserve"
         elif slots["cpu_slots"] == 0:
             hold = "no CPU slots"
@@ -128,7 +124,7 @@ def state(service) -> dict:
     return {
         "ts": time.time(), "uptime_sec": round(time.time() - service.started_at), "paused": service.scheduler.paused,
         "projects": projects, "tasks": tasks[-50:], "workers": workers,
-        "inbox": inbox, "costs": service.store.cost_summary(),
+        "inbox": inbox, "estimates": estimates(service),
         "blocked": blocked_list[-20:], "glance": glance, "work": work,
         "next": next((t for t in tasks if t["status"] == "READY"), None),
         "slots": slots, "hold": hold, "class_labels": dict(service.cfg.class_labels), "last_seq": service.store.last_seq(),
@@ -173,16 +169,15 @@ def coordinator_state(service, pkg) -> dict:
     return base | {"connected": False, "detail": "Disconnected / Data unavailable: no coordinator integration configured", "wake": "unavailable"}
 
 def budgets(service) -> dict:
-    """Caps, actual spend against them, and usage with no dollar figure (never estimated)."""
+    """The one owner budget: the Daily maximum paid API spend, what was actually paid today, and nothing else.
+    Token-equivalent usage of subscription CLIs is not money and lives only under `estimates` (technical evidence)."""
+    return service.paid.summary()
+
+
+def estimates(service) -> dict:
+    """Internal diagnostics: dollar-shaped figures the Claude CLI computes from tokens. Estimates, not billed."""
     c = service.store.cost_summary()
-    s = service.cfg.scheduler
-    return {"hourly_cap_usd": s.hourly_cap_usd, "daily_cap_usd": s.daily_cap_usd,
-            "per_task_default_usd": service.cfg.default_budget_usd,
-            "spent_last_hour_usd": c["last_hour_usd"], "spent_today_usd": c["today_usd"],
-            "remaining_hour_usd": round(max(0.0, s.hourly_cap_usd - c["last_hour_usd"]), 4),
-            "remaining_today_usd": round(max(0.0, s.daily_cap_usd - c["today_usd"]), 4),
-            "unknown_usage": c["unknown_usage"],
-            "note": "unknown_usage = subscription executors or unpriced models: tokens recorded, dollars not estimated"}
+    return {"label": "estimate; not billed", "today": c["today_usd"], "last_hour": c["last_hour_usd"], "total": c["total_usd"], "unpriced_calls_today": c["unknown_usage"]["calls_today"]}
 
 async def task_detail(service, task_id: str) -> dict | None:
     row = service.store.get_task(task_id)
@@ -194,7 +189,7 @@ async def task_detail(service, task_id: str) -> dict | None:
                        "source": e.provenance.source, "evidence": list(e.provenance.evidence or [])[:3]} for e in evs[-200:]]
     view["contract"] = row["contract"]
     view["receipts"] = service.store.receipts("task", task_id)
-    # evidence trace: when each stage was first reached, and what the task cost (known dollars only; None = unknown)
+    # evidence trace: when each stage was first reached, and its token-equivalent estimate (not billed)
     timeline, seen = [], set()
     for i, e in enumerate(evs):
         if i and e.type == evs[i - 1].type:
@@ -203,7 +198,7 @@ async def task_detail(service, task_id: str) -> dict | None:
         if st not in seen:
             seen.add(st); timeline.append({"stage": st, "ts": e.ts, "seq": e.seq})
     view["stage_timeline"] = timeline
-    view["cost_usd"] = service.store.cost_summary()["per_task"].get(task_id)
+    view["estimate_usd"] = service.store.cost_summary()["per_task"].get(task_id)    # token-equivalent diagnostic: estimate; not billed
     view["tool_calls"] = sum(1 for e in evs if e.type == ET.TOOL_CALLED.value)
     view["files_changed_events"] = sum(1 for e in evs if e.type == ET.FILE_CHANGED.value)
     wsdir = service.cfg.workspaces_dir / task_id / "repo"

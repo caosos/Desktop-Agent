@@ -77,7 +77,7 @@ def test_owner_view_states_and_evidence_on_demand(served):
     req = urllib.request.Request(f"http://127.0.0.1:{PORT}/v0/tasks/t-done", headers={"Authorization": "Bearer tok"})
     d = json.loads(urllib.request.urlopen(req).read())
     assert [x["stage"] for x in d["stage_timeline"]][0] == "READING" and d["stage_timeline"][-1]["stage"] == "DONE"
-    assert d["files_changed_events"] == 1 and all("evidence" in e and "source" in e for e in d["events"]) and d["cost_usd"] == 0.0172
+    assert d["files_changed_events"] == 1 and all("evidence" in e and "source" in e for e in d["events"]) and d["estimate_usd"] == 0.0172
     with playwright.sync_playwright() as p:
         try:
             browser = p.chromium.launch(channel="chrome", headless=True)
@@ -119,7 +119,7 @@ def test_owner_view_states_and_evidence_on_demand(served):
         # project drilldown: click a card (and keyboard Enter on another) → in-place pane with coordinator vs workers,
         # roster rows that say NOT RUNNING instead of inventing sessions, instructions with age and next action, freshness
         page.set_viewport_size({"width": 1648, "height": 900})
-        page.click("#o_projects .ocard[data-p='alpha']")
+        page.click("#o_projects .ocard[data-p='alpha'] b")
         assert not page.evaluate("document.querySelector('#drill').hidden")                     # opens at once (loading line), then fills
         page.wait_for_function("!document.querySelector('#drill').hidden && document.querySelector('#drill').textContent.includes('Agents') && !document.querySelector('#drill').hasAttribute('aria-busy')", timeout=15000)
         drill = page.inner_text("#drill")
@@ -145,7 +145,7 @@ def test_owner_view_states_and_evidence_on_demand(served):
         # evidence only on demand: the ✓ Today row's "evidence" link opens the Details view on the task's trace
         page.click("#o_done a.evidence[data-t='t-done']")
         page.wait_for_function("document.body.dataset.mode === 'details' && !document.querySelector('#detail').hidden && document.querySelector('#d_timeline').textContent.includes('DONE')", timeout=15000)
-        assert "READING" in page.inner_text("#d_timeline") and "cost $0.02" in page.inner_text("#d_summary")
+        assert "READING" in page.inner_text("#d_timeline") and "estimate (not billed) $0.02" in page.inner_text("#d_summary")
         page.click("#detail summary")
         assert "worker/test" in page.inner_text("#d_trace") and "ev0" in page.inner_text("#d_trace")
         assert "UNACKNOWLEDGED" in page.inner_text("#intake") and "ACKNOWLEDGED" in page.inner_text("#intake")

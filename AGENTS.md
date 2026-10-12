@@ -170,6 +170,16 @@ acceptance: tests prove schema, timer, three outcomes, early DONE, missed-check 
 blocker: NONE
 ```
 
+## One hard daily budget: Daily maximum paid API spend (owner directive 2026-10-11 20:57 CDT; `da-8708eb5ec7`)
+
+Hardcoded in `desktop_agent/control/paid_budget.py` (default `$0`), enforced at the single paid-call choke point `LLM.complete`, shown in the panel bar and stated in Ask Aria's instructions; tests in `tests/test_paid_budget.py`.
+
+1. There is one owner setting, **Daily maximum paid API spend**. Default $0. Only the owner changes it (panel or `POST /v0/paid-budget`, receipted).
+2. It bounds actual paid API spend only. Subscription-included Claude CLI/Codex usage, local and cached work are **not** spend: never call them spend, cost, charged or a cap in owner-facing UI or messages, and never show per-message or aggregate token-equivalent dollars there. Such figures are internal diagnostics, shown only behind technical evidence and labelled `estimate; not billed`.
+3. Provider billing receipts are the only authority for actual paid spend; a provider-reported usage figure is shown as such until a billing receipt covers it.
+4. Route subscription/local first, then the cheapest capable authorized paid route. At the maximum, make no further paid call, continue compatible subscription/local work, record one NEED receipt, and notify Michael only if the limit blocks necessary work (name the task and the smallest decision).
+5. No model call, worker, relay, retry or background task may bypass it: every control-plane Claude CLI runs with no API key, auth token or gateway (`subscription_env`); workers hold no provider key; a paid HTTP call needs a ledger hold keyed by call id, so restart and replay cannot reset or double-count the day.
+
 ## Handoff to Michael
 
 End every work block by committing and pushing to the authorised branch,

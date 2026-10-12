@@ -19,6 +19,7 @@ import time
 from pathlib import Path
 
 from .config import RuntimeConfig
+from .llm import subscription_env
 from .store import Store
 
 MAX_BODY = 6000
@@ -222,7 +223,7 @@ class Deliverer:
         argv = [self.claude_bin, "-p", prompt, "--output-format", "json", "--model", model, "--max-turns", "4",
                 "--tools", "ListAgents,SendMessage", "--allowedTools", "ListAgents", "SendMessage",
                 "--no-session-persistence", "--strict-mcp-config", "--mcp-config", '{"mcpServers":{}}']
-        env = {k: v for k, v in os.environ.items() if not k.endswith("_API_KEY")}
+        env = subscription_env(os.environ)   # relay = subscription login only
         proc = await asyncio.create_subprocess_exec(*argv, stdin=asyncio.subprocess.DEVNULL, stdout=asyncio.subprocess.PIPE,
                                                     stderr=asyncio.subprocess.PIPE, env=env, cwd=str(Path.home()))
         try:

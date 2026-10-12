@@ -9,7 +9,15 @@ import pytest
 from desktop_agent.control import llm as llm_mod
 from desktop_agent.control.config import RuntimeConfig
 from desktop_agent.control.llm import LLM, LLMError, Completion, list_openai_models
+from desktop_agent.control.paid_budget import PaidBudget
 from desktop_agent.control.service import Service
+from desktop_agent.control.store import Store
+
+
+def _gated(llm: LLM, tmp_path: Path, maximum: float = 5.0) -> LLM:
+    """Attach a paid-spend ledger with the owner's daily maximum set (the default would be $0: no paid call)."""
+    store = Store(tmp_path / "ledger"); pb = PaidBudget(store); pb.set_maximum(maximum, "test"); llm.gate = pb
+    return llm
 
 
 def _cfg(tmp_path: Path, yaml_text: str) -> RuntimeConfig:
@@ -47,14 +55,14 @@ def test_openai_backend_parses_and_prices(tmp_path: Path, monkeypatch):
         return {"model": "m-luna", "choices": [{"message": {"content": json.dumps({"task_type": "docs"})}}],
                 "usage": {"prompt_tokens": 1000, "completion_tokens": 100}}
     monkeypatch.setattr(llm_mod, "_post_json", fake_post)
-    c = asyncio.run(LLM(cfg).complete("classify", {"type": "object"}, "cloud_cheap", system="sys"))
+    c = asyncio.run(_gated(LLM(cfg), tmp_path).complete("classify", {"type": "object"}, "cloud_cheap", system="sys"))
     assert c.backend == "openai_api" and c.data == {"task_type": "docs"} and c.model == "m-luna"
     assert c.cost_usd == pytest.approx(0.001 + 0.0004) and c.cost_known
     assert seen["headers"]["authorization"] == "Bearer sk-test" and seen["body"]["response_format"]["type"] == "json_schema"
     assert seen["body"]["messages"][0] == {"role": "system", "content": "sys"}
     # unpriced model → unknown cost, not an estimate
     cfg.pricing = {}
-    c2 = asyncio.run(LLM(cfg).complete("x", {"type": "object"}, "cloud_strong"))
+    c2 = asyncio.run(_gated(LLM(cfg), tmp_path / "g2").complete("x", {"type": "object"}, "cloud_strong"))
     assert c2.cost_usd is None and not c2.cost_known and c2.model == "m-luna"   # fake returns m-luna
 
 
@@ -64,7 +72,7 @@ def test_openai_http_error_surfaces(tmp_path: Path, monkeypatch):
     def boom(url, body, headers, timeout): raise LLMError("api.openai.com HTTP 429: insufficient_quota")
     monkeypatch.setattr(llm_mod, "_post_json", boom)
     with pytest.raises(LLMError, match="429"):
-        asyncio.run(LLM(cfg).complete("x", {"type": "object"}))
+        asyncio.run(_gated(LLM(cfg), tmp_path / "g3").complete("x", {"type": "object"}))
     with pytest.raises(LLMError, match="no key"):
         cfg.providers["openai"]["key_file"] = str(tmp_path / "missing"); list_openai_models(cfg)
 
@@ -116,10 +124,10 @@ def test_budgets_and_unknown_usage_in_state(tmp_path: Path):
     s.store.add_cost("t1", "w", "claude-sonnet-5-5", 1.25, 100, 50)
     s.store.add_cost("t2", "w", "gpt-x", None, 2000, 300)              # subscription / unpriced
     b = s.state()["budgets"]
-    assert b["spent_today_usd"] == 1.25 and b["remaining_today_usd"] == round(cfg.scheduler.daily_cap_usd - 1.25, 4)
-    assert b["unknown_usage"]["calls"] == 1 and b["unknown_usage"]["input_tokens"] == 2000
+    assert b["daily_max_paid_usd"] == 0.0 and b["paid_today_usd"] == 0.0 and "spent_today_usd" not in b and "daily_cap_usd" not in b
+    est = s.state()["estimates"]
+    assert est["label"] == "estimate; not billed" and est["today"] == 1.25 and est["unpriced_calls_today"] == 1 and "costs" not in s.state()
     assert s.state()["llm"]["backend"] in ("claude_cli", "openai_api", "anthropic_api")
-    assert s.state()["costs"]["per_task"] == {"t1": 1.25}
 
 
 def test_pilot_scope_limits_classes_and_calls_per_day(tmp_path: Path, monkeypatch):
@@ -129,7 +137,7 @@ def test_pilot_scope_limits_classes_and_calls_per_day(tmp_path: Path, monkeypatc
     kf = tmp_path / "k"; kf.write_text("sk-test"); kf.chmod(0o600)
     cfg = _cfg(tmp_path, f"providers:\n  openai:\n    key_file: {kf}\n    classes: [cloud_cheap]\n    pilot_max_calls_per_day: 2\n"
                          "    models: {cloud_cheap: gpt-6-luna, cloud_strong: gpt-6.1-sol, cloud_max: gpt-6-astra}\n")
-    llm = LLM(cfg)
+    llm = _gated(LLM(cfg), tmp_path)
     monkeypatch.setattr(llm, "available", lambda b: b in ("openai_api", "claude_cli"))   # stand-in for an owner-admitted provider
     assert llm.backend_for("cloud_cheap") == "openai_api" and llm.backend_for("cloud_strong") == "claude_cli" and llm.backend_for("cloud_max") == "claude_cli"
     assert llm.model_for("cloud_strong", llm.backend_for("cloud_strong")) == cfg.models["cloud_strong"]       # strong stays on the subscription model
@@ -150,6 +158,6 @@ def test_claude_cli_per_model_usage_is_kept_as_the_backend_reported_it(tmp_path,
     async def spawn(*a, **k): return P()
     monkeypatch.setattr(llm_mod.asyncio, "create_subprocess_exec", spawn)
     cfg = _cfg(tmp_path, "llm_backend_order: [claude_cli]\n"); cfg.data_dir = tmp_path / "data"
-    r = asyncio.run(LLM(cfg).complete("x", {"type": "object"}))
+    r = asyncio.run(_gated(LLM(cfg), tmp_path / "g3").complete("x", {"type": "object"}))
     assert r.model_usage["claude-sonnet-5-5"] == {"usd": 0.1433, "in": 0, "out": 300, "cache_read": 0, "cache_create": 20700}
     assert set(r.model_usage) == {"claude-haiku-5-5", "claude-sonnet-5-5"} and r.cost_usd == 0.1464

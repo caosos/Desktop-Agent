@@ -90,7 +90,7 @@ def test_owner_panel_acceptance(served):
         assert page.inner_text("#g_blocked_n") == "1" and "credential missing" in page.inner_text("#g_blocked")
         assert "Approve the pilot?" in page.inner_text("#g_next") and "approval packet" in page.inner_text("#g_next")
         assert page.locator("#g_next_ctl button").count() == 0 and page.locator("#g_next_ctl a[href='#packetcard']").count() == 1   # one place to answer
-        assert "NaN" not in page.inner_text("body") and "UNKNOWN $" in page.inner_text("#costs")
+        assert "NaN" not in page.inner_text("body") and "estimate; not billed" in page.inner_text("#costs")
         assert "Submit goal" in page.inner_text("#legend") and "Transfer / Send" in page.inner_text("#legend")
         assert "PR open, not merged" in page.inner_text("#g_done") or "merge not checked" in page.inner_text("#g_done")
         assert "control-plane stage" in page.inner_text("#projects") and "workers now: UNKNOWN" in page.inner_text("#projects")

@@ -188,8 +188,7 @@ class AriaWindow(Gtk.ApplicationWindow):
             if p.get("last_activity"):
                 la = Gtk.Label(label=f"{p['last_activity'][:60]} · {ago(p.get('last_activity_at'))}", xalign=0, wrap=True); la.add_css_class("muted")
                 self.projects_box.append(la)
-        cost = st["costs"]
-        line = f"{len(st['workers'])} worker(s) · slots {st['slots']['slots']} · today ${cost['today_usd']:.2f}"
+        line = f"{len(st['workers'])} worker(s) · slots {st['slots']['slots']}"
         classes = sorted({class_label(st, t.get("model_class")) for t in running if t.get("model_class")})
         self.workers_lbl.set_text(line + (" · " + ", ".join(classes) if classes else ""))
 

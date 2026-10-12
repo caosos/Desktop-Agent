@@ -39,7 +39,10 @@ class Service:
         self.integrator = Integrator(cfg, self.store)
         self.scheduler = Scheduler(cfg, self.store, self.launcher, self.verifier, self.integrator,
                                    self.projects, self._retry)
+        from .paid_budget import PaidBudget          # the one hard daily budget for paid API spend (owner directive da-8708eb5ec7)
+        self.paid = PaidBudget(self.store)
         self.llm = LLM(cfg)
+        self.llm.gate = self.paid
         self.planner = Planner(self.llm, self.projects)
         from .aria import AriaBrain                  # local import: aria depends on the service surface
         self.aria = AriaBrain(self, self.llm)

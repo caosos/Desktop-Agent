@@ -13,11 +13,11 @@ from __future__ import annotations
 
 import asyncio
 from pathlib import Path
-import copy
 import json
 import os
 import re
 import time
+import uuid
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
@@ -75,6 +75,14 @@ def _post_json(url: str, body: dict, headers: dict[str, str], timeout: int) -> d
         raise LLMError(f"{url.split('/')[2]} unreachable: {exc}") from None
 
 
+_PAID_ENV_EXACT = {"ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL", "CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_VERTEX", "CLAUDE_CODE_USE_FOUNDRY"}
+
+
+def subscription_env(environ) -> dict:
+    """Environment for any Claude CLI the control plane starts: no API key, auth token, gateway or cloud-billing switch (subscription login only)."""
+    return {k: v for k, v in environ.items() if not k.endswith("_API_KEY") and k not in _PAID_ENV_EXACT}
+
+
 class LLM:
     def __init__(self, cfg: RuntimeConfig, backend: str | None = None, claude_bin: str = "claude"):
         self.cfg = cfg
@@ -82,6 +90,7 @@ class LLM:
         self._forced = backend
         self.backend = backend or self._pick_backend()
         self._calls: dict[tuple[str, str], int] = {}        # (backend, day) → API calls made by this process
+        self.gate = None                                    # PaidBudget; without one no paid backend is ever selected (fail closed)
 
     def refresh(self) -> str:
         """Re-pick the backend (a key file may have appeared since start; no restart needed)."""
@@ -116,7 +125,7 @@ class LLM:
         return {"backend": self.backend, "order": list(self.cfg.llm_backend_order),
                 "providers": {n: self.cfg.provider_status(n) for n in self.cfg.providers},
                 "backend_by_class": {c: self.backend_for(c) for c in ("cloud_cheap", "cloud_strong", "cloud_max")},
-                "pilot_usage": self.pilot_usage()}
+                "pilot_usage": self.pilot_usage(), "paid_budget": self.gate.summary() if self.gate else None}
 
     # ---- pilot scope: a provider may be limited to some classes and to N calls per day ------
     def backend_for(self, model_class: str) -> str:
@@ -135,8 +144,27 @@ class LLM:
             cap = pv.get("pilot_max_calls_per_day")
             if cap is not None and self._calls.get((b, today), 0) >= int(cap):
                 continue
+            if not self._budget_ok():
+                continue                                   # the daily maximum paid API spend: skip every paid route
             return b
         return "claude_cli"
+
+    def _budget_ok(self) -> bool:
+        return bool(self.gate and self.gate.permits()[0])
+
+    def _skipped_for_budget(self, model_class: str) -> list[str]:
+        """Paid backends that would have served this call but for the daily maximum (no side effects)."""
+        if self._budget_ok():
+            return []
+        out = []
+        for b in self.cfg.llm_backend_order:
+            if b == "claude_cli" or not self.available(b):
+                continue
+            pv = self.cfg.providers.get(b.replace("_api", "")) or {}
+            if pv.get("classes") and model_class not in pv["classes"]:
+                continue
+            out.append(b)
+        return out
 
     def pilot_usage(self) -> dict:
         today = time.strftime("%Y-%m-%d")
@@ -145,20 +173,39 @@ class LLM:
                 for (b, d), n in self._calls.items() if d == today}
 
     async def complete(self, prompt: str, schema: dict, model_class: str = "cloud_cheap",
-                       system: str | None = None, timeout: int = 180) -> Completion:
+                       system: str | None = None, timeout: int = 180, purpose: str = "control-plane model call") -> Completion:
+        skipped = self._skipped_for_budget(model_class)
         backend = self.backend_for(model_class)
         model = self.model_for(model_class, backend)
+        call_id = None
         if backend in ("openai_api", "anthropic_api"):
-            key = (backend, time.strftime("%Y-%m-%d"))
-            self._calls[key] = self._calls.get(key, 0) + 1
-        if backend == "openai_api":
-            return await asyncio.to_thread(self._openai, prompt, schema, model, system, timeout)
-        if backend == "anthropic_api":
-            return await asyncio.to_thread(self._anthropic, prompt, schema, model, system, timeout)
+            provider = backend.replace("_api", "")
+            call_id = f"llm-{uuid.uuid4().hex}"
+            grant = self.gate.authorize(call_id, provider, model, purpose) if self.gate else {"ok": False, "reason": "no paid-spend ledger attached"}
+            if not grant["ok"]:                            # lost a race at the boundary: nothing was held, nothing is charged
+                skipped.append(backend)
+                backend, call_id = "claude_cli", None
+                model = self.model_for(model_class, backend)
+            else:
+                key = (backend, time.strftime("%Y-%m-%d"))
+                self._calls[key] = self._calls.get(key, 0) + 1
+        for b in skipped:                                  # one NEED receipt per day, provider and purpose; it notifies only if no other route ran
+            self.gate.note_block(b.replace("_api", ""), self.model_for(model_class, b), purpose,
+                                 self.gate.permits()[1] or "the daily maximum was reached by a concurrent call", backend)
+        if call_id:
+            fn = self._openai if backend == "openai_api" else self._anthropic
+            comp = await asyncio.to_thread(fn, prompt, schema, model, system, timeout, call_id)
+            self.gate.settle(call_id, comp.cost_usd)       # the provider-reported amount replaces the hold (unknown price: the hold stays)
+            return comp
         return await self._claude_cli(prompt, schema, model, system, timeout)
 
     # ---- backends -----------------------------------------------------------
-    def _openai(self, prompt: str, schema: dict, model: str, system: str | None, timeout: int) -> Completion:
+    def _held(self, call_id: str) -> None:
+        if not (self.gate and self.gate.holds(call_id)):
+            raise LLMError("paid API call refused: no daily-maximum hold exists for this call")
+
+    def _openai(self, prompt: str, schema: dict, model: str, system: str | None, timeout: int, call_id: str = "") -> Completion:
+        self._held(call_id)
         key = self.cfg.provider_key("openai")
         if not key:
             raise LLMError("openai_api: no key")
@@ -175,7 +222,8 @@ class LLM:
                           cost_usd=self.cfg.price(resp.get("model") or model, itok, otok) if self.cfg.pricing else self.cfg.price(model, itok, otok),
                           input_tokens=itok, output_tokens=otok, duration_ms=int((time.time() - started) * 1000), raw_text=text[:2000])
 
-    def _anthropic(self, prompt: str, schema: dict, model: str, system: str | None, timeout: int) -> Completion:
+    def _anthropic(self, prompt: str, schema: dict, model: str, system: str | None, timeout: int, call_id: str = "") -> Completion:
+        self._held(call_id)
         key = self.cfg.provider_key("anthropic")
         if not key:
             raise LLMError("anthropic_api: no key")
@@ -202,7 +250,7 @@ class LLM:
         if system:
             argv += ["--append-system-prompt", system]
         started = time.time()
-        env = {k: v for k, v in os.environ.items() if not k.endswith("_API_KEY")}   # subscription path, no keys
+        env = subscription_env(os.environ)                  # subscription path only: no key, token or gateway
         # Neutral, empty working directory: Claude Code auto-loads CLAUDE.md from the cwd, and this repo's imports the
         # 218 KB PROJECT_STATE.md into every call (measured 96 480 vs 4 366 cache tokens for an identical trivial call).
         # Aria and the planner are grounded through their own actions and prompts, not through that file.
@@ -249,45 +297,4 @@ def _slim_model_usage(raw) -> dict | None:
     return out or None
 
 
-def pilot_dry_run(cfg: RuntimeConfig, provider: str = "openai") -> dict:
-    """Offline proof of the pilot path: what backend each class would select with the gate off
-    (today) and on (after approval), what each call would be priced at (known or UNKNOWN), where
-    it would be logged, and the rollback. Makes no network call and spends nothing."""
-    st = cfg.provider_status(provider)
-    backend_now = LLM(cfg).backend
-    cfg_on = copy.deepcopy(cfg)
-    cfg_on.providers[provider]["enabled"] = True
-    on = LLM(cfg_on)
-    classes = {}
-    for cls in ("cloud_cheap", "cloud_strong", "cloud_max"):
-        model = on.model_for(cls)
-        classes[cls] = {"model": model, "price_known": cfg.price(model, 1, 1) is not None,
-                        "cost_accounting": "USD from pricing table" if cfg.price(model, 1, 1) is not None else "tokens recorded, cost UNKNOWN (never estimated)"}
-    return {
-        "provider": provider, "key_present": st["key_present"], "key_file_mode": st["key_file_mode"], "configured": st["configured"],
-        "enabled": st["enabled"], "backend_today": backend_now, "backend_if_enabled": on.backend,
-        "routing_if_enabled": classes,
-        "no_spend_checks": {"gate": "providers.<p>.enabled must be true", "key": "0600 file or env, control plane only",
-                            "budgets": {"hourly_cap_usd": cfg.scheduler.hourly_cap_usd, "daily_cap_usd": cfg.scheduler.daily_cap_usd,
-                                        "per_task_default_usd": cfg.default_budget_usd},
-                            "provider_side": "owner sets an enforced hard spend limit in the provider console; the platform cannot stop in-flight provider metering"},
-        "logging": {"per_call": "store.costs row (model, usd or NULL, tokens) + receipt on the planner/Aria action", "state": "/v0/state.budgets and .llm", "panel": "Cost / usage card: known vs unknown-cost usage, model backend"},
-        "rollback": {"step": f"set providers.{provider}.enabled: false in config/runtime.yaml and restart desktop-agent.service (or remove the key file)",
-                     "effect": "backend falls back to the next available (claude_cli subscription) on the very next call; no restart needed if the key file is removed"},
-        "network_calls_made_by_this_check": 0,
-    }
-
-
-def list_openai_models(cfg: RuntimeConfig, timeout: int = 30) -> list[str]:
-    """Free verification call: the model ids this key can use (GET /v1/models, no charge)."""
-    key = cfg.provider_key("openai")
-    if not key:
-        raise LLMError("openai: no key")
-    req = urllib.request.Request(OPENAI_MODELS_URL)
-    req.add_header("authorization", "Bearer " + key)
-    try:
-        with urllib.request.urlopen(req, timeout=timeout) as r:
-            data = json.loads(r.read().decode())
-    except urllib.error.HTTPError as exc:
-        raise LLMError(f"openai HTTP {exc.code}: {exc.read().decode(errors='replace')[:200]}") from None
-    return sorted(m.get("id", "") for m in data.get("data", []))
+from .llm_pilot import list_openai_models, pilot_dry_run   # noqa: E402,F401  (kept importable from here)

@@ -22,7 +22,7 @@ class FakeLLM:
     def model_for(self, mc): return "fake-model"
     def available(self, backend): return self.ok
     def refresh_backend(self): return self.backend
-    async def complete(self, prompt, schema, model_class="cloud_cheap", system=None, timeout=0):
+    async def complete(self, prompt, schema, model_class="cloud_cheap", system=None, timeout=0, purpose=""):
         self.prompts.append(prompt)
         return Completion(data=self.answers.pop(0), model="fake-model", backend="fake", cost_usd=0.002, input_tokens=5, output_tokens=5, duration_ms=1)
 
@@ -41,7 +41,7 @@ def test_no_model_mode_is_deterministic_and_project_brief_grounds_answers(tmp_pa
     s = _service(tmp_path)
     s.aria.llm = FakeLLM([], ok=False)
     r = asyncio.run(s.aria.chat("What is F-39 doing?"))
-    assert r["kind"] == "status (no model)" and r["cost_usd"] == 0.0 and "requires model approval" in r["reply"] and "mbos workers running (1)" in r["reply"]
+    assert r["kind"] == "status (no model)" and r["usage"]["billing"] == "none" and "requires model approval" in r["reply"] and "mbos workers running (1)" in r["reply"]
     assert s.aria.status()["available"] is False and s.aria.status()["reason"]
     s.aria.llm = FakeLLM([{"reply": "Checking the project.", "action": {"name": "project_brief", "args": {"project": "mbos"}}},
                           {"reply": "F-39 is running on lane 06 (host process pid 77).", "action": None}])
@@ -173,7 +173,7 @@ def test_dictation_states_and_send_in_browser(served):
 class StoreCheckingLLM(FakeLLM):
     """Looks at a fresh brain over the same store while the model call is in flight: the owner turn must already be there."""
     def __init__(self, service, answers): super().__init__(answers); self.service = service; self.seen_in_store = None
-    async def complete(self, prompt, schema, model_class="cloud_cheap", system=None, timeout=0):
+    async def complete(self, prompt, schema, model_class="cloud_cheap", system=None, timeout=0, purpose=""):
         from desktop_agent.control.aria import AriaBrain
         fresh = AriaBrain(self.service, llm=self)
         self.seen_in_store = [t["text"] for t in fresh.transcript() if t["role"] == "owner"]
