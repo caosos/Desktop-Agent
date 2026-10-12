@@ -33,6 +33,7 @@ def test_each_receipt_is_mirrored_once_with_the_exact_prefix_and_fields(tmp_path
     body = r.posted[0][1]
     assert body.startswith("DESKTOP AGENT RECEIPT: ACK\n") and "next_check_at: 2026-10-11T21:30:00-05:00" in body and "blocker: NONE" in body
     assert "abc123def456" in body and "host observation: UNKNOWN" in body and "task: da-x bounded task" in body
+    assert "project: desktop_agent" in body and "responsible: coordinator" in body and "stage: building" in body and "acceptance: gate" in body
     for _ in range(3): asyncio.run(r.intake.poll_once())                            # replays of the same comment
     assert len(r.posted) == 1
     r.say(7002, "WORKING", SCHEMA); r.say(7003, "DONE", "done"); r.say(7004, "BLOCKED", "needs the owner")
@@ -71,3 +72,18 @@ def test_without_a_configured_pr_nothing_is_posted_and_a_failed_post_never_block
 def test_render_states_unknown_rather_than_inventing_fields():
     out = render("ACK", [{"item_id": "da-1"}], "ACK da-1", "u", "", "t")
     assert "eta: not stated" in out and "revision UNKNOWN" in out and out.startswith("DESKTOP AGENT RECEIPT: ACK")
+
+
+def test_item_ids_are_not_repeated_when_one_comment_carries_two_status_lines():
+    it = {"item_id": "da-1"}
+    assert "(da-1)" in render("WORKING", [it, it], "ACK da-1\nWORKING da-1", "u", "h", "t")
+
+
+def test_a_host_reader_gives_a_timestamped_observation_and_a_failing_one_stays_unknown(tmp_path):
+    r = Rig(tmp_path)
+    r.intake.bridge.host = lambda item: ({"session": "caoscare-1-8c", "session_status": "busy", "service_pid": 7, "service_started": "t0", "loaded_head": "abc", "repo_head": "abc", "tested_vs_loaded": "same revision"}, "LIVE")
+    r.say(7001, "ACK", SCHEMA)
+    assert "host observation (" in r.posted[0][1] and "caoscare-1-8c busy" in r.posted[0][1] and "same revision" in r.posted[0][1]
+    def boom(item): raise RuntimeError("x")
+    r.intake.bridge.host = boom; r.say(7002, "WORKING", SCHEMA)
+    assert "host observation: UNKNOWN" in r.posted[1][1]

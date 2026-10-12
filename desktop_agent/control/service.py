@@ -72,7 +72,7 @@ class Service:
         from . import intake as _intake_mod
         from .bridge import Bridge                         # transport-only receipt mirror to one draft PR (intake.bridge_pr); idle without it
         async def _bridge_post(path, fields): return await _intake_mod.gh_api(path, method="POST", fields=fields)
-        self.intake.bridge = Bridge(self.store, _bridge_post, self.watchdog.checks.loaded_head)
+        self.intake.bridge = Bridge(self.store, _bridge_post, self.watchdog.checks.loaded_head, self.watchdog.checks._host_evidence)
         from .intake import gh_api
         from .workers import WorkerMonitor
         self.workers = WorkerMonitor(self.store, self.projects, gh_api=gh_api)   # grounded worker visibility per project
