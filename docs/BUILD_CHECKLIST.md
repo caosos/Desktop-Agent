@@ -6,6 +6,8 @@
 
 ## Reconciliation 2026-10-12 12:1x CDT (coordinator `caoscare-1-8c`; the sections below keep their own dates)
 
+- **Coordinator name (13:27 CDT):** the existing coordinator session is now registered as `caoscare-1-c9` (pid 1653269, since 12:13 CDT); `caoscare-1-8c` in the rows below means this same role. Descriptor pinned, service restarted, connected by name (PROJECT_STATE 13:2x–13:30, receipt 6130191260).
+
 - **Loaded:** `f1db2d358ca1` tested and loaded (service active since 03:12:02 CDT, MainPID 1370098, 0 restarts, health 200, Slack socket connected). Open PR: draft [#19](https://github.com/caosos/Desktop-Agent/pull/19), the receipt event bridge, DO NOT MERGE.
 - **Done since the 2026-10-11 reconciliation:** M2 screenshot understanding (live-verified with a stand-in capture source), seven-day screenshot retention, M3 written evaluation (research job rj-6cb2fe0f48), stale-timer closure (`191d76a`), check-in heading loop (`f1db2d3`).
 - **Owner-gated, nothing else queued:** M1 real-microphone test; M3 paid-provider decision (Daily maximum paid API spend is $0); Phase 5 desktop/SSH actions deferred by the owner (`da-50b1e88f20`); cold-reboot window.
