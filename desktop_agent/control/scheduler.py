@@ -94,7 +94,11 @@ class Scheduler:
         c = self.store.cost_summary()
         fb = metrics.feedback(self.store)
         ceiling, why = metrics.effective_ceiling(self.cfg.scheduler.ceiling, fb)
+        # Memory is accounted from real worker processes; capacity is RESERVED per dispatched task, from dispatch through
+        # workspace preparation, the run, verification and integration (a task has no process while its workspace is cloned).
         out = admission(self.cfg, len(self.launcher.running), c["last_hour_usd"], c["today_usd"], ceiling)
+        out["running"] = len(self._tasks)
+        out["free"] = max(0, out["slots"] - len(self._tasks))
         out["ceiling_reason"] = why
         return out
 
@@ -129,9 +133,16 @@ class Scheduler:
             return {"paused": True}
         slots = self.slots()
         launched = []
-        for t in self.eligible()[: slots["free"]]:
+        selected: list[dict] = []
+        for t in self.eligible():
+            if len(selected) >= slots["free"]:
+                break
             if t["task_id"] in self._tasks:
                 continue
+            if any(o["project"] == t["project"] and areas_overlap(o["contract"].get("owned_area", []), t["contract"].get("owned_area", []))
+                   for o in selected):
+                continue                        # same project, overlapping files: not in the same tick (eligible() only sees tasks already RUNNING)
+            selected.append(t)
             self._tasks[t["task_id"]] = asyncio.create_task(self.run_task(t["task_id"]))
             launched.append(t["task_id"])
         return {"slots": slots, "launched": launched}
