@@ -947,3 +947,14 @@ Sources: this repository checkout on disk AND the
 - **Tests:** `tests/test_ask_aria_look.py` (5): vision argv is Read-only and subscription-only in a directory with just the image; one capture with provenance and an idempotent repeat that runs no second vision call; bad images refused and a vision failure is an honest error turn; a source scan finds no input-injection code; a real-Chrome panel test shows the indicator and the explanation. Direct unpiped gate PASS on the tested tree.
 - **Claude in Chrome on the loaded UI (00:41 CDT, MainPID 1220837):** with a stand-in capture stream showing an invoice-style test card, the indicator read "Captured at 12:41:21 AM (800x450); sharing has stopped. Asking Aria...", then "Looked at 12:41:21 AM (800x450); the picture is stored with its receipt. Sharing is off." Aria's reply described the title "INVOICE 4471 - PAID", the blue rectangle and the caption with the total, stated what it could not see, and made no claim to act. Provenance in the reply row: look_id lk-ca5f55b475, sha256 da695b7c..., captured_at 2026-10-12T05:41:21Z, model claude-haiku-5-5, included in the subscription; receipt on subject look/lk-ca5f55b475; the stored image is on disk.
 - **Limits:** the capture source was a stand-in, so the browser's real share prompt and a real screen are untested until Michael tries it. Stored captures are kept until a retention rule exists (next item). Boundary kept: looking only.
+
+
+## 2026-10-12 — task `research-job-rj-6cb2fe0f48-for-p-9a075f` verified (recorded by the control plane)
+
+- **Objective:** Research job rj-6cb2fe0f48 for project desktop_agent. QUESTION: M3 full-duplex voice architecture for Desktop Agent Ask Aria. Compare, with public documentation and citations: (1) OpenAI realtime/full-duplex voice models including GPT-Live 1 if documented (input and output modalities, whether it acc
+- **Why now:** research job rj-6cb2fe0f48 confirmed by the owner in Ask Aria
+- **Model class:** cloud_strong; attempt 1; adapter claude_headless
+- **Worker head:** `8e0df3407a399552e0f7cee5604e3cd722a14864` on `agent/research-job-rj-6cb2fe0f48-for-p-9a075f` from `38688717d385`
+- **Verifier (clean checkout):** `python3 scripts/research_check.py docs/research/rj-6cb2fe0f48.md` exit 0
+- **Files:** docs/research/rj-6cb2fe0f48.md
+- **Receipts:** worker claim unverified → verifier verified; integration follows this entry.
