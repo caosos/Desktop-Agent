@@ -256,3 +256,28 @@ def test_window_closes_on_outside_press_unless_pinned_and_escape_and_close_alway
             assert log.count(f"pending at {w}") == 1 and len(posts) == 1 and len(_rows(s, "owner")) == before + 1
             ctx.close()
         browser.close()
+
+
+def test_reload_while_a_reply_is_pending_shows_the_reply_when_it_lands_exactly_once(served):
+    """Found in the live Chrome run 2026-10-12: reload one second after a send; the reply was stored later but never shown."""
+    s = served
+    class Slow(TokenEquivalentLLM):
+        async def complete(self, *a, **k):
+            await asyncio.sleep(4); return await super().complete(*a, **k)
+    s.aria.llm = Slow([{"reply": "Answer after the reload.", "action": None}])
+    playwright = pytest.importorskip("playwright.sync_api")
+    with playwright.sync_playwright() as p:
+        try:
+            browser = p.chromium.launch(channel="chrome", headless=True)
+        except Exception as exc:
+            pytest.skip(f"no Chrome: {exc}")
+        ctx = browser.new_context(viewport={"width": 1648, "height": 900}); page = ctx.new_page(); _open(page)
+        page.click("#aria_bubble"); page.fill("#aria_text", "reload while waiting"); page.click("#aria_send"); page.wait_for_timeout(1000)
+        page.reload(); _open(page); page.click("#aria_bubble")
+        page.wait_for_function("document.querySelector('#aria_log').innerText.includes('reload while waiting')", timeout=15000)
+        assert "still being answered" in page.inner_text("#aria_state") and "Answer after the reload." not in page.inner_text("#aria_log")
+        page.wait_for_function("document.querySelector('#aria_log').innerText.includes('Answer after the reload.')", timeout=20000)
+        log = page.inner_text("#aria_log")
+        assert log.count("reload while waiting") == 1 and log.count("Answer after the reload.") == 1 and "Reply received" in page.inner_text("#aria_state")
+        ctx.close(); browser.close()
+    assert len(_rows(s, "owner")) == 1 and len(_rows(s, "aria")) == 1

@@ -376,6 +376,7 @@ async function loadAria() {
     const h = await api("/v0/aria/history");
     if (seq !== ariaLoadSeq) return;                    // a newer load already drew the log
     ariaRender(h.turns || []);
+    ariaWatchPending();
   } catch (e) { $("aria_model").textContent = "Aria status unavailable: " + e; }
 }
 const BASIS_SHORT = {"token-equivalent": "token-equivalent, not an invoice", "metered": "metered API", "unknown": "cost unknown", "none": ""};
@@ -390,7 +391,22 @@ function usageLine(t) {
 // Messages sent from this page that the server's history response may not contain yet (a history request can be
 // answered late with content built before the send). They are re-drawn after every history render until the server
 // shows them (matched by client_id), so a late refresh can never remove a sent message or its reply.
-let ariaPending = [], ariaTurns = [], ariaLoadSeq = 0;
+let ariaPending = [], ariaTurns = [], ariaLoadSeq = 0, ariaInFlight = 0, ariaWatch = null;
+// After a reload (or reopening on another device) the last stored turn may be an owner message the control plane is still
+// answering. The reply lands in the store later; this watches the saved conversation until it does, and says so.
+function ariaWatchPending() {
+  clearInterval(ariaWatch); ariaWatch = null;
+  const unanswered = () => { const t = ariaTurns.filter(x => x.role === "owner" || x.role === "aria"); return t.length > 0 && t[t.length - 1].role === "owner"; };
+  if (!unanswered() || ariaInFlight) return;
+  ariaState("Your last message was received and is still being answered…");
+  let n = 0;
+  ariaWatch = setInterval(async () => {
+    if (ariaInFlight) { clearInterval(ariaWatch); ariaWatch = null; return; }
+    if (++n > 48) { clearInterval(ariaWatch); ariaWatch = null; ariaState("No reply stored yet after 2 minutes; reopen this window later or send again.", "amber"); return; }
+    try { const h = await api("/v0/aria/history"); ariaRender(h.turns || []); } catch (e) { /* keep watching */ }
+    if (!unanswered()) { clearInterval(ariaWatch); ariaWatch = null; ariaState("Reply received."); }
+  }, 2500);
+}
 function ariaRender(turns) {
   ariaTurns = turns;
   const known = new Set(turns.filter(t => t.role === "owner" && t.client_id).map(t => t.client_id));
@@ -440,6 +456,7 @@ $("aria_send").onclick = async () => {
   ariaPending.push(p);
   $("aria_log").insertAdjacentHTML("beforeend", turnHtml({role: "owner", text, ts: p.ts})); $("aria_text").value = ""; $("aria_log").scrollTop = $("aria_log").scrollHeight;
   $("aria_send").disabled = true; $("aria_send").textContent = "thinking…";
+  ariaInFlight++; clearInterval(ariaWatch); ariaWatch = null;
   const t0 = performance.now(); let recorded = false, tick = 0, checking = false;
   const secs = () => Math.round((performance.now() - t0) / 1000);
   ariaState("Sending…");
@@ -475,7 +492,7 @@ $("aria_send").onclick = async () => {
     else ariaState(`Reply received in ${secs()} s.`);
     if ((body.actions || []).length) refresh();
   } finally {
-    clearInterval(timer);
+    clearInterval(timer); ariaInFlight--;
     $("aria_send").disabled = false; $("aria_send").textContent = "Send"; $("aria_log").scrollTop = $("aria_log").scrollHeight; $("aria_text").focus();
   }
 };
