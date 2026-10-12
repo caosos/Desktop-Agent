@@ -53,7 +53,7 @@ class Service:
         from .watchdog import Watchdog
         sources = [IntakeSource(project=p.name, repo=p.github_repo, issues=list(p.intake.get("issues") or []),
                                 owner_logins=list(p.intake.get("owner_logins") or ["caosos"]),
-                                coordinator=dict(p.intake.get("coordinator") or {"kind": "control_plane"}))
+                                coordinator=dict(p.intake.get("coordinator") or {"kind": "control_plane"}), handoff=bool(p.intake.get("handoff")))
                    for p in self.projects.values() if p.intake and p.github_repo and (p.intake.get("issues") or (p.intake.get("coordinator") or {}).get("liaison"))]
         self.deliverer = Deliverer(cfg, self.store)
         intake_delivery.register_pins(self.projects)      # another project's pinned coordinator is never this project's stand-in
@@ -64,6 +64,8 @@ class Service:
         self.watchdog = Watchdog(self.store, self.intake, self.deliverer, self.scheduler)
         self.watchdog.allowance_path = cfg.data_dir / allowance.ALLOWANCE_FILE
         self.intake.watchdog = self.watchdog
+        from .handoff import Handoff                      # DONE → next eligible queue row, for projects that opt in (intake.handoff)
+        self.intake.handoff = Handoff(self.store, self.intake, lambda project: Path(self.projects[project].repo_path) / "docs" / "BUILD_CHECKLIST.md", cfg)
         from .intake import gh_api
         from .workers import WorkerMonitor
         self.workers = WorkerMonitor(self.store, self.projects, gh_api=gh_api)   # grounded worker visibility per project

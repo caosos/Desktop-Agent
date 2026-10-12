@@ -50,6 +50,7 @@ worker_allowed_tools:
 # Owner-instruction intake: issue #3 is the owner intake issue for this project; the control plane is the coordinator.
 intake:
   issues: [3]
+  handoff: true                              # on a DONE receipt, deliver the next eligible BUILD_CHECKLIST queue row once (handoff.py, fail-closed)
   owner_logins: [caosos]
   coordinator:
     kind: claude_peer

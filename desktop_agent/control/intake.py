@@ -50,6 +50,7 @@ class IntakeSource:
     issues: list[int]
     owner_logins: list[str] = field(default_factory=lambda: ["caosos"])
     coordinator: dict = field(default_factory=lambda: {"kind": "control_plane"})
+    handoff: bool = False              # on DONE of an item, deliver the next eligible queue row (handoff.py); off unless the project opts in
 
     @property
     def key(self) -> str:
@@ -158,6 +159,7 @@ class Intake:
         comments = await gh_api(f"repos/{src.repo}/issues/{issue}/comments?since={cursor}&per_page=100")
         newest = cursor
         new_items: list[dict] = list(first_items)
+        done_now: list[dict] = []
         for c in comments or []:
             created = c.get("created_at", "")
             newest = max(newest, created)
@@ -179,6 +181,8 @@ class Intake:
                         continue                  # the same reply seen again (GitHub `since=` is inclusive): nothing changed, nothing recorded
                     if (cur in STATUSES and STATUSES.index(status) > STATUSES.index(cur)) or status == "BLOCKED" or cur not in STATUSES:
                         self._set(item, status, note, [c.get("html_url", ""), login])
+                        if status == "DONE" and src.handoff and getattr(self, "handoff", None) is not None:
+                            done_now.append(item)                  # this read-back is the DONE transition: hand off after the loop, once
                         self.store.set_intake_activity(item["item_id"], created)
                         self.store.save_coordinator_ack(src.project, time.time())
                         acked += 1
@@ -203,6 +207,9 @@ class Intake:
             if item:
                 found += 1
                 new_items.append(item)
+        for d in done_now:
+            r = await self.handoff.on_done(src, d)
+            delivered += 1 if r.get("delivered") else 0
         if len(new_items) == 1:
             delivered += await self._deliver(src, new_items[0])
         elif new_items:
