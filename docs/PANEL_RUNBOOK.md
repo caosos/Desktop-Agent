@@ -5,7 +5,7 @@
 ## The two views
 
 - **Owner view** (default): one screen. Three project cards, today's top outcomes, decisions waiting, one NEXT action.
-- **Details ▸** (button, top right): everything the control plane knows: at-a-glance strip, Goal form, Projects, Coordinators and workers, Cost, Blocked, Shared inbox history, Tasks, Live events. Nothing is removed by Owner view; it is only folded away.
+- **Details ▸** (button, top right): everything the control plane knows: at-a-glance strip, Goal form, Projects, Coordinators and workers, Technical evidence (token-equivalent estimates; not billed), Blocked, Shared inbox history, Tasks, Live events. Nothing is removed by Owner view; it is only folded away.
 
 ## Words on the cards
 
