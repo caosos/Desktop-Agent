@@ -96,3 +96,10 @@ def test_acks_of_supervisor_reports_are_not_mirrored_but_owner_and_work_items_ar
     assert r.posted == [] and r.store.get_intake("da-0a0b0c0d0e")["status"] == "DONE"                     # state still advances; only the mirror is skipped
     r.say(7051, "ACK", SCHEMA)
     assert len(r.posted) == 1
+
+
+def test_a_report_without_the_marker_but_with_the_canonical_heading_is_also_not_mirrored(tmp_path):
+    r = Rig(tmp_path)
+    r.store.save_intake({**r.store.get_intake(r.iid), "item_id": "da-0b0c0d0e0f", "gh_id": 6, "kind": "comment", "body": "CANONICAL CHECK-IN LOG — Desktop Agent event supervision\n\n1. Full date", "status": "DELIVERED"})
+    r.gh.comments.append(comment(7060, "o", "<!-- da:coordinator -->\nACK da-0b0c0d0e0f\nDONE da-0b0c0d0e0f", "2026-10-12T01:55:00Z")); asyncio.run(r.intake.poll_once())
+    assert r.posted == []

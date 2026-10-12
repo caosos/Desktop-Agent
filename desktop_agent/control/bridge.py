@@ -38,7 +38,8 @@ def render(label: str, items: list[dict], text: str, url: str, loaded_head: str,
 
 def _is_report(item: dict) -> bool:
     body = (item.get("body") or "").lstrip()
-    return body.startswith("<!-- da:canonical-checkin") or body.startswith("<!-- da:supervisor")
+    head = body[:200].upper()
+    return body.startswith("<!-- da:canonical-checkin") or body.startswith("<!-- da:supervisor") or "CANONICAL CHECK-IN LOG" in head
 
 
 def _host_line(host: dict | None, observed: str) -> str:
