@@ -51,6 +51,7 @@ worker_allowed_tools:
 intake:
   issues: [3]
   handoff: true                              # on a DONE receipt, deliver the next eligible BUILD_CHECKLIST queue row once (handoff.py, fail-closed)
+  # bridge_pr: <number>                       # transport-only draft PR that mirrors coordinator receipts (bridge.py); set once the PR exists
   owner_logins: [caosos]
   coordinator:
     kind: claude_peer

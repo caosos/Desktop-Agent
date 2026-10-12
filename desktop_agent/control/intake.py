@@ -50,6 +50,7 @@ class IntakeSource:
     issues: list[int]
     owner_logins: list[str] = field(default_factory=lambda: ["caosos"])
     coordinator: dict = field(default_factory=lambda: {"kind": "control_plane"})
+    bridge_pr: int | None = None      # draft PR that mirrors coordinator receipts (bridge.py); None = no mirroring
     handoff: bool = False              # on DONE of an item, deliver the next eligible queue row (handoff.py); off unless the project opts in
 
     @property
@@ -168,6 +169,7 @@ class Intake:
             if _AUTOMATION_TAG in text:
                 continue                          # our own automatic comments
             is_coord = is_coordinator_reply(text)
+            recorded: list[tuple[dict, str]] = []
             for m in (_STATUS_LINE_RE.finditer(text) if is_coord else ()):   # anchored status lines of a coordinator reply only
                 item = self.store.get_intake(m.group(2).lower())
                 if item:
@@ -186,6 +188,12 @@ class Intake:
                         self.store.set_intake_activity(item["item_id"], created)
                         self.store.save_coordinator_ack(src.project, time.time())
                         acked += 1
+                        recorded.append((item, status))
+            if recorded and getattr(self, "bridge", None) is not None:
+                try:
+                    await self.bridge.mirror(src, c, recorded)
+                except Exception as exc:                      # transport only: a failed mirror never blocks the intake
+                    self._emit(recorded[0][0], ET.CONTROL.value, {"action": "bridge_failed", "error": str(exc)[:200]}, [str(exc)[:100]])
             dm = _DIRECTION_TAG_RE.search(text)
             if dm:                                # a direction the owner sent from the panel: link, do not duplicate
                 item = self.store.get_intake(dm.group(1).lower())
