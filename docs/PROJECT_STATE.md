@@ -1026,3 +1026,13 @@ Note 2026-10-12 12:07 CDT (da-4551f8ab70): the 11:49 entry was PROJECT_STATE onl
 - **Verified:** every BLUEPRINT link resolves and every quoted PROJECT_STATE title exists (scripted check); direct unpiped gate PASS, 293 passed, 1 skipped, at `45a5dc3` plus the BLUEPRINT/docstring tree.
 - **Loaded:** `f1db2d358ca1`, unchanged (MainPID 1370098, health 200). The only code-file change since is a docstring; no restart needed.
 - **Next:** 15:00 CDT check-in receipt on Issue #3; product queue stays owner-gated.
+
+
+## 2026-10-12 12:5x-13:05 CDT - Unattended-day harness corrected: stand-in vs misroute, paid vs estimate (coordinator caoscare-1-8c, no task id)
+
+- **Why:** the Phase 3 "one supervised day" gate is the only build-eligible row; running its harness for the last 24 h showed two harness defects before any verdict could be read.
+- **Defects:** (1) `scripts/unattended_report.py` counted every delivery that used the designed cwd fallback ("pinned name X not live, resolved by cwd") as a "misroute to another project's pinned session"; the recorded routing rule (PROJECT_STATE 2026-10-10 "Routing fails closed") makes that a legitimate stand-in, and a misroute is delivery to a session some *other* project pinned. (2) The report printed the `costs` table as `cost: known $…`, contrary to the one-budget directive (`da-8708eb5ec7`): those are subscription-relay estimates, not spend.
+- **Fix (script 196 lines, +15):** `misroutes_to_other_pinned_session` now requires the delivered session to be another project's pin; the fallback is reported separately as `standin_deliveries`; `cost` is replaced by `paid` (sum of `paid_ledger` rows in `reserved`/`settled`, the only authority) and `estimates` (labelled `estimate; not billed`). Test file 77 lines (+31): a second test distinguishes stand-in from misroute and ledger from estimate; the first test now asserts no `cost` key.
+- **Verified:** direct unpiped gate PASS, 294 passed, 1 skipped. Live 24 h sample 17:58Z recorded in BUILD_CHECKLIST Phase 3 row: 0 misroutes, 3 stand-ins (CAOSCare pin `caoscare-1-ee` not live since ~12:31 CDT; one eligible session at its checkout took delivery), 14 CAOSCare items flagged unacknowledged with NEED receipts raised by the watchdog as designed, 78 % of 125 ACKs within 300 s, paid $0 over 0 calls.
+- **Boundary kept:** the flagged items and the absent CAOSCare coordinator are CAOSCare's; nothing was dispatched, recovered or edited there.
+- **Loaded:** `f1db2d358ca1` unchanged; the script is run by hand, not by the service, so no restart.

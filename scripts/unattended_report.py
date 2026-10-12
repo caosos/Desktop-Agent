@@ -7,11 +7,13 @@ actually happened, from receipts and events — never from self-reports:
   tasks        created / verified (DONE) / FAILED / BLOCKED / ARCHIVED, retries (contract.supersedes), per project
   instructions ingested / delivered / acknowledged, ACK latency per item and the share within the 300 s target,
                undelivered or unacknowledged flags (BLOCKED+NEED events), misroutes (delivered to a session that is
-               not the project's pinned coordinator, when the pin is known)
+               ANOTHER project's pinned coordinator), stand-ins (the pinned name was not live and exactly one eligible
+               session in the project directory took delivery — the designed fallback, reported, not a defect)
   owner        decisions asked / answered, owner actions on the inbox (transfer/deny/defer), i.e. how often the owner
                was actually needed
   activity     longest gap with no event at all (the platform's idle time), restarts seen (recovery receipts)
-  cost         known USD by model, unknown-cost calls
+  paid         actual paid API spend from the paid ledger (the only authority; subscription/local work is never spend)
+  estimates    token-equivalent model usage by model, labelled "estimate; not billed" (technical evidence only)
 
 Usage: unattended_report.py [--hours N] [--since ISO] [--json] [--db PATH]
 Exit status is 0 when the report could be produced; it never judges pass/fail by itself — the checklist does.
@@ -84,7 +86,8 @@ def report(db_path: Path, since: float, pins: dict[str, str]) -> dict:
     rows = db.execute("SELECT item_id, project, status, note, created_at, updated_at, flagged FROM intake_items WHERE created_at >= ? OR updated_at >= ?", (since, since)).fetchall()
     items = [{"item_id": r[0], "project": r[1], "status": r[2], "note": r[3] or "", "created_at": r[4], "updated_at": r[5], "flagged": r[6]} for r in rows]
     ack_lat = []
-    misroutes = []
+    misroutes, standins = [], []
+    pinned_by = {v: k for k, v in pins.items()}                     # session name -> the project that pinned it
     for it in items:
         pi = per_item.get(it["item_id"], {})
         d, a = pi.get("DELIVERED"), pi.get("ACKNOWLEDGED") or pi.get("WORKING") or pi.get("DONE")
@@ -92,8 +95,13 @@ def report(db_path: Path, since: float, pins: dict[str, str]) -> dict:
             ack_lat.append((it["item_id"], a - d))
         pin = pins.get(it["project"])
         note = (pi.get("_notes", {}).get("DELIVERED") or it["note"]) if it["status"] in ("DELIVERED", "ACKNOWLEDGED", "WORKING", "DONE", "BLOCKED") else ""
-        if pin and "peer message to session" in note and f"session {pin} " not in note and "pinned name" in note:
-            misroutes.append({"item_id": it["item_id"], "project": it["project"], "note": note[:160]})
+        if "peer message to session " in note:
+            delivered_to = note.split("peer message to session ", 1)[1].split(" ", 1)[0]
+            owner = pinned_by.get(delivered_to)
+            if owner and owner != it["project"]:
+                misroutes.append({"item_id": it["item_id"], "project": it["project"], "delivered_to": delivered_to, "pinned_by": owner, "note": note[:160]})
+            elif pin and delivered_to != pin:
+                standins.append({"item_id": it["item_id"], "project": it["project"], "delivered_to": delivered_to, "pinned": pin, "note": note[:160]})
     within = sum(1 for _, s in ack_lat if s <= TARGET_ACK_SEC)
     need_ev = [e for e in ev if e.get("type") == "BLOCKED" and "need" in (e.get("payload") or {})]
     rep["instructions"] = {
@@ -106,6 +114,7 @@ def report(db_path: Path, since: float, pins: dict[str, str]) -> dict:
         "need_receipts": [{"url": (e.get("provenance") or {}).get("evidence", [None])[0], "project": e["payload"].get("project"),
                            "class": e["payload"]["need"].get("classification"), "at": utc(e["ts"])} for e in need_ev],
         "misroutes_to_other_pinned_session": misroutes,
+        "standin_deliveries": standins,
     }
 
     # ---- owner involvement --------------------------------------------------------------------------------------
@@ -125,10 +134,13 @@ def report(db_path: Path, since: float, pins: dict[str, str]) -> dict:
                        "longest_gap_min": round(longest[0] / 60, 1), "longest_gap_started": utc(longest[1]),
                        "recovery_receipts": len(recov), "restarts_seen": max(0, len(recov) // 2)}
 
-    # ---- cost -------------------------------------------------------------------------------------------------
+    # ---- paid spend and usage estimates (owner directive da-8708eb5ec7: the ledger is the only authority) -------
+    paid = db.execute("SELECT COUNT(*), COALESCE(SUM(usd), 0) FROM paid_ledger WHERE ts >= ? AND status IN ('reserved', 'settled')", (since,)).fetchone()
+    rep["paid"] = {"calls": paid[0], "usd": round(paid[1], 4), "authority": "paid_ledger"}
     cost = db.execute("SELECT model, SUM(usd), COUNT(*), SUM(CASE WHEN usd IS NULL THEN 1 ELSE 0 END) FROM costs WHERE ts >= ? GROUP BY model", (since,)).fetchall()
-    rep["cost"] = {"by_model": {m: {"usd": round(u or 0, 4), "calls": n, "unknown_cost_calls": k} for m, u, n, k in cost},
-                   "known_usd_total": round(sum((u or 0) for _, u, _, _ in cost), 4)}
+    rep["estimates"] = {"label": "estimate; not billed",
+                        "by_model": {m: {"usd": round(u or 0, 4), "calls": n, "unpriced_calls": k} for m, u, n, k in cost},
+                        "usd_total": round(sum((u or 0) for _, u, _, _ in cost), 4)}
     return rep
 
 
@@ -161,7 +173,7 @@ def main() -> int:
     rep = report(Path(a.db), since, pins_from_config(repo))
     if a.json:
         print(json.dumps(rep, indent=1, default=str)); return 0
-    w, t, i, o, ac, c = rep["window"], rep["tasks"], rep["instructions"], rep["owner"], rep["activity"], rep["cost"]
+    w, t, i, o, ac = rep["window"], rep["tasks"], rep["instructions"], rep["owner"], rep["activity"]
     print(f"UNATTENDED REPORT  {w['since']} → {w['until']}  ({w['hours']} h)")
     print(f"tasks: touched {t['touched']}  {t['by_status']}  retries {t['retries']}  by project {t['by_project']}")
     print(f"  verified: {', '.join(t['verified_ids']) or '-'}")
@@ -171,9 +183,12 @@ def main() -> int:
     print(f"  flagged unacknowledged now: {i['flagged_unacknowledged'] or '-'}")
     print(f"  NEED receipts: {len(i['need_receipts'])}" + (f"  e.g. {i['need_receipts'][-1]}" if i["need_receipts"] else ""))
     print(f"  misroutes to another project's pinned session: {len(i['misroutes_to_other_pinned_session'])}" + (f"  {i['misroutes_to_other_pinned_session'][0]}" if i["misroutes_to_other_pinned_session"] else ""))
+    print(f"  stand-in deliveries (pinned name not live, one eligible session took it): {len(i['standin_deliveries'])}" + (f"  e.g. {i['standin_deliveries'][-1]['item_id']} -> {i['standin_deliveries'][-1]['delivered_to']}" if i["standin_deliveries"] else ""))
     print(f"owner: decisions asked {o['decisions_asked']} answered {o['decisions_answered']}; inbox actions {o['inbox_actions']}; human receipts {o['human_receipts']}")
     print(f"activity: {ac['events']} events {ac['first']} → {ac['last']}; longest silent gap {ac['longest_gap_min']} min from {ac['longest_gap_started']}; recovery receipts {ac['recovery_receipts']}")
-    print(f"cost: known ${c['known_usd_total']}  by model {c['by_model']}")
+    p, e = rep["paid"], rep["estimates"]
+    print(f"paid API spend (ledger, the only authority): ${p['usd']} over {p['calls']} calls")
+    print(f"model usage, {e['label']}: {e['by_model']}")
     return 0
 
 
