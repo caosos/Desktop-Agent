@@ -1,4 +1,4 @@
-"""Ask Aria research jobs v1: one bounded worker per job, local repository sources only, no web.
+"""Ask Aria research jobs v1: one bounded worker per job; local repository sources, plus the public web for a job with sources="web".
 
 A job follows exactly one control-plane task (created through Service.submit_goal). State lives in kv
 `research:<job_id>` and moves only through `ResearchService.apply` (compare-and-set against TRANSITIONS).
