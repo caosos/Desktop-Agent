@@ -12,6 +12,22 @@ from .control.config import RuntimeConfig
 from .control.service import Service
 
 
+def make_server(app, service: Service, host: str, port: int) -> uvicorn.Server:
+    """uvicorn server whose exit signal first releases the open event streams (panel, widget). Those streams never
+    end on their own and uvicorn only runs the app's shutdown AFTER it has waited for connections to close, so
+    without this they were cut by the graceful timeout and logged a cancellation traceback at every restart
+    (journal 2026-10-12 03:12:02). The lifespan shutdown still calls `service.stop()`; it is idempotent."""
+    server = uvicorn.Server(uvicorn.Config(app, host=host, port=port, log_level="info", timeout_graceful_shutdown=5))
+    uvicorn_exit = server.handle_exit
+
+    def handle_exit(sig, frame):
+        service.stop()                     # streams see the sentinel and return; connections then close at once
+        uvicorn_exit(sig, frame)
+
+    server.handle_exit = handle_exit
+    return server
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(prog="desktop-agent")
     ap.add_argument("--config", type=Path, default=None)
@@ -46,9 +62,9 @@ def main() -> None:
     port = args.port or cfg.api_port
     logging.getLogger("desktop_agent").info("control plane on http://%s:%d  projects=%s  token=%s",
                                             cfg.api_host, port, list(service.projects), cfg.token_file)
-    # Open event streams (panel, widget) never end on their own; bound the graceful wait so SIGTERM stops
-    # the unit in seconds instead of systemd's 90 s kill (PROJECT_STATE 2026-10-11, activation finding 1).
-    uvicorn.run(app, host=cfg.api_host, port=port, log_level="info", timeout_graceful_shutdown=5)
+    # Streams are released on the exit signal (make_server); the 5 s graceful bound stays as the backstop so
+    # SIGTERM stops the unit in seconds instead of systemd's kill (PROJECT_STATE 2026-10-11, activation finding 1).
+    make_server(app, service, cfg.api_host, port).run()
 
 
 if __name__ == "__main__":
