@@ -144,6 +144,8 @@ a { color:var(--accent); }
   <div class="ctl" style="margin-top:6px">
     <button id="mic" type="button" aria-pressed="false" title="Click to start dictation; click again to stop. Audio goes to your browser's speech service; nothing is sent to Aria until you press Send.">🎤 Dictate</button>
     <span id="mic_state" class="muted">Ready</span>
+    <button id="look_btn" type="button" title="Share one screen or window with Aria once. Your browser asks which one; sharing stops right after the picture is taken. Aria only looks and explains; it never clicks or types.">👁 Look at my screen</button>
+    <span id="look_state" class="tiny muted" aria-live="polite"></span>
     <button class="primary" id="aria_send" type="button" style="margin-left:auto">Send</button>
   </div>
   <details class="tiny" style="margin-top:6px"><summary>Where does my voice go?</summary><div id="aria_disclosure" class="muted"></div></details>
@@ -463,8 +465,39 @@ document.addEventListener("pointerdown", ev => {          // capture phase: deci
   closeAria();
 }, true);
 document.addEventListener("keydown", ev => { if (ev.key === "Escape" && !$("aria").hidden) { closeAria(); $("aria_bubble").focus(); } });
+// Looking only: one explicit capture per request, taken in this browser after the browser's own share prompt, and the share stops
+// right after the picture. Nothing here clicks, types or controls anything.
+const LOOK_RE = /\b(look at (what i'?m doing|my screen|this)|what am i (looking at|doing)|can you see my screen)\b/i;
+let lookBusy = false;
+async function lookNow(question) {
+  if (lookBusy) return; lookBusy = true; $("look_btn").disabled = true;
+  const st = m => { $("look_state").textContent = m; };
+  try {
+    st("Choose the screen or window to share in your browser's prompt…");
+    let stream; try { stream = await navigator.mediaDevices.getDisplayMedia({video: true, audio: false}); }
+    catch (e) { st(`Nothing was captured: screen sharing was not allowed or is unavailable here (${e.name}).`); return; }
+    st("👁 Looking… capturing one picture now");
+    const video = document.createElement("video"); video.muted = true; video.srcObject = stream; await video.play();
+    await new Promise(r => setTimeout(r, 400));
+    const w0 = video.videoWidth, h0 = video.videoHeight, scale = Math.min(1, 1600 / Math.max(1, w0));
+    const cv = document.createElement("canvas"); cv.width = Math.round(w0 * scale); cv.height = Math.round(h0 * scale);
+    cv.getContext("2d").drawImage(video, 0, 0, cv.width, cv.height);
+    stream.getTracks().forEach(t => t.stop());                                    // sharing ends here
+    const when = new Date(); const stamp = when.toLocaleTimeString();
+    const b64 = cv.toDataURL("image/jpeg", 0.82).split(",")[1];
+    st(`👁 Captured at ${stamp} (${cv.width}×${cv.height}); sharing has stopped. Asking Aria…`);
+    const id = (crypto.randomUUID ? crypto.randomUUID() : "l" + Date.now()).slice(0, 36);
+    let r; try { r = await fetch("/v0/aria/look", {method: "POST", headers: H(), body: JSON.stringify({image_b64: b64, mime: "image/jpeg", question, client_id: id, captured_at: when.toISOString(), width: cv.width, height: cv.height})}); }
+    catch (e) { st(`Captured at ${stamp} but the control plane could not be reached; nothing was stored.`); return; }
+    if (!r.ok) { let m = ""; try { m = (await r.json()).detail || ""; } catch (e) {} st(`The control plane refused the picture (${r.status}) ${m}`); return; }
+    st(`👁 Looked at ${stamp} (${cv.width}×${cv.height}); the picture is stored with its receipt. Sharing is off.`);
+    await loadAria(); $("aria_log").scrollTop = $("aria_log").scrollHeight;
+  } finally { lookBusy = false; $("look_btn").disabled = false; }
+}
+$("look_btn").onclick = () => lookNow($("aria_text").value.trim() && LOOK_RE.test($("aria_text").value) ? $("aria_text").value.trim() : ($("aria_text").value.trim() || ""));
 $("aria_send").onclick = async () => {
   const text = $("aria_text").value.trim();
+  if (text && LOOK_RE.test(text)) { $("aria_text").value = ""; lookNow(text); return; }                         // an explicit "look at what I'm doing"
   if (!text) { micState("Nothing to send yet: type or dictate a message first.", "amber"); $("aria_text").focus(); return; }
   stopDictation();
   const id = (window.crypto && crypto.randomUUID ? crypto.randomUUID() : "c" + Date.now() + Math.random().toString(16).slice(2)).slice(0, 36);

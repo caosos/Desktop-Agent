@@ -18,6 +18,16 @@ class ChatIn(BaseModel):
     client_id: str | None = Field(default=None, max_length=64)      # the browser's id for this send: the persisted owner turn carries it, so a reload shows it once
 
 
+class LookIn(BaseModel):
+    image_b64: str = Field(min_length=8, max_length=9_000_000)
+    mime: str = "image/jpeg"
+    question: str = Field(default="", max_length=1000)
+    client_id: str | None = Field(default=None, max_length=64)
+    captured_at: str = Field(default="", max_length=60)
+    width: int = Field(default=0, ge=0, le=20000)
+    height: int = Field(default=0, ge=0, le=20000)
+
+
 class AnswerIn(BaseModel):
     decision_id: str
     answer: str = Field(min_length=1, max_length=2000)
@@ -101,5 +111,15 @@ def aria_routes(service, auth, token: str) -> APIRouter:
             return await service.aria.chat(body.text, body.client_id)
         except Exception as exc:          # the owner turn and an error turn are already in the store; the client gets a classified, readable failure
             raise HTTPException(500, f"Ask Aria failed inside the control plane: {type(exc).__name__}: {str(exc)[:200]}")
+
+    @router.post("/v0/aria/look")
+    async def aria_look(body: LookIn, _: str = Depends(auth)):
+        """Explicit owner request only: one screenshot in, one grounded explanation out. Looking only; no input is ever injected."""
+        from .aria_look import look
+        try:
+            return await look(service, image_b64=body.image_b64, mime=body.mime, question=body.question, client_id=body.client_id or "",
+                              captured_at=body.captured_at, width=body.width, height=body.height)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc))
 
     return router
