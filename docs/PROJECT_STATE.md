@@ -965,3 +965,10 @@ Sources: this repository checkout on disk AND the
 8. Upcoming milestones: M1 real-microphone acceptance (Michael); M3 implementation (needs provider and a paid maximum above $0); unattended-day reliability.
 9. ETA: 2026-10-12 01:30 CDT. 10. next_check_at: 2026-10-12 01:15 CDT. 11. Blocker: NONE. 12. Michael action: NOTHING.
 Correction: the receipt at issue comment 6118474324 gave its host-observation time as 00:46; the real time was 00:42.
+
+
+## 2026-10-12 00:5x CDT - M3 evaluation delivered as a cited research report (da-50b1e88f20)
+
+- Research job `rj-6cb2fe0f48` (web sources, one bounded worker on the subscription, verifier passed in a clean checkout, PDF published) is integrated as `docs/research/rj-6cb2fe0f48.md`. Findings, each cited: GPT-Live 1 is audio and text only (no image input), full duplex, served only by the Live endpoint, can delegate reasoning and tools to a backend model while it keeps talking, priced at $0.05 per minute plus backend usage; the Realtime guide's WebRTC and ephemeral-secret pattern is for the Realtime API, and no fetched page confirms browser WebRTC for GPT-Live specifically; barge-in is model-controlled and the client cannot truncate the model's speech; browser echo cancellation is only a request. Design inference (marked as such): a screenshot cannot enter the voice session, so an explicit request triggers the existing capture, a vision backend answers, and only its text returns to the voice model as a tool result. The existing subscription vision path already covers the image half at no paid cost.
+- **Decision for Michael (not tonight):** any GPT-Live path is paid, so it needs an enabled OpenAI provider, a key and a Daily maximum paid API spend above $0. Staying at $0 leaves browser dictation plus subscription-backed answers. M1 real-microphone acceptance should come before M3 build.
+- Draft PR #22 (the job's own branch) is closed as integrated; no other change.
