@@ -45,3 +45,5 @@ def checks_routes(service, auth) -> APIRouter:
         text = "\n".join(f"{k}: {v}" for k, v in fields.items())
         rec = checks.observe(item, body.status.upper(), text, time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "api")
         return rec
+
+    return router

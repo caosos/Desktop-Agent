@@ -214,3 +214,27 @@ def test_alert_reaches_the_owners_needs_rows_and_a_fresh_receipt_clears_it(tmp_p
     assert any("ALERT (missed_check)" in r["text"] and "APPEARS STALE" in r["text"] for r in rows())
     arm(chk, item, receipt(next_check_at="2026-10-11T22:00:00-05:00"), created="2026-10-12T01:20:00Z")   # the coordinator posts a new valid receipt
     assert not any("ALERT" in r["text"] for r in rows())
+
+
+def test_checks_routes_list_arm_and_reject_an_invalid_receipt(tmp_path):
+    from fastapi.testclient import TestClient
+    from desktop_agent.control.api import build_app
+    from tests.test_ask_aria import _service
+    s = _service(tmp_path)
+    s.store.save_intake({"item_id": "da-bbbbbbbbbb", "project": "mbos", "repo": "x/mbos", "issue": 0, "kind": "direction", "gh_id": 0, "author": "o", "title": "t",
+                         "body": "b", "url": "u", "posted_at": "2026-10-11T19:00:00Z", "status": "WORKING", "coordinator": "liaison"})
+    H = {"Authorization": "Bearer tok"}
+    body = {"item_id": "da-bbbbbbbbbb", "project": "mbos", "task": "t", "responsible": "r", "stage": "s", "evidence": "e", "eta_basis": "scope: two tests and one restart",
+            "acceptance": "a", "blocker": "NONE"}
+    def when(minutes):
+        import time as _t
+        return datetime.fromtimestamp(_t.time() + minutes * 60, CHICAGO).isoformat(timespec="seconds")
+    with TestClient(build_app(s, "tok")) as c:
+        assert c.get("/v0/checks").status_code == 401 and c.get("/v0/checks", headers=H).json()["checks"] == []
+        bad = c.post("/v0/checks", headers=H, json={**body, "eta": "2099-01-01T00:00:00Z", "next_check_at": when(30)})
+        assert bad.status_code == 400 and "America/Chicago" in bad.json()["detail"]
+        ok = c.post("/v0/checks", headers=H, json={**body, "eta": when(60), "next_check_at": when(30)})
+        assert ok.status_code == 201 and ok.json()["state"] == "ARMED"
+        listed = c.get("/v0/checks", headers=H).json()
+        assert [x["item_id"] for x in listed["checks"]] == ["da-bbbbbbbbbb"] and listed["loaded_head"]
+        assert c.post("/v0/checks", headers=H, json={**body, "item_id": "da-nope", "eta": when(60), "next_check_at": when(30)}).status_code == 404
