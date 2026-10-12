@@ -213,3 +213,10 @@ The token-equivalent cost/spend display is rejected: it confuses subscription us
 Michael: "she shouldn't forget what happens 3 days ago. I'm going to keep this Aria for life. It has to carry on like every conversation is ongoing but at different intervals."
 
 Binding on the private memory work: the conversation with Aria is one relationship with gaps, not a series of sessions. Every exchange is archived permanently in the private store (never truncated the way the 60-turn `aria:history` window is), and each new message brings back the relevant past exchanges plus where the last conversation left off ("last time, N days ago, you asked about …"), alongside the structured facts. Nothing is forgotten by design; the owner forgets things only by deleting them in the Memory Center. Same privacy rules as `da-970556bfe0`/`da-c6d1e57152`: private directory only, never GitHub, Slack, workers, logs or receipts.
+
+
+## 2026-10-12 (evening) — Desktop Agent gets Claude-in-Chrome-like capabilities (Michael, terminal, 17:4x CDT)
+
+Michael: "you are the desktop agent and i need it to have claude chrome like capabilities? copy". His example: signing up on auction sites, saving searches and turning on e-mail alerts, done by Aria in his browser on his behalf.
+
+Queued as a Phase 5 build item, browser class only: Aria operates Chrome (open sites, search, fill forms, save searches and alerts) under the OPERATOR_TOOLS_CONTRACT rules: action preview, Michael's approval for every account-level action, credentials never typed by the agent, CAPTCHAs handed to Michael, every action receipted. Desktop and SSH operator classes stay deferred. Queue position: after the private memory item (`da-c6d1e57152`) and the M1 dictation fix (`da-24b7dd665f`), one item at a time, unless Michael reorders.
