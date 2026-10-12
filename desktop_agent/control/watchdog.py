@@ -25,6 +25,7 @@ from .events import Actor, Event, EventType as ET, Provenance
 from .intake import gh_api, IntakeSource  # noqa: F401  gh_api stays this module's symbol: liaison.py calls watchdog.gh_api, tests patch it here
 from .receipts import FAILED, VERIFIED, write_receipt
 from .store import Store
+from .checks import Checks
 from .liaison import LiaisonInbox
 
 WAKE_COOLDOWN_SEC = 1800
@@ -51,6 +52,8 @@ class Watchdog:
         self.allowance_project = "desktop_agent"                 # whose coordinator session is the registered allowance writer
         self._last_wake: dict[str, tuple[float, str]] = {}      # project → (ts, reasons key)
         self.liaison = LiaisonInbox(self)
+        self.checks = Checks(store, intake, deliverer)           # ETA-driven checks live in this watchdog (checks.py)
+        intake.checks = self.checks
 
     def _emit(self, project: str, etype: str, payload: dict, evidence: list) -> None:
         self.store.append_event(Event(type=etype, task_id=None, payload={"project": project, **payload},
@@ -93,6 +96,10 @@ class Watchdog:
                 report["rosters"] = await self.drill.refresh_remote()
             except Exception as exc:
                 report["rosters"] = {"error": str(exc)[:200]}
+        try:
+            report["checks"] = await self.checks.tick()          # due ETA-driven checks: exactly one outcome each
+        except Exception as exc:
+            report["checks"] = {"error": str(exc)[:200]}
         return report
 
     async def _wake(self, src: IntakeSource, reasons: list) -> dict:

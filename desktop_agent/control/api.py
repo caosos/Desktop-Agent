@@ -18,6 +18,7 @@ from .calling_api import calling_routes
 from .research_api import research_routes
 from .intake_api import IntakeStatusIn, intake_routes, source
 from .aria_api import aria_routes
+from .checks_api import checks_routes
 from .service import Service, describe
 
 PANEL = Path(__file__).resolve().parents[2] / "panel" / "index.html"
@@ -84,6 +85,7 @@ def build_app(service: Service, token: str) -> FastAPI:
     app.include_router(research_routes(service, auth))
     app.include_router(intake_routes(service, auth))
     app.include_router(aria_routes(service, auth, token))
+    app.include_router(checks_routes(service, auth))
 
     @app.get("/", response_class=HTMLResponse)
     async def panel():

@@ -48,6 +48,15 @@ separate identity from CAOSCare's resident Aria; they share a name only.
 13. `docs/IDEA_BOOK.md` — Michael's capture book and the short prioritized
    checklist (max 3), Doing, Done with evidence, Parked decisions
 
+## Operating addendum: ETA-driven checks (2026-10-11)
+
+Every ACK / WORKING / BLOCKED receipt carries project, task, responsible, stage, evidence, an ETA with its basis, an exact
+`next_check_at` in America/Chicago, the acceptance expected, and the blocker (`NONE` or exact). The existing local watchdog
+arms a check from that receipt and, at `next_check_at`, publishes exactly one of WORKING / DONE / BLOCKED from host evidence;
+a missed check is an exception (`APPEARS STALE — HOST STATE UNVERIFIED` unless the host proves otherwise); Michael is
+notified only for the listed exceptions. Full rule, example block and code pointers: `AGENTS.md` ("ETA-driven checks and
+exception alerts"); the live list of checks is `GET /v0/checks`.
+
 ## Running it
 
 - Control plane: `systemctl --user status desktop-agent` (unit file in

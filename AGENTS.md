@@ -124,6 +124,52 @@ A blocked worker does not become a silent idle worker.
 - Cloud supervisors are hourly reconciliation and PR watches are event-driven GitHub reconciliation. They do not replace the local five-minute watchdog.
 - Mirror actionable NEED receipts to Slack `#all-ask-aria` once the ChatGPT Slack app is installed in that channel; until verified, the existing issue/liaison plus hourly supervisor is the delivery path.
 
+## ETA-driven checks and exception alerts (owner operating addendum, 2026-10-11; applies to every project)
+
+Adopted in code, not only in a prompt: `desktop_agent/control/checks_receipt.py` (schema, notification filter), `checks.py`
+(the due-check pass inside the existing local watchdog), `checks_api.py` (`GET/POST /v0/checks`). No second watchdog,
+queue, worker or monitor exists or may be created for this.
+
+1. **Every ACK / WORKING / BLOCKED receipt** a coordinator or worker posts carries these lines (`key: value`, one per line):
+   `project`, `task` (bounded task id), `responsible` (coordinator or worker), `stage`, `evidence` (what was reviewed),
+   `eta`, `eta_basis`, `next_check_at`, `acceptance` (the test or completion evidence expected), `blocker` (`NONE` or exact).
+2. **The ETA comes from the real scope**: `eta_basis` names the work, tests, browser verification, deployment steps and host
+   conditions it is derived from; a generic phrase is rejected. `eta` and `next_check_at` are ISO-8601 with the
+   America/Chicago offset in force at that instant (`2026-10-11T20:15:00-05:00`); anything else is rejected.
+3. **The local watchdog owns the timer.** Reading a valid receipt on the issue arms a check at the exact `next_check_at`; a
+   newer receipt replaces it; an invalid receipt arms nothing and is recorded with its problems.
+4. **At `next_check_at`** the watchdog inspects the current process, receipts, repository state and loaded service state
+   (no model) and publishes exactly one of **WORKING** (evidence, revised ETA, new `next_check_at`), **DONE** (the coordinator's
+   receipt carries commit, tests, browser evidence, loaded revision; the check names the next eligible queue row) or
+   **BLOCKED** (exact blocker and required action or command, impact, compatible work, next check time).
+5. **Finishing early** means an immediate DONE receipt; the check closes at once and names the next eligible item. Do not wait.
+6. **A missed ETA or `next_check_at` is an exception**, recorded with provenance. Never claim a worker stopped unless host
+   evidence proves it (the registry shows the session absent); otherwise write `APPEARS STALE — HOST STATE UNVERIFIED`.
+7. **Michael is notified only for** a DONE that needs his acceptance; NEED / BLOCKED; a missed ACK, ETA or check time; a
+   failed test, delivery, deployment or recovery; a genuine owner decision; a material cost or authority boundary. Not for
+   routine healthy progress, build authority already granted, or unchanged state (`notify_decision` in `checks_receipt.py`).
+8. **The cloud supervisor is the hourly fallback**, not the timer. Every hourly run shows: current bounded task and queue
+   stage; latest exact receipt and commit; tested versus loaded state; last timestamped host observation or UNKNOWN; ETA and
+   `next_check_at`; blocker; one next action. Cloud GitHub activity is not proof that a host process is alive.
+9. **Projects stay isolated**: never edit, dispatch, supervise or recover another project's work; route misdelivered work to
+   its project and keep it quarantined until the intended recipient is verified.
+10. Governing rule, unchanged: **no action without a receipt, no receipt without provenance.** Every check event and receipt the watchdog writes carries its evidence.
+
+Example receipt block:
+
+```text
+project: desktop_agent
+task: ETA-driven checks and exception alerts
+responsible: coordinator caoscare-1-8c
+stage: implementing the watchdog check pass
+evidence: queue row, watchdog tick, intake read-back, existing tests
+eta: 2026-10-11T21:15:00-05:00
+eta_basis: schema + timer + six test groups + direct gate + one restart + first live check
+next_check_at: 2026-10-11T20:15:00-05:00
+acceptance: tests prove schema, timer, three outcomes, early DONE, missed-check exception, notification filter
+blocker: NONE
+```
+
 ## Handoff to Michael
 
 End every work block by committing and pushing to the authorised branch,

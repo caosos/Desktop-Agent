@@ -131,6 +131,10 @@ All durations below are **focused engineering effort after the dependency is ava
 
 **Estimate:** overlaps Phases 3–5. No honest single completion date until usable provider access and benchmark tasks are fixed. Do not equate a subscription allowance with an API budget.
 
+## Operating addendum — ETA-driven checks (adopted 2026-10-11)
+
+Every queue item's ACK / WORKING receipt states its ETA (with the scope it comes from) and an exact `next_check_at` in America/Chicago; the existing local watchdog owns that timer and, when it is due, publishes exactly one of WORKING / DONE / BLOCKED from host evidence. A missed check is an exception, never a claim that a process stopped unless the host proves it. Michael is notified only for the listed exceptions. Rule and schema: `AGENTS.md`; enforcement: `checks.py` in the watchdog; evidence: `GET /v0/checks` and the adoption receipt in PROJECT_STATE.
+
 ## Reporting contract
 
 On every meaningful completion or blocker, update the relevant row and the project's actual queue together where authorized, link the implementation SHA, independent gate result, staging/browser proof, live owner acceptance, timestamp, named owner/lane, dependency, next action and revised ETA confidence. Preserve DONE history and label corrections; never turn a draft PR, a worker claim or a stale status comment into LIVE_VERIFIED. The “working now” line must be checked against live worker/process evidence, or say UNKNOWN.

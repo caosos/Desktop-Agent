@@ -173,6 +173,8 @@ class Intake:
                               "DONE": "DONE", "VERIFIED": "DONE"}[m.group(1).upper()]
                     cur = item["status"]
                     note = f"coordinator comment {c.get('html_url','')}"
+                    if getattr(self, "checks", None) is not None:      # ETA-driven check: arm from a schema receipt, close on DONE
+                        self.checks.observe(item, status, text, created, c.get("html_url", ""))
                     if status == cur and item.get("note") == note:
                         continue                  # the same reply seen again (GitHub `since=` is inclusive): nothing changed, nothing recorded
                     if (cur in STATUSES and STATUSES.index(status) > STATUSES.index(cur)) or status == "BLOCKED" or cur not in STATUSES:

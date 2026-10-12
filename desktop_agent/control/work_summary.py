@@ -87,6 +87,11 @@ def work_summary(projects: list[dict], tasks: list[dict], inbox: list[dict], int
             b = r.get("blocker") or ""
             if b and b.lower() != "none" and any(k in b for k in ("MICHAEL_DECISIONS", "credentials", "Michael", "host software", "host")):
                 need.append({"project": name, "who": "you", "text": f"lane {r['lane']} {r['role'][:20]}: {b[:110]}"})
+    for item_id in (store.get_kv("checks:index") or {}).get("ids") or []:       # ETA-driven check alerts the notification filter let through
+        al = store.get_kv("alert:" + item_id) or {}
+        if al and not al.get("cleared"):
+            chk = store.get_kv("check:" + item_id) or {}
+            need.append({"project": chk.get("project") or "", "who": "you", "text": f"ALERT ({al.get('kind')}) for {item_id}: {str(al.get('text'))[:170]} — {al.get('reason')}"})
     unacked = [i for i in (intake.get("items") or []) if i.get("flagged") and i.get("status") in ("RECEIVED", "DELIVERED")]
     by_proj: dict[str, list] = {}
     for i in unacked:
