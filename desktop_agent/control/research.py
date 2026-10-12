@@ -167,8 +167,8 @@ class ResearchService:
             self._receipt(job, claim, rc.FAILED if state == "FAILED" else rc.VERIFIED, source, before)
         if state == "VERIFIED":
             self._publish(job)
-        if state in ("RUNNING", "VERIFIED", "FAILED", "CANCELLED"):
-            self._note(job, self._note_text(job, state, note))
+        if state in ("RUNNING", "VERIFIED", "FAILED", "CANCELLED") and not (state == "RUNNING" and source == "aria"):
+            self._note(job, self._note_text(job, state, note))      # an Aria-started job's "started" fact is in Aria's own reply; no second bubble
         return {"applied": True, "reason": None, "state": state}
 
     # ---- result publication (convenience after VERIFIED; never changes the job's state) ----

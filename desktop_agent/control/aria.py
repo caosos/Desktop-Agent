@@ -7,12 +7,15 @@ receipt (source "aria"). Aria never edits files or runs commands.
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import time
 import uuid
 from pathlib import Path
 
 from .llm import LLM, LLMError
+from .aria_replay import interrupted_result, stored_exchange
+from .aria_state import compact_state  # noqa: F401  (re-exported: tests and run_action import it from here)
 from .aria_usage import status_cost_note, usage_record
 
 PROMPT_FILE = Path(__file__).resolve().parents[2] / "widget" / "aria_prompt.md"
@@ -54,27 +57,6 @@ def _unwrap(data: dict) -> tuple[str, dict | None]:
     return reply, action
 
 
-def compact_state(st: dict) -> dict:
-    """The owner view in model-sized form: what needs the owner, what is blocked and what runs, first; raw
-    project internals stay behind project_brief. The full state is ~85 KB; this must fit one action result."""
-    ik = st.get("intake") or {}
-    work = st.get("work") or {}
-    open_items = [i for i in (ik.get("items") or []) if i.get("status") not in ("DONE", "CLOSED")]
-    return {
-        "next": st.get("next"), "glance": st.get("glance"),
-        "work": {k: [{"project": r.get("project"), "who": r.get("who"), "text": str(r.get("text", ""))[:120]} for r in (work.get(k) or [])[:10]]
-                 for k in ("needs_owner", "waiting", "can_run_now")},
-        "blocked": st.get("blocked"), "decisions_waiting": st.get("inbox"), "workers_running": st.get("workers"),
-        "paused": st.get("paused"), "hold": st.get("hold"),
-        "projects": [{"name": p.get("name"), "stage": p.get("stage"),
-                      "coordinator": {k: (str(v)[:140] if k == "detail" else v) for k, v in (p.get("coordinator") or {}).items() if k in ("connected", "detail", "session")},
-                      "workers": {k: v for k, v in (p.get("workers") or {}).items() if k in ("status", "active", "detail")}} for p in st.get("projects") or []],
-        "tasks": [{"task_id": t.get("task_id"), "status": t.get("status"), "stage": t.get("stage"), "objective": str(t.get("objective", ""))[:80]}
-                  for t in (st.get("tasks") or [])[-5:]],
-        "shared_inbox": {"counts": ik.get("counts"), "unacknowledged": ik.get("unacknowledged"),
-                         "open_items": [{"item_id": i.get("item_id"), "project": i.get("project"), "status": i.get("status"), "title": str(i.get("title", ""))[:60]} for i in open_items[-8:]]},
-        "costs": {k: v for k, v in (st.get("costs") or {}).items() if k != "per_task"}, "budgets": st.get("budgets"),
-    }
 HISTORY_KEEP = 60
 
 SCHEMA = {
@@ -91,6 +73,7 @@ SCHEMA = {
 
 class AriaBrain:
     def __init__(self, service, llm: LLM | None = None):
+        self._inflight: dict[str, asyncio.Future] = {}              # client_id → the one running exchange
         self.service = service
         self.llm = llm or service.llm
         self.history: list[dict] = list((service.store.get_kv(HISTORY_KV) or {}).get("turns") or [])   # recoverable: {"role", "text", "ts"}
@@ -175,7 +158,23 @@ class AriaBrain:
                 f"Unacknowledged instructions: {len(ik.get('unacknowledged') or [])}. Open a project card for its roster, instructions and evidence.")
 
     async def chat(self, text: str, client_id: str | None = None) -> dict:
-        """One owner message → reply, after at most MAX_STEPS model/action rounds."""
+        """One owner message → reply. A repeated delivery of the same client_id (a retried POST, a double submit) is the
+        same exchange: while it is in flight the duplicate waits for that one result; afterwards the stored exchange is
+        returned; nothing is executed or costed twice. Separate sends carry separate ids and stay separate."""
+        if not client_id:
+            return await self._chat_once(text, None)
+        live = self._inflight.get(client_id)
+        if live is not None:
+            return {**await asyncio.shield(live), "duplicate": True}
+        done = stored_exchange(self.history, client_id)
+        if done is not None:
+            return {**(done if done is not False else interrupted_result()), "duplicate": True}
+        task = asyncio.ensure_future(self._chat_once(text, client_id))
+        self._inflight[client_id] = task
+        task.add_done_callback(lambda _t: self._inflight.pop(client_id, None))
+        return await asyncio.shield(task)
+
+    async def _chat_once(self, text: str, client_id: str | None) -> dict:
         started = time.time()
         turn = "turn-" + uuid.uuid4().hex[:12]                # new owner turn = new command identity; repeated actions inside it share it (local to this call)
         self.history.append({"role": "owner", "text": text, "ts": started, "turn_id": turn, **({"client_id": client_id} if client_id else {})})

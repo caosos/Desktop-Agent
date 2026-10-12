@@ -126,7 +126,7 @@ a { color:var(--accent); }
 
 <button id="aria_bubble" aria-controls="aria" aria-expanded="false" title="Ask Aria: talk or type; nothing runs without your Send and confirmation">Ask Aria</button>
 <section id="aria" hidden aria-label="Ask Aria" role="dialog">
-  <div class="row" style="border:none;padding:0 0 6px"><span><b style="font-size:16px">Ask Aria</b> <span id="aria_model" class="muted tiny"></span></span><button class="tiny" id="aria_close">close</button></div>
+  <div class="row" style="border:none;padding:0 0 6px"><span><b style="font-size:16px">Ask Aria</b> <span id="aria_model" class="muted tiny"></span></span><span><button class="tiny" id="aria_pin" type="button" aria-pressed="false" title="Keep this window open when you click elsewhere on the dashboard">Keep open</button> <button class="tiny" id="aria_close">close</button></span></div>
   <div id="aria_log" aria-live="polite"></div>
   <div id="aria_state" class="tiny muted" aria-live="polite"></div>
   <div class="tiny muted" id="aria_hint">Questions are answered read-only. A direction goes to a project's coordinator through the Shared inbox. New work and decisions are confirmed before anything runs. Every action leaves a receipt.</div>
@@ -409,7 +409,28 @@ function turnHtml(t) {
   return `<div class="turn aria">${esc(t.text)}<div class="meta">Aria · <span class="chip ${t.kind === "question" || !t.kind ? "" : t.kind && t.kind.startsWith("status") ? "warn" : "ok"}">${esc(t.kind || "question")}</span>${acts ? " · " + acts : ""}${usageLine(t)}${t.ts ? " · " + ago(t.ts) + " ago" : ""}</div></div>`;
 }
 $("aria_bubble").onclick = () => openAria();
-$("aria_close").onclick = () => { stopDictation(); $("aria").hidden = true; $("aria_bubble").setAttribute("aria-expanded", "false"); $("aria_bubble").focus(); };
+// Closing only hides the window: the draft in the box, sent turns, a waiting reply and the saved transcript are untouched,
+// and reopening neither re-fetches nor re-sends anything.
+function closeAria() { stopDictation(); $("aria").hidden = true; $("aria_bubble").setAttribute("aria-expanded", "false"); }
+$("aria_close").onclick = () => { closeAria(); $("aria_bubble").focus(); };
+// Default: a press outside the window dismisses it so the dashboard underneath is visible. Keep open (pinned) prevents
+// that until unpinned; the close button and Escape always close. Presses inside the window, or on the Ask Aria bubble, never dismiss.
+let ariaPinned = false;
+try { ariaPinned = localStorage.getItem("da_aria_pin") === "1"; } catch (e) {}
+function setAriaPinned(v) {
+  ariaPinned = v; $("aria_pin").setAttribute("aria-pressed", v ? "true" : "false");
+  $("aria_pin").textContent = v ? "Pinned ✓" : "Keep open";
+  $("aria_pin").title = v ? "Pinned: clicking elsewhere keeps this window open. Click to unpin." : "Keep this window open when you click elsewhere on the dashboard";
+  try { localStorage.setItem("da_aria_pin", v ? "1" : "0"); } catch (e) {}
+}
+$("aria_pin").onclick = () => setAriaPinned(!ariaPinned);
+setAriaPinned(ariaPinned);
+document.addEventListener("pointerdown", ev => {          // capture phase: decided before any handler on the pressed element runs
+  if ($("aria").hidden || ariaPinned) return;
+  if ($("aria").contains(ev.target) || $("aria_bubble").contains(ev.target)) return;
+  closeAria();
+}, true);
+document.addEventListener("keydown", ev => { if (ev.key === "Escape" && !$("aria").hidden) { closeAria(); $("aria_bubble").focus(); } });
 $("aria_send").onclick = async () => {
   const text = $("aria_text").value.trim();
   if (!text) { micState("Nothing to send yet: type or dictate a message first.", "amber"); $("aria_text").focus(); return; }
