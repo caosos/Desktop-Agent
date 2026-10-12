@@ -12,6 +12,7 @@ wide nothing scrolls horizontally; and no model call was made by checking while 
 """
 import json
 import os
+import re
 import time
 import urllib.request
 from pathlib import Path
@@ -77,7 +78,9 @@ def test_live_owner_acceptance():
         assert len(page.locator("#packet fieldset").all()) == len(pk["decisions"]) == len(st["inbox"])
         assert all(not g["answerable_here"] for g in pk["external_gates"]); report["open_decisions"] = len(pk["decisions"]); report["external_gates"] = len(pk["external_gates"])
         # 6. one next action, consistent with the state
-        nxt = page.inner_text("#g_next"); assert nxt.strip() and nxt.strip().startswith(st["glance"]["next_action"]["text"].strip()); report["next_action"] = nxt[:100]
+        nxt = page.inner_text("#g_next"); assert nxt.strip(); report["next_action"] = nxt[:100]
+        ago = lambda t: re.sub(r"\d+\s*[smh] ago", "N ago", t.strip())     # the page and the API were read seconds apart: "read 34s ago" vs "read 36s ago"
+        assert ago(nxt).startswith(ago(st["glance"]["next_action"]["text"]))
         if st["glance"]["next_action"]["kind"] == "decide":           # decisions are answered only in the packet
             assert page.locator("#g_next_ctl button").count() == 0 and page.locator("#g_next_ctl a[href='#packetcard']").count() == 1
         assert "NaN" not in page.inner_text("body")
