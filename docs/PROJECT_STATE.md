@@ -947,3 +947,21 @@ Sources: this repository checkout on disk AND the
 - **Tests:** `tests/test_ask_aria_look.py` (5): vision argv is Read-only and subscription-only in a directory with just the image; one capture with provenance and an idempotent repeat that runs no second vision call; bad images refused and a vision failure is an honest error turn; a source scan finds no input-injection code; a real-Chrome panel test shows the indicator and the explanation. Direct unpiped gate PASS on the tested tree.
 - **Claude in Chrome on the loaded UI (00:41 CDT, MainPID 1220837):** with a stand-in capture stream showing an invoice-style test card, the indicator read "Captured at 12:41:21 AM (800x450); sharing has stopped. Asking Aria...", then "Looked at 12:41:21 AM (800x450); the picture is stored with its receipt. Sharing is off." Aria's reply described the title "INVOICE 4471 - PAID", the blue rectangle and the caption with the total, stated what it could not see, and made no claim to act. Provenance in the reply row: look_id lk-ca5f55b475, sha256 da695b7c..., captured_at 2026-10-12T05:41:21Z, model claude-haiku-5-5, included in the subscription; receipt on subject look/lk-ca5f55b475; the stored image is on disk.
 - **Limits:** the capture source was a stand-in, so the browser's real share prompt and a real screen are untested until Michael tries it. Stored captures are kept until a retention rule exists (next item). Boundary kept: looking only.
+
+
+## 2026-10-12 00:48 CDT - M2 hardening: seven-day retention for stored screenshots, loaded (da-50b1e88f20)
+
+- `look_retention.py` (28 lines) runs inside the existing watchdog tick: image folders `data/looks/lk-*` older than seven days are deleted, one receipt per sweep that removed something, the capture receipts (with sha256 and time) are never touched; `tests/test_look_retention.py` covers old, new, foreign folders and the empty sweep. Direct gate PASS; commit `3868871`, loaded MainPID 1230269 at 00:47:5x CDT, health 200. The one existing capture (lk-ca5f55b475, 00:41) is newer than seven days and stays. M3 written evaluation started as research job rj-6cb2fe0f48 (web sources, subscription, no paid call).
+
+## CHECK-IN 2026-10-12 00:49 CDT
+
+1. Phase/milestone: Phase 2 of 6; passive Screen + Voice, M2 done, M3 evaluation running, M1 owner observation.
+2. Completed since prior check: M2 (`c8fd27f`) verified in Claude in Chrome 00:41; records `3488b1f`; stale bridge alert da-de4a88e609 closed; retention (`3868871`) loaded 00:47.
+3. Evidence: receipts 6118474324 (M2), this entry; tests test_ask_aria_look (5), test_look_retention (1); direct gate PASS.
+4. Tested vs loaded: `3868871` tested and loaded (MainPID 1230269); records after it are docs only.
+5. Host observation: 2026-10-12 00:48:06 CDT service active, health 200, Slack connected.
+6. Current bounded task: M3 evaluation (research job rj-6cb2fe0f48), responsible: bounded research worker under coordinator caoscare-1-8c, stage: running.
+7. Remaining steps: worker report, verifier, publish, reconcile queue; then idle until an owner input or a new queue row.
+8. Upcoming milestones: M1 real-microphone acceptance (Michael); M3 implementation (needs provider and a paid maximum above $0); unattended-day reliability.
+9. ETA: 2026-10-12 01:30 CDT. 10. next_check_at: 2026-10-12 01:15 CDT. 11. Blocker: NONE. 12. Michael action: NOTHING.
+Correction: the receipt at issue comment 6118474324 gave its host-observation time as 00:46; the real time was 00:42.
