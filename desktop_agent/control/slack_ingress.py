@@ -18,7 +18,14 @@ from .receipts import VERIFIED, write_receipt
 ACK_MARK = "DOT ARYA ACK"                                 # prefix of every ACK this listener posts; a message starting with it is never accepted
 ROUTES = {"DESKTOP AGENT": ["desktop_agent"], "CAOSCARE": ["caoscare"], "DEAL SNIFFER": ["michael_business_os"],
           "DOT ARIA": [], "ALL PROJECTS": ["desktop_agent", "caoscare", "michael_business_os"]}
-_ROUTE_RE = re.compile(r"^\s*(" + "|".join(sorted(map(re.escape, ROUTES), key=len, reverse=True)) + r")\s*:", re.I)
+# Deterministic human-facing aliases.  An alias is accepted only as a leading label followed by a colon or dash, so a sentence
+# containing the ordinary word "care" cannot accidentally dispatch CAOSCare work.  Every alias resolves to one canonical label;
+# the canonical label then resolves through the existing project descriptor and Shared Inbox transport.
+ALIASES = {"DESKTOP AGENT": "DESKTOP AGENT", "ASK ARIA": "DESKTOP AGENT",
+           "DEAL SNIFFER": "DEAL SNIFFER", "BUSINESS OS": "DEAL SNIFFER", "MICHAEL BUSINESS OS": "DEAL SNIFFER",
+           "CAOSCARE": "CAOSCARE", "CARE APP": "CAOSCARE", "CARE": "CAOSCARE",
+           "DOT ARIA": "DOT ARIA", "ALL PROJECTS": "ALL PROJECTS"}
+_ROUTE_RE = re.compile(r"^\s*(" + "|".join(sorted(map(re.escape, ALIASES), key=len, reverse=True)) + r")\s*(?::|[-\u2013\u2014])\s*", re.I)
 _VISIBLE_RE = re.compile(r"\b(can (anyone|anybody|you|someone) (see|read)|does (anyone|anybody) see|is (anyone|anybody) (seeing|reading)|do you see this|(anyone|anybody|someone) (listening|there|here|home|awake))\b", re.I)
 _BOT_SUBTYPES = {"bot_message", "message_changed", "message_deleted", "channel_join", "channel_leave", "file_share_bot"}
 
@@ -45,7 +52,7 @@ def route_for(text: str) -> tuple[str | None, list[str]]:
     m = _ROUTE_RE.match(text)
     if not m:
         return None, []
-    label = m.group(1).upper()
+    label = ALIASES[m.group(1).upper()]
     return label, list(ROUTES[label])
 
 
@@ -54,7 +61,7 @@ def ack_text(label: str | None, received_at: float, visibility: bool, projects: 
     if visibility:
         return f"{ACK_MARK}: yes, I can see this message (received {when}). Nothing else was started."
     if label is None:
-        return f"{ACK_MARK}: received {when}. No routing label (DESKTOP AGENT:, CAOSCARE:, DEAL SNIFFER:, DOT ARIA:, ALL PROJECTS:), so I recorded it only. Add a label to route it."
+        return f"{ACK_MARK}: received {when}. No routing label (ASK ARIA:, DEAL SNIFFER:, CARE APP:, DOT ARIA:, ALL PROJECTS:), so I recorded it only. Add a label to route it."
     if not projects:
         return f"{ACK_MARK}: received {when}. Routed to {label}; recorded as a receipt for the supervisor, no project work started."
     return f"{ACK_MARK}: received {when}. Routed to {label} ({', '.join(projects)}) as a direction through the project's existing Shared Inbox. Next: its coordinator acknowledges on GitHub."
@@ -85,33 +92,43 @@ class SlackIngress:
         sent, errors = [], []
         for p in projects:
             try:
-                sent.append((await self.intake.send_direction(p, text, "slack"))["item_id"])
+                item = await self.intake.send_direction(p, text, "slack")
+                sent.append({"project": p, "item_id": item["item_id"], "url": item.get("url", ""), "status": item.get("status", "")})
             except Exception as exc:                                                   # a project without a coordinator never stops the others
                 errors.append(f"{p}: {str(exc)[:80]}")
         reply = ack_text(label, self.clock(), visibility, [p for p in projects if not any(e.startswith(p + ":") for e in errors)])
         if errors:
             reply += " Not delivered: " + "; ".join(errors) + "."
         await self.post(self.channel, event.get("thread_ts") or ts, reply)
+        item_ids = [d["item_id"] for d in sent]
         rec = write_receipt(self.store, subject_type="slack", subject_id=ts, claim=f"owner Slack message {ts} acknowledged; label {label or 'none'}; routed {len(sent)} direction(s)",
                             actor=Actor.CONTROL.value, source="slack_ingress", result_label=VERIFIED,
-                            evidence=[f"channel={self.channel}", f"ts={ts}", f"user={self.owner}", *[f"item={i}" for i in sent], *errors],
-                            after_state={"label": label, "items": sent, "errors": errors, "visibility_answer": visibility})
-        if self.mirror:                                                               # the one transport receipt the existing PR watcher turns into a Work update
-            try:
-                await self.mirror(self._receipt_text(ts, label, sent, errors, rec["receipt_id"]))
-            except Exception as exc:                                                  # a failed mirror never loses the ACK or the receipt
-                self.store.set_kv(key, {"at": self.clock(), "mirror_error": str(exc)[:120]})
-        return {"handled": True, "label": label, "items": sent, "errors": errors, "receipt": rec["receipt_id"]}
+                            evidence=[f"channel={self.channel}", f"ts={ts}", f"user={self.owner}",
+                                      *[f"route={d['project']} item={d['item_id']} destination={d['url'] or 'recorded locally'}" for d in sent], *errors],
+                            after_state={"label": label, "routes": sent, "items": item_ids, "errors": errors, "visibility_answer": visibility})
+        if self.mirror:                                                               # one receipt on each routed project's existing bridge
+            mirror_errors = []
+            for project in projects or ["desktop_agent"]:                            # preserve the working Desktop route for unlabelled/visibility ACKs
+                project_sent = [d for d in sent if d["project"] == project]
+                project_errors = [e for e in errors if e.startswith(project + ":")]
+                try:
+                    await self.mirror(project, self._receipt_text(ts, label, project_sent, project_errors, rec["receipt_id"], project))
+                except Exception as exc:                                              # a failed mirror never loses the ACK or the project direction
+                    mirror_errors.append(f"{project}: {str(exc)[:100]}")
+            if mirror_errors:
+                self.store.set_kv(key, {"at": self.clock(), "mirror_errors": mirror_errors})
+        return {"handled": True, "label": label, "items": item_ids, "routes": sent, "errors": errors, "receipt": rec["receipt_id"]}
 
-    def _receipt_text(self, ts: str, label: str | None, sent: list[str], errors: list[str], receipt_id: str) -> str:
+    def _receipt_text(self, ts: str, label: str | None, sent: list[dict], errors: list[str], receipt_id: str, project: str) -> str:
         try:
             typed = _chicago(float(ts))
         except ValueError:
             typed = ts
+        destinations = "; ".join(f"{d['project']}={d['url'] or d['item_id']} ({d['status'] or 'recorded'})" for d in sent) or "none"
         return "\n".join([
             "DESKTOP AGENT RECEIPT: ACK",
-            "project: desktop_agent", "task: DA-SLACK-INGRESS-001 (da-9e6b71d929)", "responsible: coordinator caoscare-1-8c",
-            "stage: owner Slack message received and acknowledged in the channel",
-            f"evidence: slack channel {self.channel} ts {ts} (typed {typed}); control-plane receipt {receipt_id}; routing label {label or 'none'}; directions {', '.join(sent) or 'none'}",
+            f"project: {project}", "task: DA-SLACK-THREE-PROJECT-ROUTING", "responsible: existing project coordinator through Shared Inbox",
+            "stage: owner Slack message acknowledged once and routed to the named project's existing supervisor transport",
+            f"evidence: slack channel {self.channel} ts {ts} (typed {typed}); control-plane receipt {receipt_id}; routing label {label or 'none'}; destinations {destinations}",
             f"acknowledged_at: {_chicago(self.clock())}", f"blocker: {'; '.join(errors) or 'NONE'}",
             "host observation: UNKNOWN (this receipt is GitHub transport, not host-liveness proof)"])

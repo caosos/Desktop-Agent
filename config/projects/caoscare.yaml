@@ -82,6 +82,7 @@ worker_allowed_tools:
 # read back from issue comments carrying the item id.
 intake:
   issues: [117, 129]
+  bridge_pr: 131                            # existing persistent receipt-event bridge; TRANSPORT ONLY / DO NOT MERGE
   owner_logins: [caosos]
   coordinator:
     kind: claude_peer
