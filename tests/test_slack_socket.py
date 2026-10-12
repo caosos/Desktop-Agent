@@ -40,9 +40,10 @@ def rig(tmp_path, frames):
     store, calls, mirrored, sent = Store(tmp_path / "s"), [], [], []
     ws = FakeWS(frames)
     class Intake:
-        async def send_direction(self, project, text, source): sent.append(project); return {"item_id": "da-x"}
+        async def send_direction(self, project, text, source):
+            sent.append(project); return {"item_id": "da-x", "url": "https://github.test/receipt", "status": "SENT"}
     sock = SlackSocket(store, None, env(tmp_path), connect=lambda url: ws, http_factory=lambda: FakeHTTP(calls))
-    async def mirror(t): mirrored.append(t)
+    async def mirror(project, text): mirrored.append((project, text))
     sock.ingress = SlackIngress(store, Intake(), sock.post, CH, ME, mirror=mirror)
     return store, sock, ws, calls, mirrored, sent
 
@@ -59,7 +60,7 @@ def test_one_ack_one_transport_receipt_and_envelopes_acknowledged_first(tmp_path
     assert [x["envelope_id"] for x in ws.sent] == ["e1", "e2", "e3", "e9"]                           # every envelope acknowledged on the socket
     posts = [c for c in calls if c[0] == "chat.postMessage"]
     assert len(posts) == 1 and posts[0][1] == "Bearer " + BOT and posts[0][2]["channel"] == CH and posts[0][2]["thread_ts"] == "10.1" and posts[0][2]["text"].startswith("DOT ARYA ACK")
-    assert len(mirrored) == 1 and mirrored[0].startswith("DESKTOP AGENT RECEIPT: ACK") and "da-9e6b71d929" in mirrored[0] and sent == ["desktop_agent"]
+    assert len(mirrored) == 1 and mirrored[0][0] == "desktop_agent" and mirrored[0][1].startswith("DESKTOP AGENT RECEIPT: ACK") and "DA-SLACK-THREE-PROJECT-ROUTING" in mirrored[0][1] and sent == ["desktop_agent"]
     assert len(store.receipts("slack", "10.1")) == 1
 
 
