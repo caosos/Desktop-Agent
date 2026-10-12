@@ -118,3 +118,7 @@ intake:
 
 research:
   web_enabled: true      # owner switch (decision d-c3f29691 answered yes; flipped 2026-10-11 on owner direction da-b00a65f88f): true lets a web research job allowlist WebSearch/WebFetch for its one worker at a $3 ceiling
+
+slack:                                     # immediate Slack ingress (slack_ingress.py + slack_socket.py); tokens live in ~/.config/desktop-agent/slack.env (0600)
+  channel: C0C81K9QNGK                     # #all-ask-aria
+  owner: U0C82H6G9NZ                       # Michael: the only human whose messages are accepted

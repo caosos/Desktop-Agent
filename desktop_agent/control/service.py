@@ -73,6 +73,18 @@ class Service:
         from .bridge import Bridge                         # transport-only receipt mirror to one draft PR (intake.bridge_pr); idle without it
         async def _bridge_post(path, fields): return await _intake_mod.gh_api(path, method="POST", fields=fields)
         self.intake.bridge = Bridge(self.store, _bridge_post, self.watchdog.checks.loaded_head, self.watchdog.checks._host_evidence)
+        self.slack = None
+        if cfg.slack_channel and cfg.slack_owner:               # immediate Slack ingress: idle (NEED_ACCESS event) until slack.env exists
+            from .slack_ingress import SlackIngress
+            from .slack_socket import SlackSocket
+            env = Path("~/.config/desktop-agent/slack.env").expanduser()
+            self.slack = SlackSocket(self.store, None, env)
+            src = self.intake.source_for("desktop_agent")
+            async def _mirror(text):                                # one comment on the transport-only bridge PR, if configured
+                if src and getattr(src, "bridge_pr", None):
+                    from . import intake as _im
+                    await _im.gh_api(f"repos/{src.repo}/issues/{src.bridge_pr}/comments", method="POST", fields={"body": text})
+            self.slack.ingress = SlackIngress(self.store, self.intake, self.slack.post, cfg.slack_channel, cfg.slack_owner, mirror=_mirror)
         from .intake import gh_api
         from .workers import WorkerMonitor
         self.workers = WorkerMonitor(self.store, self.projects, gh_api=gh_api)   # grounded worker visibility per project
@@ -253,6 +265,7 @@ class Service:
     # ---- loop -------------------------------------------------------------
     async def run_forever(self) -> None:
         intake_task = asyncio.create_task(self._intake_forever()) if self.intake.sources else None
+        slack_task = asyncio.create_task(self.slack.run()) if self.slack else None
         try:
             while True:
                 try:
@@ -265,3 +278,5 @@ class Service:
         finally:                                  # cancelled at shutdown: take the poll loop down with us
             if intake_task:
                 intake_task.cancel()
+            if slack_task:
+                slack_task.cancel()

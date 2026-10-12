@@ -60,10 +60,15 @@ def ack_text(label: str | None, received_at: float, visibility: bool, projects: 
     return f"{ACK_MARK}: received {when}. Routed to {label} ({', '.join(projects)}) as a direction through the project's existing Shared Inbox. Next: its coordinator acknowledges on GitHub."
 
 
+def _chicago(ts: float) -> str:
+    from .checks_receipt import chicago
+    return chicago(ts)
+
+
 class SlackIngress:
-    def __init__(self, store, intake, post, channel: str, owner: str, clock=time.time):
+    def __init__(self, store, intake, post, channel: str, owner: str, clock=time.time, mirror=None):
         """post(channel, thread_ts, text) -> awaitable; intake.send_direction is the only routing path."""
-        self.store, self.intake, self.post, self.channel, self.owner, self.clock = store, intake, post, channel, owner, clock
+        self.store, self.intake, self.post, self.channel, self.owner, self.clock, self.mirror = store, intake, post, channel, owner, clock, mirror
 
     async def handle(self, event: dict) -> dict:
         ok, why = classify(event, self.channel, self.owner)
@@ -91,4 +96,22 @@ class SlackIngress:
                             actor=Actor.CONTROL.value, source="slack_ingress", result_label=VERIFIED,
                             evidence=[f"channel={self.channel}", f"ts={ts}", f"user={self.owner}", *[f"item={i}" for i in sent], *errors],
                             after_state={"label": label, "items": sent, "errors": errors, "visibility_answer": visibility})
+        if self.mirror:                                                               # the one transport receipt the existing PR watcher turns into a Work update
+            try:
+                await self.mirror(self._receipt_text(ts, label, sent, errors, rec["receipt_id"]))
+            except Exception as exc:                                                  # a failed mirror never loses the ACK or the receipt
+                self.store.set_kv(key, {"at": self.clock(), "mirror_error": str(exc)[:120]})
         return {"handled": True, "label": label, "items": sent, "errors": errors, "receipt": rec["receipt_id"]}
+
+    def _receipt_text(self, ts: str, label: str | None, sent: list[str], errors: list[str], receipt_id: str) -> str:
+        try:
+            typed = _chicago(float(ts))
+        except ValueError:
+            typed = ts
+        return "\n".join([
+            "DESKTOP AGENT RECEIPT: ACK",
+            "project: desktop_agent", "task: DA-SLACK-INGRESS-001 (da-9e6b71d929)", "responsible: coordinator caoscare-1-8c",
+            "stage: owner Slack message received and acknowledged in the channel",
+            f"evidence: slack channel {self.channel} ts {ts} (typed {typed}); control-plane receipt {receipt_id}; routing label {label or 'none'}; directions {', '.join(sent) or 'none'}",
+            f"acknowledged_at: {_chicago(self.clock())}", f"blocker: {'; '.join(errors) or 'NONE'}",
+            "host observation: UNKNOWN (this receipt is GitHub transport, not host-liveness proof)"])

@@ -63,6 +63,8 @@ class RuntimeConfig:
     intake_poll_sec: int = 120            # free GitHub checks; bounded
     intake_post_comments: bool = True     # post tagged DELIVERED/ACK comments on the issue
     intake_unacked_sec: int = 300         # unacknowledged/undelivered instruction → BLOCKED + NEED receipt (owner protocol: five minutes)
+    slack_channel: str = ""               # Slack ingress: the one channel and the one human whose messages are accepted (slack_ingress.py)
+    slack_owner: str = ""
     research_web_enabled: bool = False    # owner switch: web research jobs (WebSearch/WebFetch for that worker, $3). Decision d-c3f29691 said yes; the flip is Michael's line
     sandbox_ro_paths: list[str] = field(default_factory=list)   # e.g. ~/.nvm for node + claude
     scope: ScopeLimits = field(default_factory=ScopeLimits)
@@ -144,6 +146,8 @@ class RuntimeConfig:
         cfg.intake_poll_sec = int(ik.get("poll_sec", cfg.intake_poll_sec))
         cfg.intake_post_comments = bool(ik.get("post_comments", cfg.intake_post_comments))
         cfg.intake_unacked_sec = int(ik.get("unacked_sec", cfg.intake_unacked_sec))
+        cfg.slack_channel = str((raw.get("slack") or {}).get("channel", ""))
+        cfg.slack_owner = str((raw.get("slack") or {}).get("owner", ""))
         cfg.research_web_enabled = bool((raw.get("research") or {}).get("web_enabled", cfg.research_web_enabled))
         return cfg
 
