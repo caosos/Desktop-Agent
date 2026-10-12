@@ -180,7 +180,7 @@ class Intake:
                     note = f"coordinator comment {c.get('html_url','')}"
                     if getattr(self, "checks", None) is not None:      # ETA-driven check: arm from a schema receipt, close on DONE
                         self.checks.observe(item, status, text, created, c.get("html_url", ""))
-                    advance = (cur in STATUSES and STATUSES.index(status) > STATUSES.index(cur)) or status == "BLOCKED" or cur not in STATUSES
+                    advance = (cur in STATUSES and STATUSES.index(status) > STATUSES.index(cur)) or status == "BLOCKED" or cur not in STATUSES or (status == "WORKING" and cur == "BLOCKED")  # an unblock is progress (live 18:27 CDT 2026-10-12)
                     # also a NEW comment with the same status (WORKING → WORKING, revised ETA); a replayed comment (`since=` is inclusive) records nothing
                     if (advance or status == cur) and (status != cur or item.get("note") != note):
                         self._set(item, status, note, [c.get("html_url", ""), login])

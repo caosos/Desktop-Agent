@@ -55,6 +55,15 @@ def test_restart_and_unchanged_state_mirror_nothing_more(tmp_path):
     assert r2.posted == [] and n >= 1
 
 
+def test_an_unblock_working_after_blocked_is_recorded_and_mirrored(tmp_path):
+    r = Rig(tmp_path)
+    r.say(7020, "BLOCKED", SCHEMA.replace("blocker: NONE", "blocker: NEED_PERMISSION"))
+    r.say(7021, "WORKING", SCHEMA)                                                   # the coordinator is unblocked: progress, not a regression
+    assert r.store.get_intake(r.iid)["status"] == "WORKING" and len(r.posted) == 2 and r.posted[1][1].startswith("DESKTOP AGENT RECEIPT: WORKING")
+    r.say(7022, "ACK", SCHEMA)                                                       # a mere ACK after WORKING is still not a regression
+    assert r.store.get_intake(r.iid)["status"] == "WORKING" and len(r.posted) == 2
+
+
 def test_ack_and_working_in_one_comment_is_one_mirror_with_the_stronger_label(tmp_path):
     r = Rig(tmp_path)
     r.gh.comments.append(comment(7010, "o", f"<!-- da:coordinator -->\nACK {r.iid}\nWORKING {r.iid}\n{SCHEMA}", "2026-10-12T01:10:00Z")); asyncio.run(r.intake.poll_once())
