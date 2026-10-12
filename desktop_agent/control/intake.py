@@ -19,6 +19,7 @@ from dataclasses import dataclass, field
 from . import intake_owner
 from .intake_need import flag_unacked, redeliver_pending
 from .events import Actor, Event, EventType as ET, Provenance
+from .intake_reports import is_checkin_report
 from .receipts import FAILED, VERIFIED, write_receipt
 from .store import Store
 
@@ -212,7 +213,9 @@ class Intake:
                                        source=f"coordinator:{src.project}", project=src.project, url=c.get("html_url", ""))
                 continue
             item = self._ingest(src, issue, "comment", int(c["id"]), login, text, created, c.get("html_url", ""), "")
-            if item:
+            if item and is_checkin_report(text):                  # a status report is recorded, never delivered (intake_reports.py)
+                self._set(item, "DONE", "informational canonical check-in log: recorded, not delivered, no ACK owed", [c.get("html_url", "")])
+            elif item:
                 found += 1
                 new_items.append(item)
         for d in done_now:

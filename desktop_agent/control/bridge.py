@@ -10,6 +10,7 @@ from __future__ import annotations
 from datetime import datetime
 
 from .checks_receipt import CHICAGO, parse_receipt
+from .intake_reports import is_checkin_report
 
 LABEL = {"ACKNOWLEDGED": "ACK", "WORKING": "WORKING", "DONE": "DONE", "BLOCKED": "NEED"}
 RANK = {"ACK": 0, "WORKING": 1, "NEED": 2, "DONE": 3}
@@ -37,9 +38,7 @@ def render(label: str, items: list[dict], text: str, url: str, loaded_head: str,
 
 
 def _is_report(item: dict) -> bool:
-    body = (item.get("body") or "").lstrip()
-    head = body[:200].upper()
-    return body.startswith("<!-- da:canonical-checkin") or body.startswith("<!-- da:supervisor") or "CANONICAL CHECK-IN LOG" in head
+    return is_checkin_report(item.get("body") or "")
 
 
 def _host_line(host: dict | None, observed: str) -> str:
