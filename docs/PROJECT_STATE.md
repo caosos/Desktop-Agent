@@ -989,3 +989,17 @@ Correction: the receipt at issue comment 6118474324 gave its host-observation ti
 - **Fix:** commit `82b6253` (bridge heading filter, loaded 02:58) and `f1db2d3` (loaded 03:12:14 CDT, MainPID 1370098): one recogniser, `intake_reports.py` (14 lines: marker `<!-- da:canonical-checkin` or the exact heading), used by intake, which records such a comment as an informational item (DONE, "recorded, not delivered, no ACK owed", no delivery, no unacked flag), and by the bridge. Deliberately narrow: other supervisor comments, even with the da:supervisor marker, have carried real directives and still cross.
 - **Tests:** `tests/test_intake_reports.py` (3): the recogniser is narrow; a heading-only log is recorded, not delivered, not mirrored, and a replay adds nothing; a genuine supervisor directive is still delivered and a genuine WORKING receipt mirrors exactly once. Bridge and intake suites pass (28). Direct unpiped gate PASS before the commit. Line counts: `intake.py` 300, `intake_reports.py` 14, `bridge.py` 78, test file 51.
 - **Loaded:** tested SHA equals loaded SHA `f1db2d358ca1`, health 200. Queue returns to `da-50b1e88f20` WAITING_OWNER; no paid M3, no desktop action.
+
+
+## CHECK-IN 2026-10-12 09:22 CDT (late; the 09:00 entry was missed, superseding nothing)
+
+1. Phase/milestone: Phase 2 of 6; passive Screen + Voice; M2, retention and M3 evaluation done; M1 microphone and paid M3 owner-gated.
+2. Completed since prior check (03:13): NO CHANGE in product state. Overnight there were no new owner directives for this project; Slack listener reconnected once at 08:12:24 after a socket drop and kept running.
+3. Evidence: no new commits after `cd076d2` (docs); last code `f1db2d3`; no tests run in this window.
+4. Tested vs loaded: `f1db2d358ca1` tested and loaded.
+5. Host observation: 2026-10-12 09:21 CDT: desktop-agent.service active since 03:12:02 CDT, MainPID 1370098, NRestarts 0, health 200 (uptime 22145 s); coordinator caoscare-1-8c busy, caoscare-1-ee idle; scheduler not paused, no tasks running; Slack connected.
+6. Current bounded task: da-50b1e88f20, responsible coordinator caoscare-1-8c, stage WAITING_OWNER.
+7. Remaining steps: Michael's real-microphone test (M1); his paid-provider decision for M3.
+8. Upcoming: M1 acceptance; M3 only if authorized; combined voice plus screenshot proof; unattended-day reliability proof.
+9. ETA: UNKNOWN. 10. next_check_at: 2026-10-12 12:00 CDT. 11. Blocker: NEED_OWNER. 12. Michael action: M1 microphone test when convenient; otherwise NOTHING.
+Cause of the missed 09:00 receipt: since the 02:38 fix, an owner-wait task's timer is parked and never fires, but the 09:00 time I had declared still obliged me to write a receipt, and I did not. The cloud supervisor caught it correctly.
