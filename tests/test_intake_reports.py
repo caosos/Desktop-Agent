@@ -29,6 +29,8 @@ class Rig:
 def test_recogniser_is_narrow():
     assert is_checkin_report("<!-- da:canonical-checkin source=x -->\n## log") and is_checkin_report("CANONICAL CHECK-IN LOG — Desktop Agent event supervision\n1. x")
     assert is_checkin_report("## Canonical check-in log — Monday") and is_checkin_report("**CANONICAL CHECK-IN LOG**")
+    assert is_checkin_report("<!-- desktop-agent-canonical-checkin source=pr19-comment-1 -->\n\n## CANONICAL CHECK-IN — Monday, October 12, 2026 — 6:40 PM")
+    assert is_checkin_report("## CANONICAL CHECK-IN — Monday, October 12, 2026") and not is_checkin_report("CANONICAL CHECK-IN REQUIRED: post a receipt now")
     for genuine in ("<!-- da:supervisor -->\nOWNER DIRECTIVE: do the thing", "SUPERVISOR DIRECTIVE — DA-X\nfix it", "please read the canonical check-in log later", ""):
         assert not is_checkin_report(genuine), genuine
 

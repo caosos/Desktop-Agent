@@ -6,9 +6,10 @@ from __future__ import annotations
 
 import re
 
-_HEADING = re.compile(r"^\s*(?:#+\s*)?(?:\*\*)?CANONICAL CHECK-IN LOG\b", re.I)
+_HEADING = re.compile(r"^\s*(?:#+\s*)?(?:\*\*)?CANONICAL CHECK-IN(?:\s+LOG)?\b(?:\*\*)?\s*(?:[—–:-]|$)", re.I)   # "… LOG" or "… — <date>"
+_MARKERS = ("<!-- da:canonical-checkin", "<!-- desktop-agent-canonical-checkin")       # second spelling seen live 2026-10-12 18:41 CDT (da-e3644b971b)
 
 
 def is_checkin_report(text: str) -> bool:
     text = text or ""
-    return "<!-- da:canonical-checkin" in text[:300] or bool(_HEADING.match(text.lstrip().split("\n", 1)[0] if text.strip() else ""))
+    return any(m in text[:300] for m in _MARKERS) or bool(_HEADING.match(text.lstrip().split("\n", 1)[0] if text.strip() else ""))
