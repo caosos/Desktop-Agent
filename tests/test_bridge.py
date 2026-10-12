@@ -43,8 +43,11 @@ def test_each_receipt_is_mirrored_once_with_the_exact_prefix_and_fields(tmp_path
 def test_restart_and_unchanged_state_mirror_nothing_more(tmp_path):
     r = Rig(tmp_path)
     r.say(7001, "WORKING", SCHEMA)
-    r.say(7002, "WORKING", SCHEMA.replace("building", "testing"))                    # a new receipt id with the same state: still one per source receipt
+    r.say(7002, "WORKING", SCHEMA.replace("building", "testing"))                    # a new receipt id with the same state: one mirror per source receipt
     n = len(r.posted)
+    assert n == 2 and r.posted[1][1].startswith("DESKTOP AGENT RECEIPT: WORKING") and "stage: testing" in r.posted[1][1]
+    for _ in range(2): asyncio.run(r.intake.poll_once())                            # the second receipt replayed: nothing more
+    assert len(r.posted) == 2
     r2 = Rig.__new__(Rig); r2.store = r.store; r2.posted = []; r2.gh = r.gh; intake_mod.gh_api = r.gh
     async def post(path, fields): r2.posted.append(path); return {}
     r2.intake = Intake(r.store, [r.src], lambda *a: None, poll_sec=1); r2.intake.bridge = Bridge(r.store, post)    # service restart over the same store

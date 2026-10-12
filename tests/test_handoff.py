@@ -143,3 +143,15 @@ def test_a_handoff_item_that_reaches_done_hands_off_the_following_row(tmp_path):
     r.done(7002, iid=first["item_id"])
     ids = [h["item_id"] for h in r.handoffs()]
     assert len(ids) == 2 and "Later row" in r.store.get_intake(ids[1])["body"] and len(r.handoff_deliveries()) == 2
+
+
+def test_a_repeated_done_receipt_is_recorded_but_never_hands_off_twice(tmp_path):
+    """A NEW coordinator comment with the same status is a progress receipt (recorded, mirrored); only the DONE
+    transition hands off, so a second DONE comment for the same item dispatches nothing more."""
+    r = Rig(tmp_path, HEAD + row("first") + row("second"))
+    r.done(7001)
+    n = len(r.delivered)
+    assert n == 2                                              # the issue item itself (ingested at start) + one handoff
+    r.done(7002)                                               # another DONE comment, new id, same item
+    assert len(r.delivered) == n and r.store.get_intake(r.iid)["status"] == "DONE"
+    assert "7002" in r.store.get_intake(r.iid)["note"]         # the newer receipt is the one on record

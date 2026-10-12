@@ -24,6 +24,7 @@ from .receipts import FAILED, VERIFIED, write_receipt
 from .store import Store
 
 STATUSES = ["DRAFT", "SENT", "POSTED", "RECEIVED", "DELIVERED", "ACKNOWLEDGED", "CLAIMED", "WORKING", "BLOCKED", "WAITING_OWNER", "DONE"]
+_REPLY_STATUS = {"ACK": "ACKNOWLEDGED", "ACKNOWLEDGED": "ACKNOWLEDGED", "WORKING": "WORKING", "BLOCKED": "BLOCKED", "DONE": "DONE", "VERIFIED": "DONE"}
 TERMINAL_OWNER = ["DENIED", "DEFERRED"]          # set only by the owner from the panel / Aria
 _DIRECTION_TAG_RE = re.compile(r"<!--\s*da:direction\s+(da-[0-9a-f]{6,12})\s*-->")
 _ASK_OWNER_RE = re.compile(r"ASK-OWNER:\s*(.+?)(?:\n|$)", re.I)
@@ -174,17 +175,16 @@ class Intake:
             for m in (_STATUS_LINE_RE.finditer(text) if is_coord else ()):   # anchored status lines of a coordinator reply only
                 item = self.store.get_intake(m.group(2).lower())
                 if item:
-                    status = {"ACK": "ACKNOWLEDGED", "ACKNOWLEDGED": "ACKNOWLEDGED", "WORKING": "WORKING", "BLOCKED": "BLOCKED",
-                              "DONE": "DONE", "VERIFIED": "DONE"}[m.group(1).upper()]
+                    status = _REPLY_STATUS[m.group(1).upper()]
                     cur = item["status"]
                     note = f"coordinator comment {c.get('html_url','')}"
                     if getattr(self, "checks", None) is not None:      # ETA-driven check: arm from a schema receipt, close on DONE
                         self.checks.observe(item, status, text, created, c.get("html_url", ""))
-                    if status == cur and item.get("note") == note:
-                        continue                  # the same reply seen again (GitHub `since=` is inclusive): nothing changed, nothing recorded
-                    if (cur in STATUSES and STATUSES.index(status) > STATUSES.index(cur)) or status == "BLOCKED" or cur not in STATUSES:
+                    advance = (cur in STATUSES and STATUSES.index(status) > STATUSES.index(cur)) or status == "BLOCKED" or cur not in STATUSES
+                    # also a NEW comment with the same status (WORKING → WORKING, revised ETA); a replayed comment (`since=` is inclusive) records nothing
+                    if (advance or status == cur) and (status != cur or item.get("note") != note):
                         self._set(item, status, note, [c.get("html_url", ""), login])
-                        if status == "DONE" and src.handoff and getattr(self, "handoff", None) is not None:
+                        if status == "DONE" and cur != "DONE" and src.handoff and getattr(self, "handoff", None) is not None:
                             done_now.append(item)                  # this read-back is the DONE transition: hand off after the loop, once
                         self.store.set_intake_activity(item["item_id"], created)
                         self.store.save_coordinator_ack(src.project, time.time())
