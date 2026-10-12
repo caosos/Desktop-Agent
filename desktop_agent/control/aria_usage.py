@@ -7,6 +7,8 @@ Claude CLI's token-equivalent number is kept as `estimate_usd` for technical evi
 authority, see paid_budget.py)."""
 from __future__ import annotations
 
+import re
+
 ESTIMATE_LABEL = "estimate; not billed"
 BILLING_TEXT = {"subscription-included": "included in your subscription", "paid-api": "paid API (under your daily maximum)", "none": "no model call"}
 
@@ -46,3 +48,24 @@ def route_note(backend: str | None, available: bool) -> str:
     if backend == "claude_cli":
         return "Claude CLI, included in your subscription"
     return "paid API, only within your Daily maximum paid API spend"
+
+
+_MONEY, _CONTEXT, _LEGIT = re.compile(r"\$\s?\d"), re.compile(r"\b(spend|spent|cost|costs|charged|cap|caps|budget|hourly|daily)\b", re.I), re.compile(r"paid api|daily maximum", re.I)
+
+
+def quotes_obsolete_money(text: str) -> bool:
+    """A dollar figure in a spend/cost/cap context that is not about the paid-API maximum: the rejected token-equivalent wording."""
+    return bool(_MONEY.search(text) and _CONTEXT.search(text) and not _LEGIT.search(text))
+
+
+WITHDRAWN = "(earlier reply withdrawn: it quoted an obsolete dollar figure)"
+
+
+def withdrawn(turn: dict) -> dict:
+    """The turn as shown or prompted: an Aria reply that quoted token-equivalent money is replaced (the store keeps the original)."""
+    return turn | {"text": WITHDRAWN} if turn.get("role") == "aria" and quotes_obsolete_money(turn.get("text") or "") else turn
+
+
+def money_statement(maximum: float, paid_today: float) -> str:
+    return (f"Nothing in my work is charged: it runs included in your subscription. Your Daily maximum paid API spend is ${maximum:.2f} "
+            f"and ${paid_today:.2f} was paid to a provider API today.")

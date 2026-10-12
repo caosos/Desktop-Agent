@@ -175,3 +175,27 @@ def test_api_and_state_expose_one_setting_and_no_spend_words(tmp_path):
     assert r["daily_max_paid_usd"] == 3.0 and c.get("/v0/state", headers=h).json()["budgets"]["daily_max_paid_usd"] == 3.0
     b = c.post("/v0/paid-budget/billing", json={"provider": "openai", "usd": 0.5, "reference": "inv-9"}, headers=h).json()
     assert b["recorded"] and b["paid_today_verified_usd"] == 0.5 and c.post("/v0/paid-budget/billing", json={"provider": "openai", "usd": 0.5, "reference": "inv-9"}, headers=h).json()["duplicate"]
+
+
+def test_ask_aria_never_quotes_subscription_usage_as_spend_cost_or_cap(tmp_path):
+    """Found live: with old replies in the conversation ("$5.11 of the $20 daily cap") the model repeated them. The reply guard and the
+    prompt scrub keep that wording out of both the answer and the model's context."""
+    from desktop_agent.control.aria_usage import money_statement, quotes_obsolete_money
+    from tests.test_aria_brain import FakeLLM, _service
+    for bad in ("Spend today is $5.11 of the $20 daily cap.", "It cost about $0.12 per message.", "The hourly cap is $5."):
+        assert quotes_obsolete_money(bad)
+    for ok in (money_statement(0.0, 0.0), "Paid API today $0.00 of your $2.00 daily maximum.", "Nothing is running.", "It took 3 rounds."):
+        assert not quotes_obsolete_money(ok)
+    s = _service(tmp_path)
+    s.aria.history = [{"role": "owner", "text": "cost?", "ts": 1}, {"role": "aria", "text": "Spend is $5.09 of the $20 daily cap.", "ts": 2, "kind": "question"}]
+    s.aria.llm = FakeLLM([{"reply": "You have spent $5.11 against the $20 daily cap.", "action": None}])
+    r = asyncio.run(s.aria.chat("what did that cost, and what is my budget?"))
+    assert "$5" not in r["reply"] and "$20" not in r["reply"] and "Daily maximum paid API spend is $0.00" in r["reply"] and "included in your subscription" in r["reply"]
+    assert "$5.09" not in s.aria.llm.prompts[0] and "withdrawn" in s.aria.llm.prompts[0]
+
+
+def test_the_visible_transcript_withdraws_old_dollar_replies_but_the_store_keeps_them(tmp_path):
+    from tests.test_aria_brain import _service
+    s = _service(tmp_path)
+    s.aria.history = [{"role": "owner", "text": "cost?", "ts": 1}, {"role": "aria", "text": "Spend is $5.09 of the $20 daily cap.", "ts": 2, "kind": "question"}]
+    assert "$" not in " ".join(t["text"] for t in s.aria.transcript()) and "$5.09" in s.aria.history[1]["text"]

@@ -16,7 +16,7 @@ from pathlib import Path
 from .llm import LLM, LLMError
 from .aria_replay import interrupted_result, stored_exchange
 from .aria_state import compact_state  # noqa: F401  (re-exported: tests and run_action import it from here)
-from .aria_usage import merge_models, route_note, usage_record
+from .aria_usage import merge_models, money_statement, quotes_obsolete_money, route_note, usage_record, withdrawn
 
 PROMPT_FILE = Path(__file__).resolve().parents[2] / "widget" / "aria_prompt.md"
 MAX_STEPS = 4
@@ -130,7 +130,7 @@ class AriaBrain:
             return {"error": str(exc)[:300]}
 
     def _prompt(self, text: str) -> str:
-        lines = [f"{h['role'].upper()}: {h['text']}" for h in self.history[-HISTORY_TURNS:]]
+        lines = [f"{h['role'].upper()}: {h['text']}" for h in map(withdrawn, self.history[-HISTORY_TURNS:])]
         lines.append(f"OWNER: {text}")
         return "CONVERSATION SO FAR (newest last):\n" + "\n".join(lines) + "\n\nRespond with the JSON object."
 
@@ -227,6 +227,9 @@ class AriaBrain:
                 cost += comp.cost_usd
             tokens_in += comp.input_tokens; tokens_out += comp.output_tokens
             reply, action = _unwrap(comp.data)
+            if quotes_obsolete_money(reply):                  # hard guard: subscription usage is never quoted as spend/cost/cap
+                b = self.service.paid.summary()
+                reply = money_statement(b["daily_max_paid_usd"], b["paid_today_usd"])
             if not action or not action.get("name"):
                 break
             result = await self.run_action(action["name"], action.get("args") or {}, turn)
@@ -256,7 +259,7 @@ class AriaBrain:
 
     def transcript(self) -> list[dict]:
         """Owner and Aria turns (action rows folded into the Aria turn), for the panel after reload or restart."""
-        return [h for h in self.history if h["role"] in ("owner", "aria")]
+        return [withdrawn(h) for h in self.history if h["role"] in ("owner", "aria")]
 
     def reset(self) -> None:
         self.history.clear()
