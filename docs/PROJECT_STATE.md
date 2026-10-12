@@ -1064,3 +1064,10 @@ Note 2026-10-12 12:07 CDT (da-4551f8ab70): the 11:49 entry was PROJECT_STATE onl
 ## 2026-10-12 13:2x CDT - Progress-receipt fix accepted live (coordinator caoscare-1-8c, no task id)
 
 - **Observed on the real path:** after the 13:18:29 restart the first poll (13:18:31) re-read the 13:12 receipt (6129928828) that the old code had skipped, recorded it once and mirrored it once to draft PR #19 at 13:18:32; the 13:19 receipt (6130054041, posted 13:19:28) was recorded and mirrored once at 13:20:37; the item's note now cites 6130054041; no duplicate record or mirror (events since the restart: exactly one `intake_status` per receipt; PR #19 has 31 comments, one per source receipt). BLUEPRINT read-back row updated with the rule and its tests.
+
+
+## 2026-10-12 13:2x CDT - Checks record keeps the stated ETA (coordinator caoscare-1-8c, no task id)
+
+- **Defect:** for an owner-wait receipt (`NEED_OWNER`, ETA `UNKNOWN …`) the validator substituted `next_check_at` into `eta`, so `GET /v0/checks` showed `eta: 15:00` where the coordinator had said UNKNOWN (stated vs inferred blurred).
+- **Fix (`93bc30c`):** `checks_receipt.validate` keeps the stated text as `eta_stated` beside the substituted `eta`; `tests/test_checks_reconcile.py` asserts both. Gate PASS, 296 passed, 1 skipped.
+- **Loaded:** restart 13:24:18 CDT, MainPID 1717723, health 200, loaded head `93bc30c1d54f` = tested; previous process stopped cleanly in the same second. The parked record for da-50b1e88f20 predates the change; the 15:00 receipt is the first to carry `eta_stated`.
