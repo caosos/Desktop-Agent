@@ -58,6 +58,8 @@ def test_an_owner_wait_receipt_with_eta_unknown_is_accepted_and_parked_instead_o
     arm(chk, item, receipt(blocker="NEED_OWNER — Michael's microphone", eta="UNKNOWN until Michael tests", eta_basis="M1 needs his real microphone",
                            next_check_at="2026-10-11T20:30:00-05:00"))
     assert chk.get(item["item_id"])["state"] == "ARMED"                    # not rejected for the ETA schema
+    f = chk.get(item["item_id"])["fields"]
+    assert f["eta_stated"] == "UNKNOWN until Michael tests" and f["eta"] == "2026-10-11T20:30:00-05:00"   # the record keeps what was said
     assert reconcile(chk) == [item["item_id"]] and chk.get(item["item_id"])["state"] == "WAITING_OWNER"
     clock.t = at("2026-10-11T21:00:00-05:00"); assert asyncio.run(chk.tick()) == []
     # without NEED_OWNER an UNKNOWN eta is still invalid

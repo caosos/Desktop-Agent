@@ -44,6 +44,7 @@ def validate(fields: dict[str, str], receipt_ts: float) -> tuple[list[str], dict
     """(problems, normalized). normalized carries `eta_ts`, `next_check_ts` (epoch) and their Chicago renderings."""
     fields = dict(fields)
     if str(fields.get("blocker", "")).upper().startswith("NEED_OWNER") and str(fields.get("eta", "")).strip().upper().startswith("UNKNOWN") and fields.get("next_check_at"):
+        fields["eta_stated"] = fields["eta"]                  # what the coordinator actually said stays on the record (truth: stated vs substituted)
         fields["eta"] = fields["next_check_at"]               # waiting on the owner: no honest ETA exists; the check is parked, not timed (checks_reconcile.py)
     problems = [f"missing: {k}" for k in REQUIRED if not (fields.get(k) or "").strip()]
     times: dict[str, datetime] = {}
