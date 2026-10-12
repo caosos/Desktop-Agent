@@ -19,7 +19,7 @@ ACK_MARK = "DOT ARYA ACK"                                 # prefix of every ACK 
 ROUTES = {"DESKTOP AGENT": ["desktop_agent"], "CAOSCARE": ["caoscare"], "DEAL SNIFFER": ["michael_business_os"],
           "DOT ARIA": [], "ALL PROJECTS": ["desktop_agent", "caoscare", "michael_business_os"]}
 _ROUTE_RE = re.compile(r"^\s*(" + "|".join(sorted(map(re.escape, ROUTES), key=len, reverse=True)) + r")\s*:", re.I)
-_VISIBLE_RE = re.compile(r"\b(can (anyone|anybody|you|someone) (see|read)|does (anyone|anybody) see|is (anyone|anybody) (seeing|reading)|do you see this)\b", re.I)
+_VISIBLE_RE = re.compile(r"\b(can (anyone|anybody|you|someone) (see|read)|does (anyone|anybody) see|is (anyone|anybody) (seeing|reading)|do you see this|(anyone|anybody|someone) (listening|there|here|home|awake))\b", re.I)
 _BOT_SUBTYPES = {"bot_message", "message_changed", "message_deleted", "channel_join", "channel_leave", "file_share_bot"}
 
 

@@ -57,7 +57,7 @@ def test_routing_labels_use_the_shared_inbox_and_keep_projects_isolated(tmp_path
 
 
 def test_visibility_question_gets_a_direct_answer_not_a_status_dump(tmp_path):
-    r = Rig(tmp_path); out = r.run(ev("can anyone see this message?", ts="6.6"))
+    r = Rig(tmp_path); out = r.run(ev("can anyone see this message?", ts="6.6")); assert r.run(ev("anyone listening??", ts="6.7"))["handled"] and "yes, I can see this message" in r.posts[1][2]
     assert out["handled"] and r.intake.sent == [] and "yes, I can see this message" in r.posts[0][2] and "desktop_agent" not in r.posts[0][2]
 
 
