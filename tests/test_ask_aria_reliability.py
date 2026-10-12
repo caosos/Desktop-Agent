@@ -281,3 +281,18 @@ def test_reload_while_a_reply_is_pending_shows_the_reply_when_it_lands_exactly_o
         assert log.count("reload while waiting") == 1 and log.count("Answer after the reload.") == 1 and "Reply received" in page.inner_text("#aria_state")
         ctx.close(); browser.close()
     assert len(_rows(s, "owner")) == 1 and len(_rows(s, "aria")) == 1
+
+
+def test_reply_usage_keeps_the_models_actually_billed_summed_over_rounds(tmp_path):
+    class Billed(FakeLLM):
+        async def complete(self, prompt, schema, model_class="cloud_cheap", system=None, timeout=0):
+            self.prompts.append(prompt)
+            return Completion(data=self.answers.pop(0), model="claude-haiku-5-5", backend="claude_cli", cost_usd=0.07, input_tokens=100, output_tokens=10, duration_ms=1,
+                              model_usage={"claude-haiku-5-5": {"usd": 0.0007, "in": 2, "out": 10, "cache_read": 500, "cache_create": 4000},
+                                           "claude-sonnet-5-5": {"usd": 0.0693, "in": 0, "out": 5, "cache_read": 0, "cache_create": 9000}})
+    s = _service(tmp_path)
+    s.aria.llm = Billed([{"reply": "Checking.", "action": {"name": "get_state", "args": {}}}, {"reply": "Done.", "action": None}])
+    u = asyncio.run(s.aria.chat("status", "cid-9"))["usage"]
+    assert u["rounds"] == 2 and u["cost_usd"] == 0.14
+    assert u["models_billed"]["claude-sonnet-5-5"] == {"usd": 0.1386, "in": 0, "out": 10, "cache_read": 0, "cache_create": 18000}
+    assert AriaBrain(s, llm=s.aria.llm).transcript()[1]["usage"]["models_billed"]["claude-haiku-5-5"]["cache_create"] == 8000      # persisted

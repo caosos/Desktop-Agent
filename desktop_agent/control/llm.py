@@ -40,6 +40,7 @@ class Completion:
     output_tokens: int
     duration_ms: int
     raw_text: str = ""
+    model_usage: dict | None = None  # per-model breakdown the backend itself reported (Claude CLI `modelUsage`): which model was billed what
 
     @property
     def cost_known(self) -> bool:
@@ -232,7 +233,20 @@ class LLM:
             input_tokens=int(usage.get("input_tokens") or 0) + int(usage.get("cache_read_input_tokens") or 0)
                          + int(usage.get("cache_creation_input_tokens") or 0),
             output_tokens=int(usage.get("output_tokens") or 0),
-            duration_ms=int((time.time() - started) * 1000), raw_text=str(msg.get("result") or "")[:2000])
+            duration_ms=int((time.time() - started) * 1000), raw_text=str(msg.get("result") or "")[:2000],
+            model_usage=_slim_model_usage(msg.get("modelUsage")))
+
+
+def _slim_model_usage(raw) -> dict | None:
+    """The CLI's own per-model figures, reduced to numbers: cost and the four token classes per model name."""
+    if not isinstance(raw, dict) or not raw:
+        return None
+    out = {}
+    for name, v in raw.items():
+        if isinstance(v, dict):
+            out[str(name)] = {"usd": round(float(v.get("costUSD") or 0), 5), "in": int(v.get("inputTokens") or 0), "out": int(v.get("outputTokens") or 0),
+                              "cache_read": int(v.get("cacheReadInputTokens") or 0), "cache_create": int(v.get("cacheCreationInputTokens") or 0)}
+    return out or None
 
 
 def pilot_dry_run(cfg: RuntimeConfig, provider: str = "openai") -> dict:

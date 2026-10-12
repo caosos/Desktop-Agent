@@ -137,3 +137,19 @@ def test_pilot_scope_limits_classes_and_calls_per_day(tmp_path: Path, monkeypatc
     assert llm.backend_for("cloud_cheap") == "claude_cli"                                                       # cap reached → subscription fallback
     assert llm.status()["pilot_usage"]["openai"] == {"calls_today": 2, "cap": 2, "classes": ["cloud_cheap"]}
     assert llm.status()["backend_by_class"] == {"cloud_cheap": "claude_cli", "cloud_strong": "claude_cli", "cloud_max": "claude_cli"}
+
+
+def test_claude_cli_per_model_usage_is_kept_as_the_backend_reported_it(tmp_path, monkeypatch):
+    """The CLI reports which model was billed what (`modelUsage`); it is kept per completion so an unexpected cost can be attributed."""
+    payload = {"structured_output": {"reply": "ok", "action": None}, "total_cost_usd": 0.1464,
+               "usage": {"input_tokens": 2, "cache_creation_input_tokens": 25000, "cache_read_input_tokens": 500, "output_tokens": 400},
+               "modelUsage": {"claude-haiku-5-5": {"costUSD": 0.0031, "inputTokens": 2, "outputTokens": 100, "cacheReadInputTokens": 500, "cacheCreationInputTokens": 4300},
+                              "claude-sonnet-5-5": {"costUSD": 0.1433, "inputTokens": 0, "outputTokens": 300, "cacheReadInputTokens": 0, "cacheCreationInputTokens": 20700}}}
+    class P:
+        async def communicate(self): return json.dumps(payload).encode(), b""
+    async def spawn(*a, **k): return P()
+    monkeypatch.setattr(llm_mod.asyncio, "create_subprocess_exec", spawn)
+    cfg = _cfg(tmp_path, "llm_backend_order: [claude_cli]\n"); cfg.data_dir = tmp_path / "data"
+    r = asyncio.run(LLM(cfg).complete("x", {"type": "object"}))
+    assert r.model_usage["claude-sonnet-5-5"] == {"usd": 0.1433, "in": 0, "out": 300, "cache_read": 0, "cache_create": 20700}
+    assert set(r.model_usage) == {"claude-haiku-5-5", "claude-sonnet-5-5"} and r.cost_usd == 0.1464

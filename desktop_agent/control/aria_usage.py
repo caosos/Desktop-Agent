@@ -21,9 +21,21 @@ def cost_basis(backend: str | None, cost_usd: float | None) -> str:
 
 
 def usage_record(*, backend: str | None, model: str | None, cost_usd: float | None, rounds: int, tokens_in: int, tokens_out: int,
-                 duration_ms: int, retries: int = 0) -> dict:
-    return {"backend": backend, "model": model, "cost_usd": None if cost_usd is None else round(cost_usd, 5), "cost_basis": cost_basis(backend, cost_usd),
-            "rounds": rounds, "retries": retries, "tokens": {"in": tokens_in, "out": tokens_out}, "duration_ms": duration_ms}
+                 duration_ms: int, retries: int = 0, models_billed: dict | None = None) -> dict:
+    rec = {"backend": backend, "model": model, "cost_usd": None if cost_usd is None else round(cost_usd, 5), "cost_basis": cost_basis(backend, cost_usd),
+           "rounds": rounds, "retries": retries, "tokens": {"in": tokens_in, "out": tokens_out}, "duration_ms": duration_ms}
+    if models_billed:
+        rec["models_billed"] = models_billed          # per model: usd and the four token classes, as the backend itself reported them
+    return rec
+
+
+def merge_models(total: dict, add: dict | None) -> dict:
+    """Sum the per-model breakdowns of several rounds of one exchange."""
+    for name, v in (add or {}).items():
+        t = total.setdefault(name, {"usd": 0.0, "in": 0, "out": 0, "cache_read": 0, "cache_create": 0})
+        for k in t:
+            t[k] = round(t[k] + v.get(k, 0), 5) if k == "usd" else t[k] + int(v.get(k, 0))
+    return total
 
 
 def status_cost_note(backend: str | None, available: bool) -> str:

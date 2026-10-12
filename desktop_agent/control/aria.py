@@ -16,7 +16,7 @@ from pathlib import Path
 from .llm import LLM, LLMError
 from .aria_replay import interrupted_result, stored_exchange
 from .aria_state import compact_state  # noqa: F401  (re-exported: tests and run_action import it from here)
-from .aria_usage import status_cost_note, usage_record
+from .aria_usage import merge_models, status_cost_note, usage_record
 
 PROMPT_FILE = Path(__file__).resolve().parents[2] / "widget" / "aria_prompt.md"
 MAX_STEPS = 4
@@ -201,6 +201,7 @@ class AriaBrain:
         tokens_in = tokens_out = 0
         rounds = retries = 0
         backend = model = None
+        billed: dict = {}
         failed = False
         actions_taken: list[dict] = []
         pending = text
@@ -218,6 +219,7 @@ class AriaBrain:
                     break
             rounds += 1
             backend, model = comp.backend, comp.model
+            merge_models(billed, getattr(comp, "model_usage", None))
             if comp.cost_usd is None:
                 unknown_cost = True
             else:
@@ -234,7 +236,7 @@ class AriaBrain:
             pending = "(continue: use the action result above to answer the owner)"
         kind = "error" if failed else next((KIND_BY_ACTION[a["name"]] for a in actions_taken if a["name"] in KIND_BY_ACTION), "question")
         usage = usage_record(backend=backend, model=model or self.llm.model_for("cloud_cheap"), cost_usd=None if unknown_cost else cost, rounds=rounds,
-                             tokens_in=tokens_in, tokens_out=tokens_out, duration_ms=int((time.time() - started) * 1000), retries=retries)
+                             tokens_in=tokens_in, tokens_out=tokens_out, duration_ms=int((time.time() - started) * 1000), retries=retries, models_billed=billed or None)
         if backend is None and not failed:
             usage["backend"] = None
         self.history.append({"role": "aria", "text": reply, "ts": time.time(), "kind": kind, "usage": usage,
