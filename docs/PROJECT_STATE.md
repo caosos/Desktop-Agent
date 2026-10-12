@@ -1003,3 +1003,15 @@ Correction: the receipt at issue comment 6118474324 gave its host-observation ti
 8. Upcoming: M1 acceptance; M3 only if authorized; combined voice plus screenshot proof; unattended-day reliability proof.
 9. ETA: UNKNOWN. 10. next_check_at: 2026-10-12 12:00 CDT. 11. Blocker: NEED_OWNER. 12. Michael action: M1 microphone test when convenient; otherwise NOTHING.
 Cause of the missed 09:00 receipt: since the 02:38 fix, an owner-wait task's timer is parked and never fires, but the 09:00 time I had declared still obliged me to write a receipt, and I did not. The cloud supervisor caught it correctly.
+
+
+## CHECK-IN 2026-10-12 11:49 CDT (scheduled 12:00 check-in, written early)
+
+1. Phase/milestone: Phase 2 of 6; passive Screen + Voice; M2, retention and M3 evaluation done; M1 microphone and paid M3 owner-gated.
+2. Completed since prior check (09:22): NO CHANGE in product state; no new owner directives.
+3. Evidence: HEAD `afb7664` (docs only); last code `f1db2d3`; no tests run in this window.
+4. Tested vs loaded: `f1db2d358ca1` tested and loaded.
+5. Host observation: 2026-10-12 11:48 CDT: desktop-agent.service active since 03:12:02 CDT, MainPID 1370098, NRestarts 0, /v0/health 200; no errors or tracebacks in the journal for the last 30 min.
+6. Current bounded task: da-50b1e88f20, responsible coordinator caoscare-1-8c, stage WAITING_OWNER.
+7. Remaining steps: Michael's real-microphone test (M1); his paid-provider decision for M3.
+9. ETA: UNKNOWN. 10. next_check_at: 2026-10-12 15:00 CDT. 11. Blocker: NEED_OWNER. 12. Michael action: M1 microphone test when convenient; otherwise NOTHING.
