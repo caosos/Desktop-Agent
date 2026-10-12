@@ -1017,3 +1017,12 @@ Cause of the missed 09:00 receipt: since the 02:38 fix, an owner-wait task's tim
 9. ETA: UNKNOWN. 10. next_check_at: 2026-10-12 15:00 CDT. 11. Blocker: NEED_OWNER. 12. Michael action: M1 microphone test when convenient; otherwise NOTHING.
 
 Note 2026-10-12 12:07 CDT (da-4551f8ab70): the 11:49 entry was PROJECT_STATE only; the Issue #3 receipt was missed. Rule: a check-in is complete only when the Issue #3 receipt is posted (the bridge mirrors it to PR #19); PROJECT_STATE is the supporting log. Receipt: issues/3#issuecomment-6128925489.
+
+
+## 2026-10-12 12:1x-12:25 CDT - Documentation truth pass: checklist, START_HERE, plan §7, BLUEPRINT (coordinator caoscare-1-8c, no task id)
+
+- **Why:** nothing non-owner-gated is queued (M1 microphone, M3 paid provider, Phase 5 targets, reboot window), so the next eligible work was correcting entry documents that contradicted the record.
+- **Changed:** `BUILD_CHECKLIST.md` (`600ff89`, `45a5dc3`): dated reconciliation; the M3 evidence cell said "Evaluation not started" though the evaluation is done; Phase 2 rows called the turn-limit/interim-dictation fix local `1abee06` (merged as PR #16, `8a553a0`); stale PR #14 checkpoints superseded with labels. `START_HERE.md` + `IMPLEMENTATION_PLAN.md` §7 (`488aefb`): status was 2026-10-08; BUILD and PROJECT_STATE authorship marked answered, payment path marked superseded by the one-budget directive. `BLUEPRINT.md` (`119f17e`): 23 control modules had no row; added rows with labels and citations, replaced the retired hourly/daily caps row with the one hard daily budget, route list now points at `api.py`/`*_api.py`; `research.py` docstring no longer says "no web".
+- **Verified:** every BLUEPRINT link resolves and every quoted PROJECT_STATE title exists (scripted check); direct unpiped gate PASS, 293 passed, 1 skipped, at `45a5dc3` plus the BLUEPRINT/docstring tree.
+- **Loaded:** `f1db2d358ca1`, unchanged (MainPID 1370098, health 200). The only code-file change since is a docstring; no restart needed.
+- **Next:** 15:00 CDT check-in receipt on Issue #3; product queue stays owner-gated.
