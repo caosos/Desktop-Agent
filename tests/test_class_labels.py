@@ -32,7 +32,7 @@ def test_unknown_class_key_rejected(tmp_path: Path):
 
 
 def test_state_exposes_class_labels(tmp_path: Path):
-    cfg = _load(tmp_path, f"data_dir: {tmp_path / 'data'}\nclass_labels:\n  cloud_max: Nova-class\n")
+    cfg = _load(tmp_path, f"data_dir: {tmp_path / 'data'}\ntoken_file: {tmp_path / 't'}\nclass_labels:\n  cloud_max: Nova-class\n")   # token_file → private dir stays in tmp
     s = Service(cfg)
     s.scheduler.paused = True
     with TestClient(build_app(s, "tok")) as c:
