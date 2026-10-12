@@ -17,6 +17,16 @@ Resumed 2026-10-10 by Michael ("all usages have been reset. resume working"); CA
 
 *Dated update 2026-10-10 05:29Z (`da-eadf20a26e`, `da-7cc17f93fd`): Michael resumed all three projects on the included allowance; CAOSCare non-voice work resumed (its coordinator reported IDLE at 05:39Z after the approved items). Dated update 2026-10-10 04:04Z: the F-49 liaison note has an ack file (`da-684ad0b380` ACKNOWLEDGED); the Business OS feed lists no unread messages as of 06:36Z while its watchdog still reports STOPPED with no session — treated as UNKNOWN (contradicted), not a restart instruction. The line above and row 0 below are kept as history.*
 
+*Dated update 2026-10-12 13:0x CDT (coordinator `caoscare-1-8c`): the table below is history. Rows 1 and 3 are superseded by the one-budget directive (`da-8708eb5ec7`, 2026-10-11): no provider is enabled and no paid call is made until Michael sets **Daily maximum paid API spend** above $0 on the panel; the OpenAI flip and the Anthropic key are no longer standalone actions. Row 2 is still the open M1 gate. Row 0 is Business OS history (its own project). The current owner actions, max 3:*
+
+| # | Action (2026-10-12) | Project | Depends on | Done when (verifiable) |
+|---|---|---|---|---|
+| **1** | **M1: try dictation on your own screen** — open :8477, Ask Aria, 🎤, allow the microphone, speak a multi-sentence question, Stop, edit, Send | Desktop-Agent | nothing | you report one dictated question answered; the coordinator records first-text and final-transcript latency from the panel's timings |
+| 2 | **M3 decision**: if you want the full-duplex voice layer evaluated live, set **Daily maximum paid API spend** above $0 on the panel (receipted) and say which provider; otherwise say NO and M3 stays a written evaluation | Desktop-Agent | your choice | the setting receipt exists, or NO is recorded in OWNER_DIRECTIVES |
+| 3 | **Optional**: a reboot window for the cold-reboot continuity proof (service returns, loaded SHA/MainPID/health verified, queued item replays, recovery receipt) | Desktop-Agent | a time from you | the timestamped recovery receipt in PROJECT_STATE |
+
+*History (2026-10-10):*
+
 | # | Action | Project | Depends on | Done when (verifiable) |
 |---|---|---|---|---|
 | **0** | **Start the Deal Sniffer coordinator in your own account** so its watchdog can wake it: `tmux attach -t mbos-agent-01` then `~/bin/mbos-agent 1`; until then liaison messages (incl. the F-49 verification) sit unread and automatic pickup cannot work | Business OS | nothing | :8479 feed shows a session, the ack file for ARYA-20261010-0328-f49-verification appears, panel shows acknowledged |
