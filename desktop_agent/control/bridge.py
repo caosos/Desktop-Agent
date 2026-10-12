@@ -36,6 +36,11 @@ def render(label: str, items: list[dict], text: str, url: str, loaded_head: str,
     ])
 
 
+def _is_report(item: dict) -> bool:
+    body = (item.get("body") or "").lstrip()
+    return body.startswith("<!-- da:canonical-checkin") or body.startswith("<!-- da:supervisor")
+
+
 def _host_line(host: dict | None, observed: str) -> str:
     if not host:
         return "host observation: UNKNOWN (GitHub activity is not host-liveness proof)"
@@ -52,6 +57,8 @@ class Bridge:
         """`recorded` = (item, status) pairs this comment just advanced. At most one PR comment per source comment id."""
         pr = getattr(src, "bridge_pr", None)
         if not pr or not recorded:
+            return None
+        if all(_is_report(i) for i, _ in recorded):               # an ACK of a supervisor report is not new state: mirroring it only restarts the report loop
             return None
         key = f"bridge:{comment.get('id')}"
         if self.store.get_kv(key):

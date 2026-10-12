@@ -87,3 +87,12 @@ def test_a_host_reader_gives_a_timestamped_observation_and_a_failing_one_stays_u
     def boom(item): raise RuntimeError("x")
     r.intake.bridge.host = boom; r.say(7002, "WORKING", SCHEMA)
     assert "host observation: UNKNOWN" in r.posted[1][1]
+
+
+def test_acks_of_supervisor_reports_are_not_mirrored_but_owner_and_work_items_are(tmp_path):
+    r = Rig(tmp_path)
+    r.store.save_intake({**r.store.get_intake(r.iid), "item_id": "da-0a0b0c0d0e", "gh_id": 5, "kind": "comment", "body": "<!-- da:canonical-checkin source=x -->\nreport", "status": "DELIVERED"})
+    r.gh.comments.append(comment(7050, "o", "<!-- da:coordinator -->\nACK da-0a0b0c0d0e\nDONE da-0a0b0c0d0e", "2026-10-12T01:50:00Z")); asyncio.run(r.intake.poll_once())
+    assert r.posted == [] and r.store.get_intake("da-0a0b0c0d0e")["status"] == "DONE"                     # state still advances; only the mirror is skipped
+    r.say(7051, "ACK", SCHEMA)
+    assert len(r.posted) == 1
